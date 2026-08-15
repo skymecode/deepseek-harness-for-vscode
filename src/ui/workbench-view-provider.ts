@@ -10,8 +10,18 @@ import type { HarnessGatewayService } from '../gateway/harness-gateway-service.j
 import type { DshPluginCenterController } from '../plugins/plugin-center-controller.js'
 import { localizeWebviewMessages, type WebviewMessageKey } from '../webview/localization.js'
 
+export type ConnectionTestStatus = 'success' | 'unauthorized' | 'unreachable'
+
+export interface ConnectionTestResult {
+  readonly status: ConnectionTestStatus
+  readonly statusCode?: number
+  readonly detail?: string
+}
+
 export interface WorkbenchViewActions {
   readonly setApiKey: () => Promise<void>
+  readonly applySettings: (baseUrl: string, apiKey?: string) => Promise<void>
+  readonly testConnection: (baseUrl: string, apiKey?: string) => Promise<ConnectionTestResult>
   readonly openSettings: () => Promise<void>
   readonly showLogs: () => void
 }
@@ -114,6 +124,17 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       case 'setApiKey':
         await this.actions.setApiKey()
         break
+      case 'applySettings': {
+        const { baseUrl, apiKey } = settingsInput(value)
+        await this.actions.applySettings(baseUrl, apiKey)
+        break
+      }
+      case 'testConnection': {
+        const { baseUrl, apiKey } = settingsInput(value)
+        const result = await this.actions.testConnection(baseUrl, apiKey)
+        await this.view?.webview.postMessage({ type: 'connectionTestResult', ...result })
+        break
+      }
       case 'openSettings':
         await this.actions.openSettings()
         break
@@ -435,11 +456,48 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       <p class="composer-hint">${text('composerHint')}</p>
     </section>
   </main>
+
+  <section id="settings-panel" class="settings-panel hidden" role="dialog" aria-label="${text('connectionSettings')}">
+    <div class="settings-card">
+      <header class="settings-header">
+        <strong>${text('connectionSettings')}</strong>
+        <button id="settings-close" class="icon-button compact" type="button" title="${text('closeSettings')}" aria-label="${text('closeSettings')}">×</button>
+      </header>
+      <div class="settings-body">
+        <div class="settings-field">
+          <span class="settings-label">${text('baseUrl')}</span>
+          <div class="settings-url-row">
+            <input id="settings-base-url" type="text" spellcheck="false" autocomplete="off" aria-label="${text('baseUrl')}" placeholder="https://api.deepseek.com">
+            <button id="settings-test" class="secondary-button" type="button">${text('testConnection')}</button>
+          </div>
+          <span id="settings-base-url-error" class="settings-error hidden"></span>
+          <span id="settings-test-result" class="settings-status hidden"></span>
+        </div>
+        <label class="settings-field">
+          <span class="settings-label">${text('apiKey')}</span>
+          <span id="settings-api-key-status" class="settings-status"></span>
+          <input id="settings-api-key" type="password" spellcheck="false" autocomplete="off" placeholder="${text('apiKeyPlaceholder')}">
+        </label>
+        <p class="settings-hint">${text('settingsHint')}</p>
+      </div>
+      <footer class="settings-footer">
+        <button id="settings-open-native" class="secondary-button" type="button">${text('openNativeSettings')}</button>
+        <button id="settings-apply" class="primary-button" type="button">${text('apply')}</button>
+      </footer>
+    </div>
+  </section>
+
   <script nonce="${nonce}">globalThis.__DEEPSEEK_HARNESS_LOCALIZATION__=${localization};</script>
   <script nonce="${nonce}" src="${script}"></script>
 </body>
 </html>`
   }
+}
+
+function settingsInput(value: Record<string, unknown>): { baseUrl: string; apiKey: string | undefined } {
+  const baseUrl = typeof value.baseUrl === 'string' ? value.baseUrl : ''
+  const apiKey = typeof value.apiKey === 'string' ? value.apiKey : undefined
+  return { baseUrl, apiKey }
 }
 
 function requiredString(value: Record<string, unknown>, key: string): string {

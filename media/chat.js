@@ -1,5 +1,6 @@
 import { renderMarkdown } from '../src/webview/markdown.js'
 import { createWebviewTranslator } from '../src/webview/localization.js'
+import { validateBaseUrl } from '../src/domain/base-url.js'
 import { composerConfigurationInput } from '../src/webview/composer-configuration/adapter.js'
 import { createComposerConfigurationComponent } from '../src/webview/composer-configuration/component.js'
 import { composerStatusText } from '../src/webview/composer-status.js'
@@ -53,6 +54,16 @@ const elements = {
   attachSelection: byId('attach-selection'),
   send: byId('send'),
   composerStatus: byId('composer-status'),
+  settingsPanel: byId('settings-panel'),
+  settingsClose: byId('settings-close'),
+  settingsBaseUrl: byId('settings-base-url'),
+  settingsBaseUrlError: byId('settings-base-url-error'),
+  settingsApiKey: byId('settings-api-key'),
+  settingsApiKeyStatus: byId('settings-api-key-status'),
+  settingsOpenNative: byId('settings-open-native'),
+  settingsApply: byId('settings-apply'),
+  settingsTest: byId('settings-test'),
+  settingsTestResult: byId('settings-test-result'),
 }
 
 let payload
@@ -78,7 +89,10 @@ const composerConfiguration = createComposerConfigurationComponent({
   document,
   translate: t,
   onChange: () => renderComposer(payload?.state.active),
-  onOpen: closeCommandMenu,
+  onOpen: () => {
+    closeCommandMenu()
+    closeSettingsPanel()
+  },
 })
 const contextMeter = createContextMeterComponent({ document, translate: t })
 const editorContext = createEditorContextComponent({
@@ -139,6 +153,10 @@ window.addEventListener('message', (event) => {
     fileMention.acceptSuggestions(event.data.requestId, event.data.query, event.data.files || [])
     return
   }
+  if (event.data?.type === 'connectionTestResult') {
+    renderConnectionTestResult(event.data)
+    return
+  }
   if (event.data?.type !== 'state') return
   payload = event.data
   render()
@@ -174,7 +192,28 @@ elements.fork.addEventListener('click', () => {
   post('fork')
 })
 elements.setApiKey.addEventListener('click', () => post('setApiKey'))
-elements.openSettings.addEventListener('click', () => post('openSettings'))
+elements.openSettings.addEventListener('click', () => openSettingsPanel())
+elements.settingsClose.addEventListener('click', () => closeSettingsPanel())
+elements.settingsOpenNative.addEventListener('click', () => post('openSettings'))
+elements.settingsBaseUrl.addEventListener('input', () => {
+  validateSettingsBaseUrl()
+  resetConnectionTest()
+})
+elements.settingsApiKey.addEventListener('input', () => {
+  resetConnectionTest()
+})
+elements.settingsTest.addEventListener('click', () => testConnection())
+elements.settingsApply.addEventListener('click', () => {
+  if (!validateSettingsBaseUrl()) return
+  post('applySettings', currentSettingsPayload())
+  closeSettingsPanel()
+})
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !elements.settingsPanel.classList.contains('hidden')) {
+    event.preventDefault()
+    closeSettingsPanel()
+  }
+})
 elements.retry.addEventListener('click', () => post('retry'))
 elements.showLogs.addEventListener('click', () => post('showLogs'))
 elements.loadOlder.addEventListener('click', () => post('loadOlder'))
@@ -748,6 +787,87 @@ function toggleHistory(open) {
   if (open) {
     renderSessions()
     elements.historySearch.focus()
+  }
+}
+
+function openSettingsPanel() {
+  composerConfiguration.close()
+  renderSettings()
+  elements.settingsPanel.classList.remove('hidden')
+  elements.settingsBaseUrl.focus()
+}
+
+function closeSettingsPanel() {
+  elements.settingsPanel.classList.add('hidden')
+}
+
+function renderSettings() {
+  elements.settingsBaseUrl.value = ''
+  const hasKey = payload?.state?.hasApiKey === true
+  elements.settingsApiKey.value = ''
+  elements.settingsApiKeyStatus.textContent = hasKey ? t('apiKeyConfigured') : t('apiKeyNotConfigured')
+  elements.settingsApiKeyStatus.classList.toggle('configured', hasKey)
+  elements.settingsBaseUrl.classList.remove('invalid')
+  elements.settingsBaseUrlError.classList.add('hidden')
+  resetConnectionTest()
+}
+
+function validateSettingsBaseUrl() {
+  const result = validateBaseUrl(elements.settingsBaseUrl.value)
+  const invalid = !result.valid
+  elements.settingsBaseUrl.classList.toggle('invalid', invalid)
+  if (invalid) {
+    elements.settingsBaseUrlError.textContent = baseUrlErrorMessage(result.reason)
+    elements.settingsBaseUrlError.classList.remove('hidden')
+  } else {
+    elements.settingsBaseUrlError.classList.add('hidden')
+  }
+  return !invalid
+}
+
+function baseUrlErrorMessage(reason) {
+  if (reason === 'scheme') return t('baseUrlInvalidScheme')
+  return t('baseUrlInvalid')
+}
+
+function currentSettingsPayload() {
+  return {
+    baseUrl: elements.settingsBaseUrl.value,
+    apiKey: elements.settingsApiKey.value,
+  }
+}
+
+function testConnection() {
+  if (!validateSettingsBaseUrl()) return
+  elements.settingsTest.disabled = true
+  elements.settingsTest.textContent = t('testingConnection')
+  elements.settingsTestResult.textContent = ''
+  elements.settingsTestResult.classList.add('hidden')
+  post('testConnection', currentSettingsPayload())
+}
+
+function resetConnectionTest() {
+  elements.settingsTest.disabled = false
+  elements.settingsTest.textContent = t('testConnection')
+  elements.settingsTestResult.textContent = ''
+  elements.settingsTestResult.classList.add('hidden')
+  elements.settingsTestResult.classList.remove('success', 'error', 'warn')
+}
+
+function renderConnectionTestResult(result) {
+  elements.settingsTest.disabled = false
+  elements.settingsTest.textContent = t('testConnection')
+  const el = elements.settingsTestResult
+  el.classList.remove('hidden', 'success', 'error', 'warn')
+  if (result.status === 'success') {
+    el.textContent = result.statusCode === 200 ? t('connectionSuccess') : `${t('connectionSuccess')} (HTTP ${result.statusCode})`
+    el.classList.add('success')
+  } else if (result.status === 'unauthorized') {
+    el.textContent = result.statusCode ? `${t('connectionUnauthorized')} (HTTP ${result.statusCode})` : t('connectionUnauthorized')
+    el.classList.add('warn')
+  } else {
+    el.textContent = result.detail || t('connectionUnreachable')
+    el.classList.add('error')
   }
 }
 

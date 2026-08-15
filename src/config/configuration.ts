@@ -77,6 +77,10 @@ export class ConfigurationService implements vscode.Disposable {
     return this.update('permissionMode', value)
   }
 
+  setBaseUrl(value: string): Thenable<void> {
+    return this.update('baseUrl', value)
+  }
+
   /** Persist a Gateway-owned model only when it is part of this extension's supported defaults. */
   async setModelIfKnown(value: string): Promise<void> {
     if (MODEL_OPTIONS.some((option) => option.id === value)) await this.setModel(value as ModelId)
