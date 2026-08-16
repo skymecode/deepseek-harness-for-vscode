@@ -40,13 +40,26 @@ describe('composer configuration adapter', () => {
         agentPreset: 'standard',
       },
     })
-    expect(result?.models).toEqual([{
-      provider: 'deepseek-official',
-      id: 'deepseek-v4-pro',
-      label: 'DeepSeek V4 Pro',
-      description: 'Complex work',
-      reasoning: [{ id: 'max', label: 'Maximum', description: 'Deep reasoning' }],
-    }])
+    expect(result?.models).toEqual([
+      {
+        provider: 'deepseek-official',
+        id: 'deepseek-v4-flash',
+        label: 'DeepSeek V4 Flash',
+        description: 'Fast',
+        reasoning: [
+          { id: 'off', label: 'Off' },
+          { id: 'high', label: 'High' },
+          { id: 'max', label: 'Maximum' },
+        ],
+      },
+      {
+        provider: 'deepseek-official',
+        id: 'deepseek-v4-pro',
+        label: 'DeepSeek V4 Pro',
+        description: 'Complex work',
+        reasoning: [{ id: 'max', label: 'Maximum', description: 'Deep reasoning' }],
+      },
+    ])
     expect(result?.presets.map((preset) => preset.id)).toEqual(['standard'])
   })
 
@@ -67,7 +80,48 @@ describe('composer configuration adapter', () => {
     expect(result?.presets.map((preset) => preset.id)).toEqual(['standard', 'code'])
   })
 
-  it('marks sub-agent configuration as read-only and requires an active session', () => {
+  it('keeps source selection separate and exposes only Flash/Pro for each configured source', () => {
+    const result = composerConfigurationInput(payload({
+      models: [
+        {
+          provider: 'deepseek-official',
+          id: 'deepseek-v4-flash',
+          name: 'Official Flash',
+          reasoning: [],
+        },
+        {
+          provider: 'packycode',
+          id: 'deepseek-v4-pro',
+          name: 'Packy Pro',
+          reasoning: [],
+        },
+        {
+          provider: 'packycode',
+          id: 'unrelated-model',
+          name: 'Do not render',
+          reasoning: [],
+        },
+      ],
+    }, {}, {
+      sources: [
+        { id: 'deepseek-official', label: 'DeepSeek Official' },
+        { id: 'packycode', label: 'PackyCode' },
+      ],
+    }))
+
+    expect(result?.sources).toEqual([
+      { id: 'deepseek-official', label: 'DeepSeek Official' },
+      { id: 'packycode', label: 'PackyCode' },
+    ])
+    expect(result?.models.map(({ provider, id }) => ({ provider, id }))).toEqual([
+      { provider: 'deepseek-official', id: 'deepseek-v4-flash' },
+      { provider: 'deepseek-official', id: 'deepseek-v4-pro' },
+      { provider: 'packycode', id: 'deepseek-v4-flash' },
+      { provider: 'packycode', id: 'deepseek-v4-pro' },
+    ])
+  })
+
+  it('locks configuration for sub-agents and while the current turn is running', () => {
     const subagent = composerConfigurationInput(payload({
       parentSessionId: 'parent-1',
       subagentMode: 'continuable',
@@ -81,6 +135,7 @@ describe('composer configuration adapter', () => {
     }
 
     expect(subagent?.editable).toBe(false)
+    expect(composerConfigurationInput(payload({ running: true }))?.editable).toBe(false)
     expect(composerConfigurationInput({
       ...withoutActive,
       state,
@@ -91,13 +146,13 @@ describe('composer configuration adapter', () => {
 function payload(
   activeOverrides: Partial<ActiveSessionView> = {},
   stateOverrides: Partial<HarnessWorkbenchState> = {},
+  fallbackOverrides: Partial<ComposerConfigurationPayload['fallbackOptions']> = {},
 ): ComposerConfigurationPayload {
   const configuration: HarnessConfiguration = {
     provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
     reasoningEffort: 'high',
     agentPreset: 'standard',
-    baseUrl: undefined,
     permissionMode: 'workspace-write',
     autoAttachSelection: true,
   }
@@ -130,7 +185,11 @@ function payload(
       ...stateOverrides,
     },
     fallbackOptions: {
-      models: [{ id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', description: 'Fast' }],
+      sources: [{ id: 'deepseek-official', label: 'DeepSeek Official' }],
+      models: [
+        { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', description: 'Fast' },
+        { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', description: 'Complex work' },
+      ],
       reasoning: [
         { id: 'off', label: 'Off' },
         { id: 'high', label: 'High' },
@@ -140,6 +199,7 @@ function payload(
         { id: 'standard', label: 'Standard' },
         { id: 'code', label: 'PTC' },
       ],
+      ...fallbackOverrides,
     },
   }
 }

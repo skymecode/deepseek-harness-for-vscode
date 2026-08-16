@@ -36,17 +36,8 @@ For example, an Apple Silicon Mac requires the `darwin-arm64` package.
 ## Quick start
 
 1. Open the project you want to work on.
-2. Add your DeepSeek API Key to the VS Code user `settings.json`:
-
-   ```json
-   {
-     "deepseekHarness.apiKey": "sk-your_DeepSeek_API_Key"
-   }
-   ```
-
-   You can also run `DeepSeek Harness: Set API Key`; the extension writes to the same user setting.
-
-3. Select the **DeepSeek Harness** icon in the Activity Bar.
+2. Select the **DeepSeek Harness** icon in the Activity Bar.
+3. Open **Connection settings** and configure DeepSeek Official or add a relay source. You can also run `DeepSeek Harness: Set API Key` for the official source.
 4. Describe your task in the composer and send it.
 
 No Harness install or start command is required.
@@ -65,16 +56,16 @@ Marketplace cards classify known entries as **Agent compatible**, **Agent works 
 
 | Setting | Default | Description |
 |---|---|---|
-| `deepseekHarness.apiKey` | empty | DeepSeek API Key stored as plain text in user `settings.json` with `machine` scope |
 | `deepseekHarness.model` | `deepseek-v4-flash` | Default model for new sessions |
 | `deepseekHarness.reasoningEffort` | `high` | `off` / `high` / `max` |
 | `deepseekHarness.agentPreset` | `standard` | Default Agent Preset for new sessions |
-| `deepseekHarness.provider` | `deepseek-official` | Harness model-provider route |
-| `deepseekHarness.baseUrl` | empty | Optional API base URL |
+| `deepseekHarness.provider` | `deepseek-official` | Default source selected from the extension's Connection settings panel |
 | `deepseekHarness.permissionMode` | `workspace-write` | `read-only` / `workspace-write` / `danger-full-access` |
 | `deepseekHarness.autoAttachSelection` | `true` | Automatically attach the active editor selection when sending |
 
-The API Key is never written to project-level `.vscode/settings.json`, but it is stored as plain text in your local user settings. Do not commit or share a settings file containing the key.
+Provider endpoints and write-only credential references are managed through the bundled Harness settings and credentials services. API keys are stored in the extension's private Harness home, are never returned to the webview, and are not written to project-level `.vscode/settings.json`. Legacy `deepseekHarness.apiKey`, `baseUrl`, and `providers` values are imported once and then removed.
+
+Use the Connection settings panel to add, edit, test, or remove DeepSeek relay sources. Custom sources are registered live through the upstream `llm-pi-ai` adapter and expose the same Flash/Pro choices in the model panel.
 
 Automatically attached selections are limited to 16 KB and are truncated when necessary. If the same file selection is already embedded manually, the host will not attach it again.
 

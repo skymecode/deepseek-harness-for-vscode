@@ -17,6 +17,7 @@ export interface ComposerConfigurationInput {
   readonly editable: boolean
   readonly blank: boolean
   readonly current: PromptConfiguration
+  readonly sources: readonly ConfigurationOption[]
   readonly models: readonly ModelConfigurationOption[]
   readonly presets: readonly ConfigurationOption[]
   readonly fallbackReasoning: readonly ConfigurationOption[]
@@ -27,6 +28,7 @@ export type EffortTone = 'off' | 'high' | 'max'
 export interface ComposerConfigurationSnapshot {
   readonly input: ComposerConfigurationInput
   readonly selection: PromptConfiguration
+  readonly source: ConfigurationOption
   readonly model: ModelConfigurationOption
   readonly preset: ConfigurationOption
   readonly reasoning: readonly ConfigurationOption[]

@@ -30,11 +30,15 @@
   "main": "./dist/extension.cjs",
   "l10n": "./l10n",
   "scripts": {
-    "check-types": "tsc --noEmit",
+    "patch:dsh-pi-ai": "node scripts/patch-dsh-llm-pi-ai.mjs",
+    "postinstall": "npm run patch:dsh-pi-ai",
+    "check-types": "npm run patch:dsh-pi-ai && tsc --noEmit",
     "compile": "npm run check-types && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "lint": "eslint .",
+    "pretest": "npm run patch:dsh-pi-ai",
     "test": "vitest run",
+    "pretest:watch": "npm run patch:dsh-pi-ai",
     "test:watch": "vitest",
     "package": "npm run check-types && npm run test && node esbuild.mjs --production && node scripts/package-vsix.mjs",
     "vscode:prepublish": "npm run check-types && node esbuild.mjs --production"
@@ -107,12 +111,6 @@
     "configuration": {
       "title": "DeepSeek Harness for Visual Studio Code",
       "properties": {
-        "deepseekHarness.apiKey": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "markdownDescription": "%config.apiKey%"
-        },
         "deepseekHarness.model": {
           "type": "string",
           "enum": [
@@ -162,11 +160,6 @@
           "type": "string",
           "default": "deepseek-official",
           "description": "%config.provider%"
-        },
-        "deepseekHarness.baseUrl": {
-          "type": "string",
-          "default": "",
-          "description": "%config.baseUrl%"
         },
         "deepseekHarness.permissionMode": {
           "type": "string",

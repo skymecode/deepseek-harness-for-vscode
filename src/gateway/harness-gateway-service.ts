@@ -20,6 +20,7 @@ import type { AgentPresetEntry } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ConfigurationService } from '../config/configuration.js'
 import { projectionContextPressure } from '../domain/context-pressure.js'
 import { isPermissionPresetId, type PermissionPresetId } from '../domain/permissions.js'
+import { isProviderRouteInUse } from '../domain/provider.js'
 import type { PromptAttachment } from '../domain/prompt-context.js'
 import { agentPresetTransition, type PromptConfiguration } from '../domain/prompt-configuration.js'
 import {
@@ -39,7 +40,7 @@ import {
   type WorkbenchLabels,
 } from '../domain/workbench-state.js'
 import type { HarnessHostRuntime } from '../runtime/web-runtime.js'
-import type { CredentialStore } from '../security/credential-store.js'
+import type { ConnectionSettingsService } from '../services/connection-settings-service.js'
 import { NodeGatewayClient } from './node-gateway-client.js'
 
 interface PendingApprovalRecord extends PendingApprovalView {
@@ -87,7 +88,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   constructor(
     private readonly runtime: HarnessHostRuntime,
     private readonly configuration: ConfigurationService,
-    private readonly credentials: CredentialStore,
+    private readonly connectionSettings: ConnectionSettingsService,
     private readonly output: vscode.OutputChannel,
   ) {
     this.runtimeSubscription = runtime.onDidChangeState((state) => {
@@ -107,6 +108,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       const url = await this.runtime.start()
       this.client = new NodeGatewayClient(url)
       valueOf(await this.client.host.describe({}))
+      await this.connectionSettings.connect(this.client)
       this.startEventStreams()
       await Promise.all([this.refreshSessionList(), this.refreshPresets()])
       const requested = this.activeSessionId
@@ -149,8 +151,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   async snapshot(): Promise<HarnessWorkbenchState> {
-    const apiKey = await this.credentials.getApiKey()
-    const hasApiKey = apiKey !== undefined && apiKey.trim() !== ''
+    const hasApiKey = this.connectionSettings.hasConfiguredProvider
     const summaries = this.orderedSummaries().map((summary) => sessionListItem(summary, this.labels))
     const activeSummary = this.activeSessionId === undefined ? undefined : this.summaries.get(this.activeSessionId)
     const projected = projectConversation(this.entries, this.labels)
@@ -201,6 +202,25 @@ export class HarnessGatewayService implements vscode.Disposable {
       ...(active === undefined ? {} : { active }),
       presets: this.presets,
     }
+  }
+
+  /** Whether the currently open conversation has selected this provider route. */
+  isProviderInUse(provider: string): boolean {
+    return isProviderRouteInUse(provider, this.models?.current.provider, this.activeSessionId !== undefined)
+  }
+
+  /** Typed upstream control-plane client for provider settings services. */
+  providerControlClient(): NodeGatewayClient {
+    const client = this.requireClient()
+    if (!(client instanceof NodeGatewayClient)) throw new Error(vscode.l10n.t('The current Gateway does not support provider settings.'))
+    return client
+  }
+
+  /** Refreshes the active session's model catalog after a live provider edit. */
+  async refreshModelCatalog(): Promise<void> {
+    if (this.activeSessionId === undefined) return
+    this.models = valueOf(await this.requireClient().sessions.models({ sessionId: this.activeSessionId as SessionId }))
+    this.fireChange()
   }
 
   async createSession(agentPreset?: string): Promise<string> {
@@ -439,6 +459,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     }))
     if (this.models !== undefined) this.models = { ...this.models, current: selected.selected }
     if (persist) {
+      await this.configuration.setProviderIfConfigured(provider)
       await this.configuration.setModelIfKnown(model)
       if (reasoningEffort !== undefined) await this.configuration.setReasoningEffortIfKnown(reasoningEffort)
     }
@@ -663,6 +684,14 @@ export class HarnessGatewayService implements vscode.Disposable {
     } else if (frame.type === 'host/remote-event'
       && (frame.event === 'commands/change' || frame.event === 'agent-preset/selected')) {
       void this.refreshCommands()
+    } else if (frame.type === 'host/remote-event'
+      && (frame.event === 'llm/adapters-updated' || frame.event === 'settings/document-updated')) {
+      void Promise.all([
+        this.connectionSettings.refresh(),
+        this.refreshModelCatalog(),
+      ]).catch((cause: unknown) => {
+        this.output.appendLine(vscode.l10n.t('[gateway] Failed to refresh provider settings: {0}', errorMessage(cause)))
+      })
     }
     this.fireChange()
   }
@@ -814,6 +843,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.streamAbort?.abort()
     this.streamAbort = undefined
     this.client = undefined
+    this.connectionSettings.disconnect()
     this.phase = 'idle'
   }
 

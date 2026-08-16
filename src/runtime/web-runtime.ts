@@ -4,7 +4,6 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import * as vscode from 'vscode'
 import type { ConfigurationService, HarnessConfiguration } from '../config/configuration.js'
-import type { CredentialStore } from '../security/credential-store.js'
 import type { BundledRuntimeResolver } from './bundled-runtime.js'
 import { renderOverlay } from './runtime-overlay.js'
 
@@ -33,7 +32,6 @@ export class HarnessHostRuntime implements vscode.Disposable {
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly configuration: ConfigurationService,
-    private readonly credentials: CredentialStore,
     private readonly resolver: BundledRuntimeResolver,
     private readonly output: vscode.OutputChannel,
   ) {}
@@ -45,9 +43,8 @@ export class HarnessHostRuntime implements vscode.Disposable {
   async start(): Promise<string> {
     if (this.stopTask !== undefined) await this.stopTask
     const configuration = this.configuration.get()
-    const apiKey = await this.credentials.getApiKey()
     const workspace = workspaceDirectory()
-    const identity = runtimeIdentity(workspace, configuration, apiKey)
+    const identity = runtimeIdentity(workspace, configuration)
     if (this.stateValue.phase === 'ready' && this.identity === identity && this.stateValue.url !== undefined) {
       return this.stateValue.url
     }
@@ -56,7 +53,7 @@ export class HarnessHostRuntime implements vscode.Disposable {
 
     this.identity = identity
     this.setState({ phase: 'starting' })
-    const task = this.spawnRuntime(workspace, configuration, apiKey)
+    const task = this.spawnRuntime(workspace, configuration)
     this.startTask = task
     try {
       return await task
@@ -87,7 +84,6 @@ export class HarnessHostRuntime implements vscode.Disposable {
   private async spawnRuntime(
     workspace: string,
     configuration: HarnessConfiguration,
-    apiKey: string | undefined,
   ): Promise<string> {
     const launch = await this.resolver.resolve()
     const home = path.join(this.context.globalStorageUri.fsPath, 'harness-home')
@@ -102,8 +98,6 @@ export class HarnessHostRuntime implements vscode.Disposable {
       DSH_CWD: workspace,
       DSH_PERMISSION_MODE: configuration.permissionMode,
       DSH_TELEMETRY_DISABLED: '1',
-      ...(apiKey === undefined || apiKey === '' ? {} : { DEEPSEEK_API_KEY: apiKey }),
-      ...(configuration.baseUrl === undefined ? {} : { DEEPSEEK_BASE_URL: configuration.baseUrl }),
     }
     this.output.appendLine(vscode.l10n.t(
       '[host] Starting bundled Harness Gateway (cwd={cwd}, model={model}, reasoning={reasoning}, preset={preset})',
@@ -206,7 +200,10 @@ function workspaceDirectory(): string {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd()
 }
 
-function runtimeIdentity(workspace: string, configuration: HarnessConfiguration, apiKey: string | undefined): string {
-  const keyFingerprint = createHash('sha256').update(apiKey ?? '').digest('hex')
-  return JSON.stringify({ workspace, configuration, keyFingerprint })
+function runtimeIdentity(
+  workspace: string,
+  configuration: HarnessConfiguration,
+): string {
+  const fingerprint = createHash('sha256').update(JSON.stringify(configuration)).digest('hex')
+  return JSON.stringify({ workspace, fingerprint })
 }

@@ -36,17 +36,8 @@
 ## 快速开始
 
 1. 打开要开发的代码项目。
-2. 在 VS Code 用户 `settings.json` 中配置 DeepSeek API Key：
-
-   ```json
-   {
-     "deepseekHarness.apiKey": "sk-你的_DeepSeek_API_Key"
-   }
-   ```
-
-   也可以运行命令 `DeepSeek Harness: 设置 API Key`，扩展会写入同一个用户设置。
-
-3. 点击 Activity Bar 中的 **DeepSeek Harness** 图标。
+2. 点击 Activity Bar 中的 **DeepSeek Harness** 图标。
+3. 打开“连接设置”，配置 DeepSeek 官方来源或添加中转来源；也可以运行 `DeepSeek Harness: 设置 API Key` 为官方来源保存密钥。
 4. 在输入框描述任务并发送。
 
 无需执行任何 Harness 安装或启动命令。
@@ -65,16 +56,16 @@
 
 | 设置 | 默认值 | 说明 |
 |---|---|---|
-| `deepseekHarness.apiKey` | 空 | DeepSeek API Key，以 `machine` 作用域明文存于用户 `settings.json` |
 | `deepseekHarness.model` | `deepseek-v4-flash` | 新会话默认模型 |
 | `deepseekHarness.reasoningEffort` | `high` | `off` / `high` / `max` |
 | `deepseekHarness.agentPreset` | `standard` | 新会话默认 Agent Preset |
-| `deepseekHarness.provider` | `deepseek-official` | Harness 模型提供方路由 |
-| `deepseekHarness.baseUrl` | 空 | 可选 API Base URL |
+| `deepseekHarness.provider` | `deepseek-official` | 在扩展“连接设置”面板中选择的默认来源 |
 | `deepseekHarness.permissionMode` | `workspace-write` | `read-only` / `workspace-write` / `danger-full-access` |
 | `deepseekHarness.autoAttachSelection` | `true` | 发送时自动附加当前编辑器选区 |
 
-API Key 不会写入项目 `.vscode/settings.json`，但会以明文保存在本机用户设置中，请勿提交或分享包含密钥的设置文件。
+提供商端点与只写凭据引用统一交给内置 Harness 设置/凭据服务管理。API Key 保存在扩展私有的 Harness Home 中，不会回传给 Webview，也不会写入项目 `.vscode/settings.json`。旧版 `deepseekHarness.apiKey`、`baseUrl` 和 `providers` 会在首次连接时迁移并清除。
+
+可在“连接设置”面板中新增、编辑、测试或移除 DeepSeek 中转来源。自定义来源通过上游 `llm-pi-ai` 适配器实时注册，并在模型面板中提供相同的 Flash/Pro 选择。
 
 自动附加的选区最长为 16 KB，超出部分会截断。手动附加同一文件选区后，宿主不会再次自动附加。
 

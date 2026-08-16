@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ComposerConfigurationStore, effortTone } from '../src/webview/composer-configuration/store.js'
+import { ComposerConfigurationStore, effortTone, modelsForSource } from '../src/webview/composer-configuration/store.js'
 import type { ComposerConfigurationInput } from '../src/webview/composer-configuration/types.js'
 
 describe('composer configuration store', () => {
@@ -76,6 +76,31 @@ describe('composer configuration store', () => {
     expect(effortTone('high', 1, 3)).toBe('high')
     expect(effortTone('max', 2, 3)).toBe('max')
   })
+
+  it('switches source without duplicating the two model choices', () => {
+    const store = new ComposerConfigurationStore()
+    const configured = input({
+      sources: [
+        { id: 'deepseek-official', label: 'DeepSeek Official' },
+        { id: 'packycode', label: 'PackyCode' },
+      ],
+      models: [
+        ...models('deepseek-official'),
+        ...models('packycode'),
+      ],
+    })
+    store.update(configured)
+    store.selectModel('deepseek-official', 'deepseek-v4-pro')
+
+    const switched = store.selectSource('packycode')
+
+    expect(switched?.selection).toMatchObject({ provider: 'packycode', model: 'deepseek-v4-pro' })
+    expect(switched?.source.label).toBe('PackyCode')
+    expect(modelsForSource(configured.models, switched!.selection.provider).map((model) => model.id)).toEqual([
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
+    ])
+  })
 })
 
 function input(overrides: Partial<ComposerConfigurationInput> = {}): ComposerConfigurationInput {
@@ -90,20 +115,8 @@ function input(overrides: Partial<ComposerConfigurationInput> = {}): ComposerCon
       reasoningEffort: 'high',
       agentPreset: 'standard',
     },
-    models: [
-      {
-        provider: 'deepseek-official',
-        id: 'deepseek-v4-flash',
-        label: 'DeepSeek V4 Flash',
-        reasoning: reasoning(),
-      },
-      {
-        provider: 'deepseek-official',
-        id: 'deepseek-v4-pro',
-        label: 'DeepSeek V4 Pro',
-        reasoning: reasoning(),
-      },
-    ],
+    sources: [{ id: 'deepseek-official', label: 'DeepSeek Official' }],
+    models: models('deepseek-official'),
     presets: [
       { id: 'standard', label: 'Standard' },
       { id: 'code', label: 'PTC' },
@@ -113,6 +126,23 @@ function input(overrides: Partial<ComposerConfigurationInput> = {}): ComposerCon
     fallbackReasoning: reasoning(),
     ...overrides,
   }
+}
+
+function models(provider: string) {
+  return [
+    {
+      provider,
+      id: 'deepseek-v4-flash',
+      label: 'DeepSeek V4 Flash',
+      reasoning: reasoning(),
+    },
+    {
+      provider,
+      id: 'deepseek-v4-pro',
+      label: 'DeepSeek V4 Pro',
+      reasoning: reasoning(),
+    },
+  ]
 }
 
 function reasoning() {

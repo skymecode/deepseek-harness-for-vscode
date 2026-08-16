@@ -4,3 +4,4 @@ coverage/
 *.vsix
 .DS_Store
 *.zip
+.claude/

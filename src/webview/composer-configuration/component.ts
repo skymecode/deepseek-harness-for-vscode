@@ -1,6 +1,6 @@
 import type { PromptConfiguration } from '../../domain/prompt-configuration.js'
 import type { MessageArguments, WebviewMessageKey } from '../localization.js'
-import { ComposerConfigurationStore } from './store.js'
+import { ComposerConfigurationStore, modelsForSource } from './store.js'
 import type {
   ComposerConfigurationInput,
   ComposerConfigurationSnapshot,
@@ -39,6 +39,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
   private readonly toggleModel: HTMLElement
   private readonly toggleMode: HTMLElement
   private readonly closeButton: HTMLButtonElement
+  private readonly source: HTMLSelectElement
   private readonly models: HTMLElement
   private readonly presets: HTMLElement
   private readonly effortControl: HTMLElement
@@ -54,6 +55,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     this.toggleModel = requiredElement(document, 'configuration-toggle-model')
     this.toggleMode = requiredElement(document, 'configuration-toggle-mode')
     this.closeButton = requiredElement(document, 'configuration-close')
+    this.source = requiredElement(document, 'configuration-source')
     this.models = requiredElement(document, 'configuration-models')
     this.presets = requiredElement(document, 'configuration-presets')
     this.effortControl = requiredElement(document, 'effort-control')
@@ -112,6 +114,10 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       else this.close()
     })
     this.closeButton.addEventListener('click', () => this.close())
+    this.source.addEventListener('change', () => {
+      this.render(this.store.selectSource(this.source.value))
+      this.options.onChange()
+    })
     this.effortSlider.addEventListener('input', () => {
       this.render(this.store.selectReasoning(Number(this.effortSlider.value)))
       this.options.onChange()
@@ -153,6 +159,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       effort: snapshot.effort.label,
     })
     this.toggle.classList.toggle('pending', snapshot.dirty)
+    this.renderSources(snapshot)
     this.renderModels(snapshot)
     this.renderPresets(snapshot)
     this.renderEffort(snapshot)
@@ -161,9 +168,23 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       : t('configurationAppliesNextMessage')
   }
 
+  private renderSources(snapshot: ComposerConfigurationSnapshot): void {
+    const fragment = this.options.document.createDocumentFragment()
+    for (const source of snapshot.input.sources) {
+      const option = this.options.document.createElement('option')
+      option.value = source.id
+      option.textContent = source.label
+      option.selected = source.id === snapshot.selection.provider
+      fragment.append(option)
+    }
+    this.source.replaceChildren(fragment)
+    this.source.disabled = snapshot.input.sources.length <= 1 || !snapshot.input.editable
+    this.source.title = `${this.options.translate('configurationSwitchSource')}: ${snapshot.source.label}`
+  }
+
   private renderModels(snapshot: ComposerConfigurationSnapshot): void {
     const fragment = this.options.document.createDocumentFragment()
-    for (const model of snapshot.input.models) {
+    for (const model of modelsForSource(snapshot.input.models, snapshot.selection.provider)) {
       const active = model.provider === snapshot.selection.provider && model.id === snapshot.selection.model
       const button = this.optionButton(model, modelIcon(model.id), active)
       button.addEventListener('click', () => {

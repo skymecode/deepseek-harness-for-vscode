@@ -40,9 +40,10 @@ export class ComposerConfigurationStore {
     const current = normalizeSelection(input.current, input)
     const selection = normalizeSelection(this.draft?.selection ?? input.current, input)
     if (current === undefined || selection === undefined) return undefined
+    const source = input.sources.find((option) => option.id === selection.provider)
     const model = findModel(input.models, selection.provider, selection.model)
     const preset = input.presets.find((option) => option.id === selection.agentPreset)
-    if (model === undefined || preset === undefined) return undefined
+    if (source === undefined || model === undefined || preset === undefined) return undefined
     const reasoning = reasoningFor(model, input)
     const effortIndex = Math.max(0, reasoning.findIndex((option) => option.id === selection.reasoningEffort))
     const effort = reasoning[effortIndex]
@@ -50,6 +51,7 @@ export class ComposerConfigurationStore {
     return {
       input,
       selection,
+      source,
       model,
       preset,
       reasoning,
@@ -75,6 +77,17 @@ export class ComposerConfigurationStore {
         : reasoning[0]?.id
     if (requested === undefined) return snapshot
     return this.stage({ ...snapshot.selection, provider, model: modelId, reasoningEffort: requested })
+  }
+
+  selectSource(provider: string): ComposerConfigurationSnapshot | undefined {
+    const snapshot = this.snapshot()
+    const input = this.input
+    if (snapshot === undefined || input === undefined || !input.sources.some((source) => source.id === provider)) {
+      return snapshot
+    }
+    const model = findModel(input.models, provider, snapshot.selection.model)
+      ?? modelsForSource(input.models, provider)[0]
+    return model === undefined ? snapshot : this.selectModel(provider, model.id)
   }
 
   selectPreset(agentPreset: string): ComposerConfigurationSnapshot | undefined {
@@ -150,6 +163,13 @@ function findModel(
   model: string,
 ): ModelConfigurationOption | undefined {
   return models.find((option) => option.provider === provider && option.id === model)
+}
+
+export function modelsForSource(
+  models: readonly ModelConfigurationOption[],
+  provider: string,
+): readonly ModelConfigurationOption[] {
+  return models.filter((option) => option.provider === provider)
 }
 
 function reasoningFor(

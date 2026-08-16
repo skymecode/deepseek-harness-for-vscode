@@ -2,10 +2,7 @@ import * as vscode from 'vscode'
 
 const API_KEY_SECRET = 'deepseekHarness.apiKey'
 
-/**
- * Stores the key in local VS Code user settings as requested by the extension
- * contract. SecretStorage is retained only to migrate installations of v0.1.0.
- */
+/** Legacy-key bridge used only until the live Harness credential service connects. */
 export class CredentialStore {
   constructor(private readonly secrets: vscode.SecretStorage) {}
 
@@ -15,15 +12,14 @@ export class CredentialStore {
     if (configured !== '') return configured
 
     const legacy = await this.secrets.get(API_KEY_SECRET)
-    if (legacy === undefined || legacy.trim() === '') return undefined
-    await this.setApiKey(legacy.trim())
-    return legacy.trim()
+    return legacy === undefined || legacy.trim() === '' ? undefined : legacy.trim()
   }
 
   async setApiKey(value: string): Promise<void> {
+    await this.secrets.store(API_KEY_SECRET, value)
+    // Remove any plaintext copy left by an older build.
     await vscode.workspace.getConfiguration('deepseekHarness')
-      .update('apiKey', value, vscode.ConfigurationTarget.Global)
-    await this.secrets.delete(API_KEY_SECRET)
+      .update('apiKey', undefined, vscode.ConfigurationTarget.Global)
   }
 
   async clearApiKey(): Promise<void> {

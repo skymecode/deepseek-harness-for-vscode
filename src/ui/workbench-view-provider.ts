@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import * as vscode from 'vscode'
 import type { ConfigurationService } from '../config/configuration.js'
+import type { ConnectionSettingsInput, ConnectionTestResult } from '../domain/connection-settings.js'
 import { AGENT_PRESET_OPTIONS, MODEL_OPTIONS, REASONING_OPTIONS } from '../domain/options.js'
 import { promptConfiguration } from '../domain/prompt-configuration.js'
 import type { EditorSelectionService } from '../editor/editor-selection-service.js'
@@ -8,20 +9,14 @@ import type { OpenWorkspaceFileRequest } from '../editor/types.js'
 import type { WorkspaceFileService } from '../editor/workspace-file-service.js'
 import type { HarnessGatewayService } from '../gateway/harness-gateway-service.js'
 import type { DshPluginCenterController } from '../plugins/plugin-center-controller.js'
+import type { ConnectionSettingsService } from '../services/connection-settings-service.js'
 import { localizeWebviewMessages, type WebviewMessageKey } from '../webview/localization.js'
-
-export type ConnectionTestStatus = 'success' | 'unauthorized' | 'unreachable'
-
-export interface ConnectionTestResult {
-  readonly status: ConnectionTestStatus
-  readonly statusCode?: number
-  readonly detail?: string
-}
 
 export interface WorkbenchViewActions {
   readonly setApiKey: () => Promise<void>
-  readonly applySettings: (baseUrl: string, apiKey?: string) => Promise<void>
-  readonly testConnection: (baseUrl: string, apiKey?: string) => Promise<ConnectionTestResult>
+  readonly applySettings: (input: ConnectionSettingsInput) => Promise<void>
+  readonly removeProvider: (provider: string) => Promise<void>
+  readonly testConnection: (input: ConnectionSettingsInput) => Promise<ConnectionTestResult>
   readonly openSettings: () => Promise<void>
   readonly showLogs: () => void
 }
@@ -39,12 +34,15 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     private readonly extensionUri: vscode.Uri,
     private readonly configuration: ConfigurationService,
     private readonly gateway: HarnessGatewayService,
+    private readonly connectionSettings: ConnectionSettingsService,
     private readonly pluginCenter: DshPluginCenterController,
     private readonly editorSelection: EditorSelectionService,
     private readonly workspaceFiles: WorkspaceFileService,
     private readonly actions: WorkbenchViewActions,
   ) {
     this.subscriptions = [gateway.onDidChange(() => {
+      void this.publishState().catch(() => undefined)
+    }), connectionSettings.onDidChange(() => {
       void this.publishState().catch(() => undefined)
     }), pluginCenter.onDidChange((snapshot) => {
       void this.view?.webview.postMessage({ type: 'pluginState', snapshot })
@@ -98,11 +96,14 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     while (this.publishPending) {
       this.publishPending = false
       const state = await this.gateway.snapshot()
+      const connectionSettings = this.connectionSettings.state
       await this.view?.webview.postMessage({
         type: 'state',
         state,
         configuration: this.configuration.get(),
+        connectionSettings,
         fallbackOptions: {
+          sources: connectionSettings.providers.map((provider) => ({ id: provider.id, label: provider.name })),
           models: MODEL_OPTIONS.map(localizedOption),
           reasoning: REASONING_OPTIONS.map(localizedOption),
           presets: AGENT_PRESET_OPTIONS.map(localizedOption),
@@ -125,13 +126,15 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         await this.actions.setApiKey()
         break
       case 'applySettings': {
-        const { baseUrl, apiKey } = settingsInput(value)
-        await this.actions.applySettings(baseUrl, apiKey)
+        await this.actions.applySettings(settingsInput(value))
+        break
+      }
+      case 'removeProvider': {
+        await this.actions.removeProvider(requiredString(value, 'provider'))
         break
       }
       case 'testConnection': {
-        const { baseUrl, apiKey } = settingsInput(value)
-        const result = await this.actions.testConnection(baseUrl, apiKey)
+        const result = await this.actions.testConnection(settingsInput(value))
         await this.view?.webview.postMessage({ type: 'connectionTestResult', ...result })
         break
       }
@@ -400,6 +403,10 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         <section id="configuration-panel" class="configuration-panel hidden" role="dialog" aria-label="${text('configurationTitle')}">
           <header class="configuration-panel-header">
             <strong>${text('configurationTitle')}</strong>
+            <label class="configuration-source-switch">
+              <span>${text('configurationSource')}</span>
+              <select id="configuration-source" aria-label="${text('configurationSwitchSource')}" title="${text('configurationSwitchSource')}"></select>
+            </label>
             <button id="configuration-close" class="icon-button compact" type="button" title="${text('configurationClose')}" aria-label="${text('configurationClose')}">×</button>
           </header>
           <div class="configuration-panel-scroll">
@@ -465,22 +472,30 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       </header>
       <div class="settings-body">
         <div class="settings-field">
+          <span class="settings-label">${text('provider')}</span>
+          <select id="settings-provider" class="settings-select"></select>
+        </div>
+        <div class="settings-field hidden" id="settings-name-field">
+          <span class="settings-label">${text('providerName')}</span>
+          <input id="settings-name" type="text" spellcheck="false" autocomplete="off" placeholder="${text('providerNamePlaceholder')}">
+        </div>
+        <div class="settings-field" id="settings-base-url-field">
           <span class="settings-label">${text('baseUrl')}</span>
-          <div class="settings-url-row">
-            <input id="settings-base-url" type="text" spellcheck="false" autocomplete="off" aria-label="${text('baseUrl')}" placeholder="https://api.deepseek.com">
-            <button id="settings-test" class="secondary-button" type="button">${text('testConnection')}</button>
-          </div>
+          <input id="settings-base-url" type="text" spellcheck="false" autocomplete="off" aria-label="${text('baseUrl')}" placeholder="https://api.deepseek.com">
           <span id="settings-base-url-error" class="settings-error hidden"></span>
-          <span id="settings-test-result" class="settings-status hidden"></span>
         </div>
         <label class="settings-field">
           <span class="settings-label">${text('apiKey')}</span>
-          <span id="settings-api-key-status" class="settings-status"></span>
           <input id="settings-api-key" type="password" spellcheck="false" autocomplete="off" placeholder="${text('apiKeyPlaceholder')}">
         </label>
+        <div class="settings-test-row">
+          <button id="settings-test" class="secondary-button" type="button">${text('testConnection')}</button>
+          <span id="settings-test-result" class="settings-status hidden"></span>
+        </div>
         <p class="settings-hint">${text('settingsHint')}</p>
       </div>
       <footer class="settings-footer">
+        <button id="settings-delete" class="secondary-button hidden" type="button">${text('remove')}</button>
         <button id="settings-open-native" class="secondary-button" type="button">${text('openNativeSettings')}</button>
         <button id="settings-apply" class="primary-button" type="button">${text('apply')}</button>
       </footer>
@@ -494,10 +509,12 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
   }
 }
 
-function settingsInput(value: Record<string, unknown>): { baseUrl: string; apiKey: string | undefined } {
+function settingsInput(value: Record<string, unknown>): ConnectionSettingsInput {
+  const provider = typeof value.provider === 'string' && value.provider !== '' ? value.provider : 'deepseek-official'
+  const name = typeof value.name === 'string' ? value.name : ''
   const baseUrl = typeof value.baseUrl === 'string' ? value.baseUrl : ''
-  const apiKey = typeof value.apiKey === 'string' ? value.apiKey : undefined
-  return { baseUrl, apiKey }
+  const apiKey = typeof value.apiKey === 'string' ? value.apiKey : ''
+  return { provider, name, baseUrl, apiKey }
 }
 
 function requiredString(value: Record<string, unknown>, key: string): string {
