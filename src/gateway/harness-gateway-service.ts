@@ -27,6 +27,13 @@ import type { PromptAttachment } from '../domain/prompt-context.js'
 import { agentPresetTransition, type PromptConfiguration } from '../domain/prompt-configuration.js'
 import { projectSessionChanges } from '../domain/session-changes.js'
 import {
+  RESTORED_ARCHIVE_STATE_KEY,
+  isEffectivelyArchived,
+  partitionSessionLists,
+  pruneRestoredArchiveIds,
+  readRestoredArchiveIds,
+} from '../domain/archived-sessions.js'
+import {
   projectConversation,
   projectionCommands,
   projectionGoal,
@@ -88,6 +95,10 @@ export class HarnessGatewayService implements vscode.Disposable {
   private error: string | undefined
   private publishScheduled = false
   private selectionGeneration = 0
+  private archivedIds = new Set<string>()
+  private restoredIds = new Set<string>()
+  private archiveRevision = 0
+  private archiveBaselineLoaded = false
 
   readonly onDidChange = this.changeEmitter.event
 
@@ -96,7 +107,9 @@ export class HarnessGatewayService implements vscode.Disposable {
     private readonly configuration: ConfigurationService,
     private readonly connectionSettings: ConnectionSettingsService,
     private readonly output: vscode.OutputChannel,
+    private readonly globalState: vscode.Memento,
   ) {
+    this.restoredIds = new Set(readRestoredArchiveIds(globalState.get(RESTORED_ARCHIVE_STATE_KEY)))
     this.runtimeSubscription = runtime.onDidChangeState((state) => {
       if (state.phase === 'error') {
         this.phase = 'error'
@@ -140,11 +153,11 @@ export class HarnessGatewayService implements vscode.Disposable {
       valueOf(await this.client.host.describe({}))
       await this.connectionSettings.connect(this.client)
       this.startEventStreams()
-      await Promise.all([this.refreshSessionList(), this.refreshPresets()])
+      await Promise.all([this.refreshSessionList(), this.refreshArchiveSet(), this.refreshPresets()])
       const requested = this.activeSessionId
-      const next = requested !== undefined && this.summaries.has(requested)
+      const next = requested !== undefined && this.summaries.has(requested) && !this.isArchived(requested)
         ? requested
-        : this.orderedSummaries()[0]?.sessionId
+        : this.visibleSummaries()[0]?.sessionId
       if (next !== undefined) {
         try {
           await this.openSession(String(next))
@@ -182,7 +195,11 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   async snapshot(): Promise<HarnessWorkbenchState> {
     const hasApiKey = this.connectionSettings.hasConfiguredProvider()
-    const summaries = this.orderedSummaries().map((summary) => sessionListItem(summary, this.labels))
+    const partitioned = partitionSessionLists(
+      this.orderedSummaries().map((summary) => sessionListItem(summary, this.labels)),
+      this.archivedIds,
+      this.restoredIds,
+    )
     const activeSummary = this.activeSessionId === undefined ? undefined : this.summaries.get(this.activeSessionId)
     const projected = projectConversation(this.entries, this.labels)
     const permissions = projectionPermissions(this.projections.permissions)
@@ -232,7 +249,8 @@ export class HarnessGatewayService implements vscode.Disposable {
       phase: this.phase,
       ...(this.error === undefined ? {} : { error: this.error }),
       hasApiKey,
-      sessions: summaries,
+      sessions: partitioned.active,
+      archivedSessions: partitioned.archived,
       ...(active === undefined ? {} : { active }),
       presets: this.presets,
     }
@@ -691,6 +709,54 @@ export class HarnessGatewayService implements vscode.Disposable {
     }
   }
 
+  /**
+   * Hides one history row from grouping surfaces via the official Harness
+   * archive set. Only rows the history list actually shows can be archived.
+   */
+  async archiveSession(id: string): Promise<void> {
+    const summary = this.summaries.get(id)
+    if (summary === undefined || (summary.blank === true && !this.isArchived(id))) return
+    const snapshot = new Set(this.restoredIds)
+    this.restoredIds.delete(id)
+    try {
+      const archived = valueOf(await this.requireClient().workspace.archiveSession({
+        sessionId: id as SessionId,
+      })).archivedSessionIds
+      this.installArchivedIds(archived.map(String), false)
+    } catch (cause) {
+      this.restoredIds = snapshot
+      throw cause
+    }
+    try {
+      await this.persistRestoredIds()
+    } catch (cause) {
+      this.restoredIds = snapshot
+      throw cause
+    }
+    this.fireChange()
+    if (this.activeSessionId === id && this.isArchived(id)) await this.leaveArchivedSelection()
+  }
+
+  /**
+   * Brings a Harness-archived session back to this workbench's default list.
+   * rc.7 has no unarchive RPC, so restore is a durable overlay on the official set.
+   */
+  async restoreSession(sessionId: string): Promise<void> {
+    if (!this.archivedIds.has(sessionId)) return
+    const snapshot = new Set(this.restoredIds)
+    this.restoredIds.add(sessionId)
+    try {
+      await this.persistRestoredIds()
+    } catch (cause) {
+      // Roll back the exact pre-operation overlay so a failed persistence
+      // cannot report a restore that would vanish after restart, and cannot
+      // drop an ID that was already present before this call.
+      this.restoredIds = snapshot
+      throw cause
+    }
+    this.fireChange()
+  }
+
   /** Downloads the current session's log ZIP (with descendants) for saving. */
   async exportSession(sessionId?: string, includeDescendants = true): Promise<Uint8Array> {
     const client = this.requireClient()
@@ -824,6 +890,11 @@ export class HarnessGatewayService implements vscode.Disposable {
       void this.refreshSessionList()
     } else if (frame.type === 'host/session-removed') {
       this.summaries.delete(String(frame.sessionId))
+    } else if (frame.type === 'host/archived-sessions-changed') {
+      this.installArchivedIds(frame.archivedSessionIds.map(String))
+      // A host snapshot is authoritative: once accepted it establishes the
+      // baseline even if a concurrent workspace.list refresh is still pending.
+      this.archiveBaselineLoaded = true
     } else if (frame.type === 'host/session-status') {
       const id = String(frame.sessionId)
       const summary = this.summaries.get(id)
@@ -880,6 +951,79 @@ export class HarnessGatewayService implements vscode.Disposable {
     const items = valueOf(await this.requireClient().sessions.list({})).items
     this.summaries = new Map(items.map((summary) => [String(summary.sessionId), summary]))
     this.fireChange()
+  }
+
+  private async refreshArchiveSet(): Promise<void> {
+    try {
+      const revision = this.archiveRevision
+      const archived = valueOf(await this.requireClient().workspace.list({})).archivedSessionIds
+      // Discard a stale response: a host/archived-sessions-changed event or a
+      // newer authoritative refresh may have advanced the set while this RPC
+      // was in flight. Only an up-to-date revision may replace the state.
+      if (this.archiveRevision !== revision) return
+      this.installArchivedIds(archived.map(String))
+      this.archiveBaselineLoaded = true
+    } catch (cause) {
+      // Keep the previous set: a transient failure should not unhide archived sessions.
+      this.output.appendLine(vscode.l10n.t('[gateway] Failed to load the archived session set: {0}', errorMessage(cause)))
+    }
+    this.fireChange()
+  }
+
+  /**
+   * Applies an authoritative archived-id snapshot. With `persist` (host events
+   * and standalone refreshes) the pruned overlay is written in the background;
+   * transactional callers pass false and own the single persistRestoredIds
+   * call after the whole operation succeeds, so no concurrent write can leak
+   * a partial overlay.
+   */
+  private installArchivedIds(ids: readonly string[], persist = true): void {
+    const next = new Set(ids)
+    const pruned = pruneRestoredArchiveIds(next, this.restoredIds)
+    const archivedChanged = next.size !== this.archivedIds.size
+      || [...next].some((id) => !this.archivedIds.has(id))
+    this.archivedIds = next
+    this.archiveRevision += archivedChanged ? 1 : 0
+    if (!persist || pruned.size === this.restoredIds.size) return
+    this.restoredIds = new Set(pruned)
+    void this.persistRestoredIds().catch((cause: unknown) => {
+      // Background pruning must not fail the caller; persistRestoredIds already
+      // logs the underlying failure.
+      this.output.appendLine(vscode.l10n.t('[gateway] Failed to persist pruned restored sessions: {0}', errorMessage(cause)))
+    })
+  }
+
+  private async persistRestoredIds(): Promise<void> {
+    try {
+      await this.globalState.update(RESTORED_ARCHIVE_STATE_KEY, [...this.restoredIds])
+    } catch (cause) {
+      this.output.appendLine(vscode.l10n.t('[gateway] Failed to save the restored session list: {0}', errorMessage(cause)))
+      throw cause
+    }
+  }
+
+  private isArchived(sessionId: string): boolean {
+    // Until the official archive set has been loaded once, an empty archivedIds
+    // must not be treated as authoritative: that would expose (or hide) the
+    // wrong sessions after a startup failure of workspace.list. Be conservative
+    // and treat nothing as archived until the baseline is known.
+    if (!this.archiveBaselineLoaded) return false
+    return isEffectivelyArchived(sessionId, this.archivedIds, this.restoredIds)
+  }
+
+  private visibleSummaries(): SessionSummary[] {
+    return this.orderedSummaries().filter((summary) => !this.isArchived(String(summary.sessionId)))
+  }
+
+  private async leaveArchivedSelection(): Promise<void> {
+    const next = this.visibleSummaries()[0]
+    if (next !== undefined) {
+      // openSession resolves sub-agent rows through their parent; selectSession
+      // would route a sub-agent through the ordinary session APIs.
+      await this.openSession(String(next.sessionId))
+      return
+    }
+    await this.createSession()
   }
 
   private async refreshPresets(): Promise<void> {
@@ -994,6 +1138,11 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.client = undefined
     this.connectionSettings.disconnect()
     this.phase = 'idle'
+    // A new connection must re-establish the official archive baseline: bump
+    // the revision so any in-flight workspace.list response is discarded, and
+    // clear the flag so an empty archivedIds is not treated as authoritative.
+    this.archiveRevision += 1
+    this.archiveBaselineLoaded = false
   }
 
   private fireChange(): void {

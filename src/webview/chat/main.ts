@@ -24,7 +24,7 @@ import {
 } from './context.js'
 import { renderDetails } from './details.js'
 import { addPastedImages, clearPastedImages, closeImagePreview } from './images.js'
-import { closePermissionConfirm, closePermissionPopup, renderSessions, toggleHistory, togglePermissionPopup } from './sessions.js'
+import { closePermissionConfirm, closePermissionPopup, renderSessions, toggleArchivedHistory, toggleHistory, togglePermissionPopup } from './sessions.js'
 import { FULL_ACCESS_PERMISSION_ID } from '../../domain/permissions.js'
 import { closeTimeline, openTimeline } from './timeline.js'
 
@@ -59,6 +59,7 @@ window.addEventListener('message', (event) => {
 
 elements.historyToggle.addEventListener('click', () => toggleHistory(true))
 elements.historyClose.addEventListener('click', () => toggleHistory(false))
+elements.historyArchived.addEventListener('click', () => toggleArchivedHistory())
 elements.historySearch.addEventListener('input', () => {
   clearTimeout(searchTimer)
   const query = elements.historySearch.value.trim()

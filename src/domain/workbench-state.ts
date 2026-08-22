@@ -259,6 +259,7 @@ export interface HarnessWorkbenchState {
   readonly error?: string
   readonly hasApiKey: boolean
   readonly sessions: readonly SessionListItem[]
+  readonly archivedSessions: readonly SessionListItem[]
   readonly active?: ActiveSessionView
   readonly presets: readonly AgentPresetEntry[]
 }

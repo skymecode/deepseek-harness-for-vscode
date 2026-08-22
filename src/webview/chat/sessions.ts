@@ -17,15 +17,21 @@ import {
 } from './context.js'
 import { formatRelativeTime } from './utils.js'
 
+let showingArchived = false
+
 export function renderSessions(): void {
   if (!payload) return
   const query = elements.historySearch.value.trim()
   const snippets = new Map(searchResults.map((result) => [result.sessionId, result.snippet]))
   const resultIds = new Set(searchResults.map((result) => result.sessionId))
-  const sessions = query === '' ? payload.state.sessions : payload.state.sessions.filter((session) => resultIds.has(session.id))
+  const pool = showingArchived ? payload.state.archivedSessions : payload.state.sessions
+  const sessions = query === '' ? pool : pool.filter((session) => resultIds.has(session.id))
   const fragment = document.createDocumentFragment()
   for (const session of sessions) {
-    const button = node('button', 'session-row') as HTMLButtonElement
+    // A blank draft has nothing worth hiding, but an archived one still needs restore.
+    const canArchive = showingArchived || !session.blank
+    const wrap = node('div', 'session-row-wrap')
+    const button = node('button', `session-row${canArchive ? ' has-archive-action' : ''}`) as HTMLButtonElement
     if (session.id === payload.state.active?.id) button.classList.add('active')
     const top = node('span', 'session-row-top')
     top.append(node('span', 'session-name', session.title), node('span', `running-dot${session.running ? ' active' : ''}`))
@@ -41,10 +47,56 @@ export function renderSessions(): void {
       post('selectSession', { sessionId: session.id })
       toggleHistory(false)
     })
-    fragment.append(button)
+    wrap.append(button)
+    if (canArchive) {
+      const action = node('button', 'icon-button compact session-archive-action') as HTMLButtonElement
+      action.type = 'button'
+      action.title = showingArchived ? t('restoreSession') : t('archiveSession')
+      action.setAttribute('aria-label', action.title)
+      action.textContent = showingArchived ? '↩' : '▢'
+      action.addEventListener('click', (event) => {
+        event.stopPropagation()
+        if (showingArchived) {
+          post('restoreSession', { sessionId: session.id })
+          // Follow the row back to the default list instead of leaving the user
+          // staring at the archived view it just left.
+          showingArchived = false
+          renderSessions()
+          return
+        }
+        post('archiveSession', { sessionId: session.id })
+      })
+      wrap.append(action)
+    }
+    fragment.append(wrap)
   }
-  if (sessions.length === 0) fragment.append(node('p', 'muted-empty', t('noMatchingConversations')))
+  if (sessions.length === 0) {
+    const archivedHits = query === '' || showingArchived
+      ? []
+      : payload.state.archivedSessions.filter((session) => resultIds.has(session.id))
+    if (archivedHits.length > 0) {
+      fragment.append(node('p', 'muted-empty', t('archivedSearchHint', { count: String(archivedHits.length) })))
+    } else {
+      fragment.append(node('p', 'muted-empty', showingArchived ? t('noArchivedConversations') : t('noMatchingConversations')))
+    }
+  }
   elements.sessionList.replaceChildren(fragment)
+  renderHistoryFilter()
+}
+
+function renderHistoryFilter(): void {
+  if (!payload) return
+  const archivedCount = payload.state.archivedSessions.length
+  elements.historyArchived.classList.toggle('active', showingArchived)
+  elements.historyArchived.setAttribute('aria-pressed', String(showingArchived))
+  elements.historyArchived.textContent = archivedCount === 0
+    ? t('archivedConversations')
+    : `${t('archivedConversations')} ${archivedCount}`
+}
+
+export function toggleArchivedHistory(): void {
+  showingArchived = !showingArchived
+  renderSessions()
 }
 
 export function renderSelectors(active: ActiveSessionView | undefined): void {

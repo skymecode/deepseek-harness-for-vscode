@@ -25,6 +25,7 @@ export const elements: ChatElements = {
   fork: byId<HTMLButtonElement>('fork'),
   importSession: byId<HTMLElement>('import-session'),
   historyImport: byId<HTMLElement>('history-import'),
+  historyArchived: byId<HTMLButtonElement>('history-archived'),
   exportSession: byId<HTMLElement>('export-session'),
   permission: byId<HTMLElement>('permission'),
   permissionToggle: byId<HTMLButtonElement>('permission-toggle'),

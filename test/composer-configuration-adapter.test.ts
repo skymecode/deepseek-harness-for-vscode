@@ -123,6 +123,7 @@ describe('composer configuration adapter', () => {
       phase: withoutActive.state.phase,
       hasApiKey: withoutActive.state.hasApiKey,
       sessions: withoutActive.state.sessions,
+      archivedSessions: withoutActive.state.archivedSessions,
       presets: withoutActive.state.presets,
     }
 
@@ -174,6 +175,7 @@ function payload(
       phase: 'connected',
       hasApiKey: true,
       sessions: [],
+      archivedSessions: [],
       active,
       presets: [],
       ...stateOverrides,

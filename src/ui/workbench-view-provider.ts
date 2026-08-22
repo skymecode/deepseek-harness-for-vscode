@@ -338,6 +338,12 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       case 'importSession':
         await this.actions.importSession()
         break
+      case 'archiveSession':
+        await this.gateway.archiveSession(requiredString(value, 'sessionId'))
+        break
+      case 'restoreSession':
+        await this.gateway.restoreSession(requiredString(value, 'sessionId'))
+        break
       case 'exportSession': {
         const sessionId = optionalString(value.sessionId)
         const exportId = sessionId === undefined ? (await this.gateway.snapshot()).active?.id : sessionId
@@ -455,6 +461,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     <div class="panel-heading">
       <strong>${text('history')}</strong>
       <div class="panel-heading-actions">
+        <button id="history-archived" class="history-archive-toggle" type="button" aria-pressed="false" title="${text('archivedConversations')}">${text('archivedConversations')}</button>
         <button id="history-import" class="icon-button compact" title="${text('importSession')}" aria-label="${text('importSession')}">⤓</button>
         <button id="history-close" class="icon-button">×</button>
       </div>

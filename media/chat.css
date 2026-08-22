@@ -136,6 +136,34 @@ body.vscode-dark .brand-logo, body.vscode-high-contrast .brand-logo { filter: in
 }
 .session-row:hover { background: var(--vscode-list-hoverBackground); }
 .session-row.active { color: var(--vscode-list-activeSelectionForeground); background: var(--vscode-list-activeSelectionBackground); }
+.session-row-wrap { position: relative; }
+.session-row.has-archive-action { padding-right: 30px; }
+.session-archive-action {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  opacity: 0;
+  pointer-events: none;
+}
+.session-row-wrap:hover .session-archive-action,
+.session-row-wrap:focus-within .session-archive-action {
+  opacity: 1;
+  pointer-events: auto;
+}
+.history-archive-toggle {
+  height: 23px;
+  padding: 0 8px;
+  color: var(--vscode-icon-foreground);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.history-archive-toggle:hover { background: var(--vscode-toolbar-hoverBackground); }
+.history-archive-toggle.active {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
 .session-row-top { min-width: 0; display: flex; align-items: center; gap: 6px; }
 .session-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-meta { color: var(--vscode-descriptionForeground); font-size: 10px; }

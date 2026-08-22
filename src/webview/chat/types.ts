@@ -53,6 +53,7 @@ export interface ChatElements {
   readonly fork: HTMLButtonElement
   readonly importSession: HTMLElement
   readonly historyImport: HTMLElement
+  readonly historyArchived: HTMLButtonElement
   readonly exportSession: HTMLElement
   readonly permission: HTMLElement
   readonly permissionToggle: HTMLButtonElement

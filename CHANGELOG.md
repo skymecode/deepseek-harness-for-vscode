@@ -4,6 +4,7 @@
 
 - 内置运行时升级为官方 `@deepseek-ai/dsh@0.1.1-rc.2`：恢复 `prepareCall` 链路的 `contextWindow` 供给（上下文占用环数据更可靠）；纯文本模型收到图片时降级为文本占位而非报错。`dsh-llm-pi-ai` 补丁脚本同时兼容 rc.1 与 rc.2 两种源码形态。
 - 修复所有主机斜杠命令（/permission、/model、/compact 等）报错 `missing "images"` 的问题：`commands/execute` 的 typert 描述符自 dsh 0.1.1 起要求显式携带 images 字段，现按描述符发送空列表。
+- 新增可逆归档：历史面板行内（悬停显示）可归档/恢复会话，默认列表隐藏已归档项，「已归档」筛选可查看并恢复。归档走官方 `workspace.archiveSession`；Harness 暂无 unarchive RPC，恢复是工作台侧的持久化覆盖。
 
 ## 0.5.1
 

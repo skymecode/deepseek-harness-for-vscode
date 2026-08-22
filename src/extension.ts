@@ -26,7 +26,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const resolver = new BundledRuntimeResolver(context, (message, ...args) => vscode.l10n.t(message, ...args))
   const connectionSettings = new ConnectionSettingsService(configuration, credentials)
   const runtime = new HarnessHostRuntime(context, configuration, resolver, output)
-  const gateway = new HarnessGatewayService(runtime, configuration, connectionSettings, output)
+  const gateway = new HarnessGatewayService(runtime, configuration, connectionSettings, output, context.globalState)
   const connectionTest = new ConnectionTestService(() => gateway.providerControlClient())
   const pluginManager = new DshPluginManager(context, resolver, output)
   try {
