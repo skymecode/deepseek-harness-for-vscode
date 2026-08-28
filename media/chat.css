@@ -145,6 +145,7 @@ body.vscode-dark .brand-logo, body.vscode-high-contrast .brand-logo { filter: in
 .session-row-wrap { position: relative; }
 .session-row.has-archive-action { padding-right: 76px; }
 .session-row.has-worktree-action { padding-right: 30px; }
+.session-row.has-archive-action.has-worktree-action { padding-right: 104px; }
 /* One horizontal action strip per row, revealed on row hover/focus. */
 .session-row-actions {
   position: absolute;
@@ -174,12 +175,14 @@ body.vscode-dark .brand-logo, body.vscode-high-contrast .brand-logo { filter: in
 }
 .session-worktree-action {
   position: absolute;
-  top: 4px;
-  right: 82px;
+  top: 2px;
+  right: 4px;
   opacity: 0;
   pointer-events: none;
 }
-.session-row.has-archive-action.has-worktree-action { padding-right: 108px; }
+.session-row.has-archive-action ~ .session-worktree-action {
+  right: 80px;
+}
 .session-row-wrap:hover .session-worktree-action,
 .session-row-wrap:focus-within .session-worktree-action {
   opacity: 1;
