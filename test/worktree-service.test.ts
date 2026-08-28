@@ -229,6 +229,11 @@ describe('WorktreeService.diffText / merge / discard', () => {
     expect(calls).toContainEqual(['worktree', 'remove', '--force', '/repo/.dsh-worktrees/abc123'])
     expect(calls).toContainEqual(['branch', '-D', 'dsh/abc123'])
     expect(service.recordFor('abc123')).toBeUndefined()
+    // Discard removes the editable worktree, but the session remains scoped to
+    // the original project so its history can still be listed.
+    expect(service.displayCwd('abc123', '/repo/.dsh-worktrees/abc123')).toBe('/repo')
+    const reloaded = new WorktreeService(memento, run)
+    expect(reloaded.displayCwd('abc123', '/repo/.dsh-worktrees/abc123')).toBe('/repo')
   })
 })
 

@@ -48,6 +48,7 @@ export interface DiscardOutcome {
 export type GitRunner = (cwd: string, args: readonly string[]) => Promise<ExecResult>
 
 const REGISTRY_KEY = 'dsh.worktrees.v1'
+const SESSION_ROOTS_KEY = 'dsh.worktree-session-roots.v1'
 
 /**
  * Per-session git worktree isolation (plan A2).
@@ -61,6 +62,8 @@ const REGISTRY_KEY = 'dsh.worktrees.v1'
  */
 export class WorktreeService implements vscode.Disposable {
   private readonly records = new Map<string, WorktreeRecord>()
+  /** Durable project identity retained after a worktree is discarded. */
+  private readonly sessionRoots = new Map<string, string>()
 
   constructor(
     private readonly storage: vscode.Memento,
@@ -74,14 +77,14 @@ export class WorktreeService implements vscode.Disposable {
     return this.records.get(sessionId)
   }
 
-  /** The repository root a session's worktree lives under, when isolated. */
+  /** The repository root associated with a session, including after discard. */
   repoRootFor(sessionId: string): string | undefined {
-    return this.records.get(sessionId)?.repoRoot
+    return this.sessionRoots.get(sessionId) ?? this.records.get(sessionId)?.repoRoot
   }
 
   /** The cwd a session's history row should display (repo root, not the worktree leaf). */
   displayCwd(sessionId: string, fallback: string | undefined): string | undefined {
-    return this.records.get(sessionId)?.repoRoot ?? fallback
+    return this.repoRootFor(sessionId) ?? fallback
   }
 
   /**
@@ -111,6 +114,7 @@ export class WorktreeService implements vscode.Disposable {
       createdAt: Date.now(),
     }
     this.records.set(sessionId, record)
+    this.sessionRoots.set(sessionId, repoRoot)
     this.save()
     return { cwd: worktreePath, isolated: true, record }
   }
@@ -261,8 +265,17 @@ export class WorktreeService implements vscode.Disposable {
     }
     await this.run(record.repoRoot, ['branch', '-D', record.branch]).catch(() => undefined)
     this.records.delete(sessionId)
+    // Keep the durable project identity: the session log survives discard and
+    // must remain visible in the same workspace after the worktree is gone.
     this.save()
     return { ok: true, message: 'discarded' }
+  }
+
+  /** Forgets a session that failed before it was created by the Host. */
+  forgetSession(sessionId: string): void {
+    const removedRecord = this.records.delete(sessionId)
+    const removedRoot = this.sessionRoots.delete(sessionId)
+    if (removedRecord || removedRoot) this.save()
   }
 
   /**
@@ -277,7 +290,11 @@ export class WorktreeService implements vscode.Disposable {
       await this.run(record.repoRoot, ['worktree', 'remove', '--force', record.worktreePath]).catch(() => undefined)
       await this.run(record.repoRoot, ['branch', '-D', record.branch]).catch(() => undefined)
       this.records.delete(sessionId)
+      this.sessionRoots.delete(sessionId)
       removed.push(sessionId)
+    }
+    for (const sessionId of this.sessionRoots.keys()) {
+      if (!liveSessionIds.has(sessionId)) this.sessionRoots.delete(sessionId)
     }
     this.save()
     return removed
@@ -285,20 +302,31 @@ export class WorktreeService implements vscode.Disposable {
 
   dispose(): void {
     this.records.clear()
+    this.sessionRoots.clear()
   }
 
   private load(): void {
+    const roots = this.storage.get<Record<string, string>>(SESSION_ROOTS_KEY)
+    if (roots !== undefined && typeof roots === 'object' && roots !== null) {
+      for (const [sessionId, repoRoot] of Object.entries(roots)) {
+        if (typeof repoRoot === 'string' && repoRoot !== '') this.sessionRoots.set(sessionId, repoRoot)
+      }
+    }
     const value = this.storage.get<WorktreeRecord[]>(REGISTRY_KEY)
     if (!Array.isArray(value)) return
     for (const entry of value) {
       if (typeof entry?.sessionId === 'string' && typeof entry.worktreePath === 'string') {
         this.records.set(entry.sessionId, entry)
+        if (!this.sessionRoots.has(entry.sessionId) && typeof entry.repoRoot === 'string') {
+          this.sessionRoots.set(entry.sessionId, entry.repoRoot)
+        }
       }
     }
   }
 
   private save(): void {
     void this.storage.update(REGISTRY_KEY, [...this.records.values()])
+    void this.storage.update(SESSION_ROOTS_KEY, Object.fromEntries(this.sessionRoots))
   }
 }
 

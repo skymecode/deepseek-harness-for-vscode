@@ -100,6 +100,7 @@ function createService(): { service: GatewayTestHarness; client: TestClient; per
     recordFor: vi.fn(() => undefined),
     repoRootFor: vi.fn(() => undefined),
     displayCwd: vi.fn((_sessionId: string, fallback: string | undefined) => fallback),
+    forgetSession: vi.fn(),
     diffText: vi.fn(async () => undefined),
     mergeBack: vi.fn(async () => ({ ok: false, message: 'stub' })),
     discard: vi.fn(async () => ({ ok: false, message: 'stub' })),
@@ -126,6 +127,7 @@ interface GatewayTestHarness {
   client: TestClient | undefined
   activeSessionId: string | undefined
   summaries: Map<string, { running?: boolean; blank?: boolean; agentPreset?: string; updatedAt?: number }>
+  queue: unknown[]
   pendingConfigurations: Map<string, unknown[]>
   admittedSessions: Set<string>
   entries: unknown[]
@@ -135,6 +137,7 @@ interface GatewayTestHarness {
   handleMux: (rpcId: RpcId, frame: MuxFrame) => void
   handleHost: (frame: HostFrame) => void
   sendPrompt: (text: string, mode?: 'queue' | 'steer', attachments?: unknown[], configuration?: unknown, signals?: unknown) => Promise<void>
+  steerQueued: (itemId: string) => Promise<void>
   removeQueued: (itemId: string) => Promise<void>
   selectModel: (provider: string, model: string, reasoningEffort?: string, persist?: boolean, signals?: unknown) => Promise<void>
 }
@@ -300,6 +303,21 @@ describe('gateway staged configuration', () => {
 
     await service.removeQueued('item-1')
 
+    expect(service.pendingConfigurations.size).toBe(0)
+  })
+
+  it('drops stale configurations when steer falls back to re-send', async () => {
+    const { service, client } = createService()
+    service.summaries.set('s1', { running: true, blank: false, agentPreset: 'standard', updatedAt: 1 })
+    service.queue = [{ id: 'item-1', message: { content: [{ type: 'text', text: 'queued' }] } }]
+    await service.sendPrompt('queued', 'queue', [], config('max'))
+    client.sessions.updateQueue.mockResolvedValueOnce({ result: { ok: false, error: { code: 'steer-unavailable', message: 'idle' } } })
+      .mockResolvedValueOnce({ result: { ok: true, value: { accepted: true } } })
+
+    await service.steerQueued('item-1')
+
+    expect(client.sessions.updateQueue.mock.calls.map((call) => call[0].action.kind)).toEqual(['steer', 'remove'])
+    expect(client.sessions.prompt).toHaveBeenCalledTimes(2)
     expect(service.pendingConfigurations.size).toBe(0)
   })
 

@@ -354,7 +354,10 @@ export class HarnessGatewayService implements vscode.Disposable {
       created = valueOf(await client.sessions.create({ cwd: prepared.cwd, sessionId: sessionId as SessionId, agentPreset: selectedPreset }))
     } catch (cause) {
       // Roll back the freshly created worktree so a failed create cannot leak it.
-      if (prepared.isolated) await this.worktrees.discard(sessionId).catch(() => undefined)
+      if (prepared.isolated) {
+        await this.worktrees.discard(sessionId).catch(() => undefined)
+        this.worktrees.forgetSession(sessionId)
+      }
       throw cause
     }
     if (!prepared.isolated && prepared.reason !== undefined) {
@@ -721,6 +724,11 @@ export class HarnessGatewayService implements vscode.Disposable {
       action: { kind: 'remove' },
     })
     if (!removed.result.ok) throw new Error(removed.result.error.message)
+    // The fallback re-submits the text as a new queue item. The current prompt
+    // RPC does not return that item's id, so no pending configuration can be
+    // safely rebound to it; clear the old slots rather than applying one to a
+    // different queued prompt at a later boundary.
+    this.pendingConfigurations.delete(sessionId)
     await client.sessions.prompt({
       sessionId: sessionId as SessionId,
       mode: 'queue',
@@ -1289,6 +1297,9 @@ export class HarnessGatewayService implements vscode.Disposable {
       this.admittedSessions.delete(removed)
       if (this.effortIntents.delete(removed)) void this.persistEffortIntents().catch(() => undefined)
       if (this.metaBySession.delete(removed)) void this.persistSessionMeta().catch(() => undefined)
+      // Remove the worktree and its retained project identity now that the
+      // Host has authoritatively removed the session.
+      void this.cleanupOrphanWorktrees()
     } else if (frame.type === 'host/archived-sessions-changed') {
       // A host snapshot is authoritative: establish the baseline before
       // installing the set so the sweep inside installArchivedIds treats the
