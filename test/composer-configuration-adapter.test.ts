@@ -149,6 +149,7 @@ function payload(
     permissionMode: 'workspace-write',
     webSearch: true,
     autoAttachSelection: true,
+    experimentalAutoEffort: false,
   }
   const active: ActiveSessionView = {
     id: 'session-1',

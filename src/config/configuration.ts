@@ -34,6 +34,8 @@ export interface HarnessConfiguration {
   readonly webSearch: boolean
   /** Auto-attach the active editor selection as context when sending. */
   readonly autoAttachSelection: boolean
+  /** Whether experimental automatic reasoning effort mode is enabled. */
+  readonly experimentalAutoEffort: boolean
 }
 
 /** Reads extension settings and reports changes that require a runtime restart. */
@@ -62,6 +64,7 @@ export class ConfigurationService implements vscode.Disposable {
       permissionMode: permissionMode(config.get<string>('permissionMode')),
       webSearch: config.get<boolean>('webSearch', true),
       autoAttachSelection: config.get<boolean>('autoAttachSelection', true),
+      experimentalAutoEffort: config.get<boolean>('experimentalAutoEffort', false),
     }
   }
 
@@ -76,6 +79,11 @@ export class ConfigurationService implements vscode.Disposable {
 
   setAgentPreset(value: AgentPresetId): Thenable<void> {
     return this.update('agentPreset', value)
+  }
+
+  setExperimentalAutoEffort(value: boolean): Thenable<void> {
+    return vscode.workspace.getConfiguration('deepseekHarness')
+      .update('experimentalAutoEffort', value, vscode.ConfigurationTarget.Global)
   }
 
   setPermissionMode(value: PermissionMode): Thenable<void> {
@@ -170,6 +178,8 @@ const RUNTIME_SETTING_KEYS = [
   'deepseekHarness.provider',
   'deepseekHarness.permissionMode',
   'deepseekHarness.webSearch',
+  'deepseekHarness.autoAttachSelection',
+  'deepseekHarness.experimentalAutoEffort',
 ] as const
 
 function nonEmpty(value: string | undefined, fallback: string): string {

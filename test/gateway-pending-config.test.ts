@@ -15,6 +15,8 @@ vi.mock('vscode', () => ({
   env: { openExternal: async () => true },
 }))
 
+import * as vscode from 'vscode'
+
 import { HarnessGatewayService } from '../src/gateway/harness-gateway-service.js'
 import type { HarnessHostRuntime } from '../src/runtime/web-runtime.js'
 import type { ConfigurationService } from '../src/config/configuration.js'
@@ -46,7 +48,7 @@ const CONFIG = {
   agentPreset: 'standard',
 }
 
-function createService(): { service: GatewayTestHarness; client: TestClient; persist: ReturnType<typeof vi.fn> } {
+function createService(): { service: GatewayTestHarness; client: TestClient; persist: ReturnType<typeof vi.fn>; worktrees: Record<string, ReturnType<typeof vi.fn>> } {
   const client: TestClient = {
     workspace: { list: vi.fn(), archiveSession: vi.fn() },
     sessions: {
@@ -97,13 +99,18 @@ function createService(): { service: GatewayTestHarness; client: TestClient; per
   const worktrees = {
     prepare: vi.fn(async () => ({ cwd: process.cwd(), isolated: false })),
     cleanupOrphans: vi.fn(async () => []),
-    recordFor: vi.fn(() => undefined),
+    // Default: s1 is an ordinary isolated session, so existing tests never
+    // trigger the auto-isolation migration. The migration tests below override
+    // this to simulate a host-forked session with no worktree.
+    recordFor: vi.fn(() => ({ sessionId: 's1', repoRoot: '/repo', baseBranch: 'main', branch: 'dsh/s1', worktreePath: '/repo/.dsh-worktrees/s1', createdAt: 1 })),
     repoRootFor: vi.fn(() => undefined),
     displayCwd: vi.fn((_sessionId: string, fallback: string | undefined) => fallback),
     forgetSession: vi.fn(),
     diffText: vi.fn(async () => undefined),
     mergeBack: vi.fn(async () => ({ ok: false, message: 'stub' })),
     discard: vi.fn(async () => ({ ok: false, message: 'stub' })),
+    workingTreeDirty: vi.fn(async () => false),
+    workingTreeDiff: vi.fn(async () => undefined),
     dispose: vi.fn(),
   } as unknown as WorktreeService
 
@@ -119,7 +126,7 @@ function createService(): { service: GatewayTestHarness; client: TestClient; per
   service.activeSessionId = 's1'
   service.summaries.set('s1', { running: false, blank: false, agentPreset: 'standard', updatedAt: 1 })
   service.client = client
-  return { service, client, persist }
+  return { service, client, persist, worktrees: worktrees as unknown as Record<string, ReturnType<typeof vi.fn>> }
 }
 
 /** Structural view of the private gateway state the tests drive directly. */
@@ -134,6 +141,14 @@ interface GatewayTestHarness {
   pendingCarryOver: { targetSessionId: string; message: string } | undefined
   effortIntents: Map<string, string>
   metaBySession: Map<string, unknown>
+  models:
+    | {
+        current: { provider: string; model: string; reasoningEffort?: string }
+        groups: { id: string; name: string; models: { id: string; name: string; reasoning?: { efforts: { id: string }[] } }[] }[]
+        available?: boolean
+        failures?: unknown[]
+      }
+    | undefined
   handleMux: (rpcId: RpcId, frame: MuxFrame) => void
   handleHost: (frame: HostFrame) => void
   sendPrompt: (text: string, mode?: 'queue' | 'steer', attachments?: unknown[], configuration?: unknown, signals?: unknown) => Promise<void>
@@ -341,5 +356,138 @@ describe('gateway staged configuration', () => {
     expect(service.effortIntents.has('s1')).toBe(false)
     expect(service.metaBySession.has('s1')).toBe(false)
     expect(persist).toHaveBeenCalled()
+  })
+})
+
+describe('gateway auto model matching', () => {
+  const catalog: NonNullable<GatewayTestHarness['models']> = {
+    current: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+    groups: [
+      {
+        id: 'deepseek-official',
+        name: 'DeepSeek',
+        models: [
+          { id: 'deepseek-v4-flash', name: 'Flash', reasoning: { efforts: [{ id: 'off' }, { id: 'low' }, { id: 'high' }, { id: 'max' }] } },
+          { id: 'deepseek-v4-pro', name: 'Pro', reasoning: { efforts: [{ id: 'off' }, { id: 'low' }, { id: 'high' }, { id: 'max' }] } },
+        ],
+      },
+    ],
+    available: true,
+    failures: [],
+  }
+
+  it('escalates a heavy auto prompt to the deep-reasoning model', async () => {
+    const { service, client } = createService()
+    service.models = catalog
+
+    await service.sendPrompt('very large task', 'queue', [], config('auto'), { promptTokens: 12_000, attachmentCount: 0 })
+
+    expect(client.sessions.selectModel).toHaveBeenCalledWith(expect.objectContaining({ model: 'deepseek-v4-pro' }))
+  })
+
+  it('keeps the fast model for a light auto prompt', async () => {
+    const { service, client } = createService()
+    service.models = catalog
+
+    await service.sendPrompt('hi', 'queue', [], config('auto'), { promptTokens: 100, attachmentCount: 0 })
+
+    expect(client.sessions.selectModel).toHaveBeenCalledWith(expect.objectContaining({ model: 'deepseek-v4-flash' }))
+  })
+
+  it('resolves the auto tier against the chosen model, not the staged one', async () => {
+    const { service, client } = createService()
+    service.models = catalog
+
+    // Staged model is flash, but the heavy signals escalate to pro; the
+    // resolved reasoning effort must come from pro's options ('max').
+    await service.sendPrompt('big', 'queue', [], config('auto'), { promptTokens: 9_000, attachmentCount: 1 })
+
+    expect(client.sessions.selectModel).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'deepseek-v4-pro',
+      reasoningEffort: 'max',
+    }))
+  })
+
+  it('leaves the model untouched when auto signals are absent', async () => {
+    const { service, client } = createService()
+    service.models = catalog
+
+    await service.sendPrompt('hello', 'queue', [], config('auto'))
+
+    expect(client.sessions.selectModel).toHaveBeenCalledWith(expect.objectContaining({ model: 'deepseek-v4-flash' }))
+  })
+})
+
+describe('gateway auto-isolation of host-forked sessions', () => {
+  it('moves a worktree-less session into a fresh isolated session on first send', async () => {
+    const { service, client, worktrees } = createService()
+    // A session that arrived through the host's native fork path has no
+    // worktree record (uuid id, inherited shared cwd).
+    vi.mocked(worktrees.recordFor!).mockReturnValue(undefined)
+    // createSession() rebuilds the summary map from sessions.list.
+    client.sessions.list.mockResolvedValue({
+      result: { ok: true, value: { items: [{ sessionId: 's2', agentPreset: 'standard' }] } },
+    })
+
+    await service.sendPrompt('hello', 'queue', [])
+
+    // The conversation moved: a fresh session was created (createSession) and
+    // the prompt was admitted against the new isolated session.
+    expect(client.sessions.create).toHaveBeenCalledTimes(1)
+    expect(service.activeSessionId).toBe('s2')
+    expect(client.sessions.prompt).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's2' }))
+  })
+
+  it('stages configuration against the migrated session rather than the source session', async () => {
+    const { service, client, worktrees } = createService()
+    vi.mocked(worktrees.recordFor!).mockReturnValue(undefined)
+    client.sessions.list.mockResolvedValue({
+      result: {
+        ok: true,
+        value: {
+          items: [
+            { sessionId: 's1', running: true, blank: false, agentPreset: 'standard' },
+            { sessionId: 's2', running: false, blank: true, agentPreset: 'standard' },
+          ],
+        },
+      },
+    })
+
+    await service.sendPrompt('hello', 'queue', [], config('max'))
+
+    expect(service.pendingConfigurations.has('s1')).toBe(false)
+    expect(client.sessions.selectModel).toHaveBeenLastCalledWith(expect.objectContaining({
+      sessionId: 's2',
+      reasoningEffort: 'max',
+    }))
+    expect(client.sessions.prompt).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's2' }))
+  })
+
+  it('skips auto-isolation when the shared checkout has uncommitted changes', async () => {
+    const { service, client, worktrees } = createService()
+    vi.mocked(worktrees.recordFor!).mockReturnValue(undefined)
+    vi.mocked(worktrees.workingTreeDirty!).mockResolvedValue(true)
+    ;(vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { fsPath: '/repo' } }]
+    try {
+      await service.sendPrompt('hello', 'queue', [])
+
+      // Dirty checkout: migration would strand its changes outside the worktree.
+      expect(client.sessions.create).not.toHaveBeenCalled()
+      expect(service.activeSessionId).toBe('s1')
+      expect(client.sessions.prompt).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }))
+    } finally {
+      ;(vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = undefined
+    }
+  })
+
+  it('does not migrate an already-isolated session', async () => {
+    const { service, client } = createService()
+    // Default mock: recordFor returns an s1 record (isolated).
+
+    await service.sendPrompt('hello', 'queue', [])
+
+    expect(client.sessions.create).not.toHaveBeenCalled()
+    expect(service.activeSessionId).toBe('s1')
+    expect(client.sessions.prompt).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }))
   })
 })

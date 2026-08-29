@@ -27,5 +27,6 @@
   "config.permission.workspaceWrite": "仅允许写入当前工作区及运行时临时目录。",
   "config.permission.dangerFullAccess": "不施加 Harness 文件沙箱限制。",
   "config.autoAttachSelection": "自动把当前编辑器选区作为可见的提示上下文卡片附加。设为 `false` 后仅通过“⬒ 选区”按钮附加。",
-  "config.webSearch": "启用内置 DeepSeek 网页搜索能力，让 Agent 可以联网搜索。修改后需重载工作台生效。"
+  "config.webSearch": "启用内置 DeepSeek 网页搜索能力，让 Agent 可以联网搜索。修改后需重载工作台生效。",
+  "config.experimentalAutoEffort": "开启实验性自动推理模式，根据任务复杂度自动调度推理深度。"
 }

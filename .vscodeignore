@@ -1,6 +1,9 @@
 .github/**
 .vscode/**
 .commandcode/**
+# Per-session git worktree isolation data (A2). Created under the repo root at
+# runtime by WorktreeService; must never ship in the VSIX.
+.dsh-worktrees/**
 src/**
 test/**
 coverage/**

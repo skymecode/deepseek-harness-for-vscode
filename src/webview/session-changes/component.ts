@@ -11,6 +11,7 @@ interface ComponentOptions {
   readonly document: Document
   readonly translate: Translate
   readonly onOpenFile: (path: string) => void
+  readonly onReview?: () => void
 }
 
 /**
@@ -33,34 +34,47 @@ export function createSessionChangesComponent(options: ComponentOptions): Sessio
   const render = (): void => {
     root.textContent = ''
     if (current === undefined) return
+    const top = node(options.document, 'div', 'changes-top')
     const summary = node(options.document, 'button', 'changes-summary') as HTMLButtonElement
     summary.type = 'button'
     summary.setAttribute('aria-expanded', String(expanded))
+    const fileIcon = node(options.document, 'span', 'changes-file-icon-badge')
+    fileIcon.innerHTML = changesFileSvg()
     summary.append(
-      node(options.document, 'span', 'changes-glyph', '📄'),
+      fileIcon,
       node(options.document, 'span', 'changes-count', `${current.files.length} ${options.translate('changesChanged')}`),
       ...stats(current.added, current.removed),
-      node(options.document, 'span', 'changes-chevron', '⌃'),
+      node(options.document, 'span', 'changes-chevron', '⌄'),
     )
     summary.addEventListener('click', () => {
       expanded = !expanded
       render()
     })
-    root.append(summary)
+    top.append(summary)
+    const actions = node(options.document, 'div', 'changes-actions')
+    if (options.onReview !== undefined) {
+      const review = node(options.document, 'button', 'changes-review', options.translate('changesReview')) as HTMLButtonElement
+      review.type = 'button'
+      review.addEventListener('click', () => options.onReview?.())
+      actions.append(review)
+    }
+    const close = node(options.document, 'button', 'changes-dismiss', '✕') as HTMLButtonElement
+    close.type = 'button'
+    close.setAttribute('aria-label', options.translate('changesKeepAll'))
+    close.addEventListener('click', () => {
+      dismissedSignature = signature
+      expanded = false
+      root.classList.add('hidden')
+    })
+    actions.append(close)
+    top.append(actions)
+    root.append(top)
     root.classList.toggle('expanded', expanded)
     if (!expanded) return
 
     const detail = node(options.document, 'div', 'changes-detail')
     const header = node(options.document, 'div', 'changes-detail-header')
     header.append(node(options.document, 'span', 'changes-detail-title', `${current.files.length} ${options.translate('changesFiles')}`))
-    const keepAll = node(options.document, 'button', 'changes-keep-all', options.translate('changesKeepAll')) as HTMLButtonElement
-    keepAll.type = 'button'
-    keepAll.addEventListener('click', () => {
-      dismissedSignature = signature
-      expanded = false
-      root.classList.add('hidden')
-    })
-    header.append(keepAll)
     detail.append(header)
     for (const file of current.files) detail.append(fileRow(options, file))
     root.append(detail)
@@ -81,6 +95,10 @@ export function createSessionChangesComponent(options: ComponentOptions): Sessio
       render()
     },
   }
+}
+
+function changesFileSvg(): string {
+  return '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" aria-hidden="true"><path d="M3 2.5h6l3 3v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M9 2.5v3h3" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 9.5V12.5M6.5 11h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>'
 }
 
 function fileRow(options: ComponentOptions, file: SessionFileChangeView): HTMLElement {

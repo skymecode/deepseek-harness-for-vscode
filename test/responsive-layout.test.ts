@@ -23,12 +23,12 @@ describe('responsive workbench layout', () => {
     expect(css).toMatch(/min-width:\s*0;\s*max-width:\s*100%/)
   })
 
-  it('stacks the composer controls in a narrow VS Code side bar', async () => {
+  it('keeps the composer controls on one row in a narrow VS Code side bar', async () => {
     const css = await readFile(responsiveCssPath, 'utf8')
 
     expect(css).toContain('@media (max-width: 680px)')
     expect(css).toContain('@media (max-width: 360px)')
-    expect(css).toMatch(/grid-template-areas:\s*'tools'\s*'meta'\s*'actions'/)
+    expect(css).toMatch(/grid-template-areas:\s*'tools meta actions'/)
     expect(css).toMatch(/\.permission-toggle\s*{[^}]*min-width:\s*88px/s)
   })
 })

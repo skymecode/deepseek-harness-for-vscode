@@ -61,6 +61,7 @@ export class ComposerConfigurationStore {
       effortTone: selection.reasoningIntent === 'auto' ? 'auto' : effortTone(effort.id, effortIndex, reasoning.length),
       dirty: !configurationEquals(selection, current),
       modeStartsNewConversation: !input.blank && selection.agentPreset !== current.agentPreset,
+      experimentalAutoEffort: input.experimentalAutoEffort === true,
     }
   }
 
@@ -117,6 +118,22 @@ export class ComposerConfigurationStore {
     const snapshot = this.snapshot()
     if (snapshot === undefined) return undefined
     return this.stage({ ...snapshot.selection, reasoningIntent: 'auto' })
+  }
+
+  /** Toggles between auto reasoning mode and concrete reasoning tier. */
+  toggleAuto(forceActive?: boolean): ComposerConfigurationSnapshot | undefined {
+    const snapshot = this.snapshot()
+    if (snapshot === undefined) return undefined
+    const nextAuto = forceActive !== undefined ? forceActive : !snapshot.autoActive
+    if (nextAuto) {
+      return this.stage({ ...snapshot.selection, reasoningIntent: 'auto' })
+    }
+    return this.stage({
+      provider: snapshot.selection.provider,
+      model: snapshot.selection.model,
+      reasoningEffort: snapshot.selection.reasoningEffort,
+      agentPreset: snapshot.selection.agentPreset,
+    })
   }
 
   markSubmitted(): void {

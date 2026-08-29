@@ -63,6 +63,7 @@ components.sessionChanges = createSessionChangesComponent({
   document,
   translate: t,
   onOpenFile: (path) => post('openFile', { path }),
+  onReview: () => post('sessionChangesReview'),
 })
 
 components.streamingMessage = new StreamingMessageComponent({

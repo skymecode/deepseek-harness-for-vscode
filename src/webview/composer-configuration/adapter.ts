@@ -92,6 +92,7 @@ export function composerConfigurationInput(
     models,
     presets,
     fallbackReasoning,
+    experimentalAutoEffort: payload.configuration.experimentalAutoEffort === true,
   }
 }
 

@@ -50,6 +50,7 @@ export function render(): void {
     payload.connectionSettings ?? { writable: false, providers: [] },
     payload.configuration?.provider ?? 'deepseek-official',
     active?.model?.provider,
+    payload.configuration?.experimentalAutoEffort === true,
   )
   if (!elements.timelinePanel.classList.contains('hidden')) renderTimelinePanel()
   if (!startupComplete && state.phase === 'connected') {

@@ -94,27 +94,32 @@ body {
   min-width: 0;
 }
 
-/* The single-row composer needs roughly 600 px with English labels. Switch
- * before its intrinsic controls can become wider than the side bar. */
+/* The composer must stay on a single row at every viewport width: tools,
+ * meta and actions shrink and ellipsize instead of wrapping onto new lines. */
 @media (max-width: 680px) {
   .composer-bar {
-    grid-template-columns: minmax(0, 1fr) max-content;
-    grid-template-areas:
-      'tools tools'
-      'meta actions';
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) max-content;
+    grid-template-areas: 'tools meta actions';
+    gap: 5px 6px;
   }
 
   .composer-tools {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: flex-start;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .composer-meta {
-    justify-content: flex-start;
+    justify-content: flex-end;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .composer-status {
-    text-align: left;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .permission-toggle {
@@ -132,16 +137,17 @@ body {
   }
 
   .composer-bar {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      'tools'
-      'meta'
-      'actions';
+    grid-template-columns: minmax(0, 1fr) max-content;
+    grid-template-areas: 'tools actions';
     row-gap: 3px;
   }
 
+  .composer-meta {
+    display: none;
+  }
+
   .composer-actions {
-    width: 100%;
+    width: auto;
   }
 
   .configuration-toggle {

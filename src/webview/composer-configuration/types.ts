@@ -22,6 +22,7 @@ export interface ComposerConfigurationInput {
   readonly models: readonly ModelConfigurationOption[]
   readonly presets: readonly ConfigurationOption[]
   readonly fallbackReasoning: readonly ConfigurationOption[]
+  readonly experimentalAutoEffort?: boolean
 }
 
 export type EffortTone = 'off' | 'low' | 'high' | 'max' | 'auto'
@@ -40,6 +41,7 @@ export interface ComposerConfigurationSnapshot {
   readonly effortTone: EffortTone
   readonly dirty: boolean
   readonly modeStartsNewConversation: boolean
+  readonly experimentalAutoEffort: boolean
 }
 
 export type ConfigurationSection = 'model' | 'preset' | 'reasoning'

@@ -27,5 +27,6 @@
   "config.permission.workspaceWrite": "Allow writes only in the current workspace and runtime temporary directories.",
   "config.permission.dangerFullAccess": "Do not apply Harness filesystem sandbox restrictions.",
   "config.autoAttachSelection": "Automatically stage the active editor selection as a visible prompt context card. Set to `false` to attach selections only with the “⬒ Selection” button.",
-  "config.webSearch": "Enable the built-in DeepSeek web-search provider so the Agent can search the web. Takes effect after a workbench reload."
+  "config.webSearch": "Enable the built-in DeepSeek web-search provider so the Agent can search the web. Takes effect after a workbench reload.",
+  "config.experimentalAutoEffort": "Enable experimental auto reasoning effort mode to dynamically scale reasoning tokens based on task signals."
 }

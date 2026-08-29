@@ -334,8 +334,10 @@ function renderTodoCard(item: ChatItem): HTMLElement {
   const details = node('details', 'tool-card todo-card') as HTMLDetailsElement
   details.dataset.disclosureKey = `todo-${String(item.id)}`
   details.dataset.autoOpen = 'true'
+  details.open = true
   const summary = node('summary')
-  summary.append(node('span', 'tool-status', '☑'), node('span', 'tool-title', t('taskList')))
+  const chevron = node('span', 'todo-chevron', '⌄')
+  summary.append(chevron, node('span', 'tool-title', t('taskList')))
   const progress = node('span', 'todo-progress')
   summary.append(progress)
   details.append(summary)

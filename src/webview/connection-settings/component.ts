@@ -16,7 +16,7 @@ interface ConnectionSettingsComponentOptions {
 export interface ConnectionSettingsComponent {
   open(): void
   close(): void
-  update(state: ConnectionSettingsState, selectedProvider: string, activeProvider?: string): void
+  update(state: ConnectionSettingsState, selectedProvider: string, activeProvider?: string, experimentalAutoEffort?: boolean): void
   renderTestResult(result: ConnectionTestResult): void
 }
 
@@ -33,6 +33,7 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
   const apiKey = required<HTMLInputElement>(document, 'settings-api-key')
   const models = required<HTMLInputElement>(document, 'settings-models')
   const modelsField = required<HTMLElement>(document, 'settings-models-field')
+  const experimentalAutoEffort = required<HTMLInputElement>(document, 'settings-experimental-auto-effort')
   const openNative = required<HTMLButtonElement>(document, 'settings-open-native')
   const apply = required<HTMLButtonElement>(document, 'settings-apply')
   const remove = required<HTMLButtonElement>(document, 'settings-delete')
@@ -129,6 +130,9 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
     resetTest()
   })
   apiKey.addEventListener('input', resetTest)
+  experimentalAutoEffort.addEventListener('change', () => {
+    post('setExperimentalAutoEffort', { value: experimentalAutoEffort.checked })
+  })
   closeButton.addEventListener('click', () => panel.classList.add('hidden'))
   openNative.addEventListener('click', () => post('openSettings'))
   test.addEventListener('click', () => {
@@ -171,10 +175,13 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
       baseUrl.focus()
     },
     close: () => panel.classList.add('hidden'),
-    update: (next, selectedProvider, currentProvider) => {
+    update: (next, selectedProvider, currentProvider, isExperimentalAutoEffort) => {
       state = next
       defaultProvider = selectedProvider
       activeProvider = currentProvider
+      if (typeof isExperimentalAutoEffort === 'boolean') {
+        experimentalAutoEffort.checked = isExperimentalAutoEffort
+      }
       if (!panel.classList.contains('hidden')) renderProviders()
       else if (selected() !== undefined) remove.disabled = selected()!.id === activeProvider
     },

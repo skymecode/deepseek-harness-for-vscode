@@ -29,6 +29,7 @@ import { agentPresetTransition, type PromptConfiguration } from '../domain/promp
 import { conversationTitle } from '../domain/session-title.js'
 import { projectSessionChanges } from '../domain/session-changes.js'
 import { isAutoEffort, resolveEffortIntent, type AutoEffortSignals, type EffortIntent, type PromptEffortSignals } from '../domain/session-effort.js'
+import { pickAutoModel, type ModelProfileInput } from '../domain/model-profile.js'
 import {
   metaSortRank,
   readSessionMeta,
@@ -205,6 +206,11 @@ export class HarnessGatewayService implements vscode.Disposable {
       await this.connectionSettings.connect(this.client)
       this.startEventStreams()
       await Promise.all([this.refreshSessionList(), this.refreshArchiveSet(), this.refreshPresets()])
+      // The VSCode Memento can be rebuilt empty (state.vscdb), which wipes the
+      // worktree registry. Recover records from disk mirrors so isolated
+      // sessions keep their Review/Merge/Discard affordances across resets.
+      const workspaceRoots = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath)
+      await this.worktrees.recover(workspaceRoots)
       // Sweep worktrees whose session no longer exists (crash between worktree
       // add and session create, or a session removed out-of-band).
       void this.cleanupOrphanWorktrees()
@@ -377,6 +383,44 @@ export class HarnessGatewayService implements vscode.Disposable {
     return String(created.sessionId)
   }
 
+  /** True when the session lives in its own git worktree (A2 isolation). */
+  private isSessionIsolated(sessionId: string): boolean {
+    return this.worktrees.recordFor(sessionId) !== undefined
+  }
+
+  /**
+   * Moves an un-isolated session into a fresh isolated worktree before its
+   * next message, carrying the conversation as a hidden lead block (the same
+   * mechanism mode switches use). Safety gate: if the shared checkout has
+   * uncommitted changes, the migration is skipped — those changes would be
+   * invisible from the new worktree and the continuation would silently break.
+   */
+  private async migrateUnisolatedSession(sourceId: string): Promise<void> {
+    const preset = this.summaries.get(sourceId)?.agentPreset ?? this.configuration.get().agentPreset
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (workspaceRoot !== undefined && await this.worktrees.workingTreeDirty(workspaceRoot)) {
+      // The checkout is dirty; do not strand its changes. The user can still
+      // open a fresh isolated session with the ＋ button.
+      this.output.appendLine(vscode.l10n.t(
+        '[gateway] Session {0} has no isolated worktree; auto-isolation skipped because the workspace has uncommitted changes.',
+        sourceId,
+      ))
+      return
+    }
+    // Snapshot the conversation BEFORE createSession() switches the active
+    // session and resets the entry cache.
+    const carried = this.buildCarryOverForActiveSession(preset, preset)
+    const isolatedId = await this.createSession(preset)
+    if (carried !== undefined) {
+      this.pendingCarryOver = { targetSessionId: isolatedId, message: carried }
+      this.output.appendLine(vscode.l10n.t(
+        '[gateway] Session {0} had no isolated worktree; moved to isolated session {1} with the conversation carried over.',
+        sourceId,
+        isolatedId,
+      ))
+    }
+  }
+
   /**
    * Condenses the active conversation right before a mode switch opens a
    * fresh session: the digest rides as a hidden lead block on the next send
@@ -452,7 +496,25 @@ export class HarnessGatewayService implements vscode.Disposable {
     // 'auto' is an extension-side selection layer carried as a separated intent:
     // the concrete tier in `selection.reasoningEffort` is what the UI shows.
     const intent = selection.reasoningIntent === 'auto' ? selection.reasoningIntent : selection.reasoningEffort
-    await this.selectModel(selection.provider, selection.model, intent, true, signals)
+    // Auto mode selects the model as well as the tier: light tasks run on the
+    // fastest model, heavy tasks on the deep-reasoning one, everything else
+    // keeps the current selection to avoid churn. selectModel() then resolves
+    // the 'auto' tier against the chosen model's own reasoning options.
+    let targetModel = selection.model
+    if (intent === 'auto' && signals !== undefined) {
+      const autoModel = pickAutoModel(
+        this.modelsFor(selection.provider),
+        this.models?.current.model ?? selection.model,
+        this.autoSignals(signals),
+      )
+      if (autoModel !== undefined && autoModel !== targetModel) targetModel = autoModel
+    }
+    await this.selectModel(selection.provider, targetModel, intent, true, signals)
+  }
+
+  /** The models currently advertised by one provider, in provider order. */
+  private modelsFor(provider: string): readonly ModelProfileInput[] {
+    return this.models?.groups.find((group) => group.id === provider)?.models ?? []
   }
 
   async searchSessions(query: string): Promise<{ readonly sessionId: string; readonly snippet: string }[]> {
@@ -603,7 +665,21 @@ export class HarnessGatewayService implements vscode.Disposable {
     const normalized = text.trim()
     if (normalized === '' && attachments.length === 0) return
     if (this.activeSessionId === undefined) await this.createSession()
-    const sessionId = this.requireActiveSession()
+    let sessionId = this.requireActiveSession()
+
+    // Auto-isolation: sessions created through the host's native fork path
+    // (uuid id, parentSession) inherit the parent's shared cwd and have no
+    // worktree, so their work is not fenced. Before the first message lands,
+    // move the conversation into a fresh isolated worktree when the shared
+    // checkout is clean; a dirty checkout is left alone (migrating would
+    // strand its uncommitted changes outside the new worktree).
+    if (this.subagentAddress === undefined && !this.isSessionIsolated(sessionId)) {
+      await this.migrateUnisolatedSession(sessionId)
+      // createSession() inside the migration may switch the active session.
+      // Rebind before staging configuration so FIFO/busy state follows the
+      // session that will actually receive the prompt.
+      sessionId = this.requireActiveSession()
+    }
 
     let deferredEntry: PendingConfigEntry | undefined
     if (configuration !== undefined) {

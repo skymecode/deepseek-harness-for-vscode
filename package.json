@@ -207,6 +207,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "%config.webSearch%"
+        },
+        "deepseekHarness.experimentalAutoEffort": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "%config.experimentalAutoEffort%"
         }
       }
     }

@@ -16,6 +16,7 @@ describe('Harness Web profile overlay', () => {
       permissionMode: 'workspace-write',
       webSearch: true,
       autoAttachSelection: true,
+      experimentalAutoEffort: false,
     }, '/extension/dist/runtime/gateway-runtime.mjs')
     expect(overlay).toContain('id: web-runtime')
     expect(overlay).toContain('disabled: true')
@@ -40,6 +41,7 @@ describe('Harness Web profile overlay', () => {
       permissionMode: 'workspace-write',
       webSearch: false,
       autoAttachSelection: true,
+      experimentalAutoEffort: false,
     }, '/extension/dist/runtime/gateway-runtime.mjs')
     const rows = load(overlay) as Array<{ id?: string; disabled?: boolean }>
     expect(rows).toEqual(expect.arrayContaining([
@@ -57,6 +59,7 @@ describe('Harness Web profile overlay', () => {
       permissionMode: 'read-only',
       webSearch: true,
       autoAttachSelection: false,
+      experimentalAutoEffort: false,
     }, 'C:\\Extensions\\DeepSeek Harness\\gateway-runtime.mjs')
     expect(overlay).toContain('reasoningEffort: off')
     expect(overlay).not.toContain('thinking:')

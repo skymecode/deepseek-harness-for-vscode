@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import type { ExecFileOptions } from 'node:child_process'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -49,6 +49,13 @@ export type GitRunner = (cwd: string, args: readonly string[]) => Promise<ExecRe
 
 const REGISTRY_KEY = 'dsh.worktrees.v1'
 const SESSION_ROOTS_KEY = 'dsh.worktree-session-roots.v1'
+/**
+ * Mirror of the registry written inside each repository's `.git` directory.
+ * The VSCode Memento (globalState) is not durable — the `state.vscdb` file can
+ * be rebuilt empty — so this file is the authoritative record that lets
+ * `recover()` restore Review/Merge/Discard affordances after a reset.
+ */
+const DISK_REGISTRY_FILE = 'dsh-worktrees.json'
 
 /**
  * Per-session git worktree isolation (plan A2).
@@ -136,6 +143,30 @@ export class WorktreeService implements vscode.Disposable {
     } catch {
       return undefined
     }
+  }
+
+  /**
+   * The shared (non-isolated) working tree's uncommitted diff against HEAD,
+   * for sessions that run directly in the main checkout. Tracks edits and
+   * deletions only — untracked files are deliberately left out so the intent
+   * marker is never stamped into the user's real index.
+   */
+  async workingTreeDiff(repoRoot: string): Promise<string | undefined> {
+    try {
+      const { stdout } = await this.run(repoRoot, ['diff', 'HEAD'])
+      return stdout
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Whether the main checkout has uncommitted changes. Auto-isolation uses
+   * this as a safety gate: migrating a session while the shared checkout is
+   * dirty would strand those changes outside the fresh worktree.
+   */
+  async workingTreeDirty(repoRoot: string): Promise<boolean> {
+    return worktreeDirty(this.run, repoRoot)
   }
 
   /**
@@ -300,6 +331,83 @@ export class WorktreeService implements vscode.Disposable {
     return removed
   }
 
+  /**
+   * Restores worktree records from disk after the Memento was lost or cleared
+   * (VSCode rebuilds `state.vscdb` empty from time to time). Two sources, in
+   * priority order:
+   *   1. the per-repository `.git/dsh-worktrees.json` mirror (accurate
+   *      `baseBranch`/`createdAt`, written by every `save()`);
+   *   2. a scan of the isolation directory `.dsh-worktrees/*`, which rebuilds
+   *      a record from each surviving worktree even when the mirror is gone.
+   * Existing in-memory records always win. Returns the restored records.
+   */
+  async recover(workspaceRoots: readonly string[]): Promise<WorktreeRecord[]> {
+    const restored: WorktreeRecord[] = []
+    const seen = new Set<string>(this.records.keys())
+    for (const root of workspaceRoots) {
+      if (root === undefined || root === '') continue
+      for (const record of await this.readDiskRegistry(root)) {
+        if (seen.has(record.sessionId) || !(await pathExists(record.worktreePath))) continue
+        this.records.set(record.sessionId, record)
+        this.sessionRoots.set(record.sessionId, record.repoRoot)
+        seen.add(record.sessionId)
+        restored.push(record)
+      }
+      for (const sessionId of await listSubdirectories(joinPathLike(root, '.dsh-worktrees'))) {
+        if (seen.has(sessionId) || sessionId.startsWith('.merge-')) continue
+        const worktreePath = joinPathLike(root, '.dsh-worktrees', sessionId)
+        const record = await this.recordFromWorktree(root, sessionId, worktreePath)
+        if (record === undefined) continue
+        this.records.set(sessionId, record)
+        this.sessionRoots.set(sessionId, record.repoRoot)
+        seen.add(sessionId)
+        restored.push(record)
+      }
+    }
+    if (restored.length > 0) this.save()
+    return restored
+  }
+
+  /** Records persisted in `root/.git/dsh-worktrees.json`, if readable. */
+  private async readDiskRegistry(root: string): Promise<WorktreeRecord[]> {
+    try {
+      const raw = await readFile(joinPathLike(root, '.git', DISK_REGISTRY_FILE), 'utf8')
+      const parsed: unknown = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return []
+      return parsed.filter((entry): entry is WorktreeRecord =>
+        typeof entry?.sessionId === 'string'
+        && typeof entry.repoRoot === 'string'
+        && typeof entry.baseBranch === 'string'
+        && typeof entry.worktreePath === 'string')
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Rebuilds a record for one surviving worktree directory. `.git` inside a
+   * worktree is a pointer file naming its gitdir; requiring it keeps us from
+   * mistaking random directories for worktrees. The base branch degrades to
+   * the repository's default branch when it cannot be recovered.
+   */
+  private async recordFromWorktree(root: string, sessionId: string, worktreePath: string): Promise<WorktreeRecord | undefined> {
+    try {
+      const gitFile = await readFile(joinPathLike(worktreePath, '.git'), 'utf8')
+      if (!gitFile.trim().includes('worktrees')) return undefined
+      const baseBranch = await defaultBranch(this.run, root)
+      return {
+        sessionId,
+        repoRoot: root,
+        baseBranch,
+        branch: `dsh/${sessionId}`,
+        worktreePath,
+        createdAt: Date.now(),
+      }
+    } catch {
+      return undefined
+    }
+  }
+
   dispose(): void {
     this.records.clear()
     this.sessionRoots.clear()
@@ -327,6 +435,22 @@ export class WorktreeService implements vscode.Disposable {
   private save(): void {
     void this.storage.update(REGISTRY_KEY, [...this.records.values()])
     void this.storage.update(SESSION_ROOTS_KEY, Object.fromEntries(this.sessionRoots))
+    void this.writeDiskRegistries().catch(() => undefined)
+  }
+
+  /** Mirrors the registry into each repository's `.git` directory. */
+  private async writeDiskRegistries(): Promise<void> {
+    const byRepo = new Map<string, WorktreeRecord[]>()
+    for (const record of this.records.values()) {
+      const list = byRepo.get(record.repoRoot)
+      if (list === undefined) byRepo.set(record.repoRoot, [record])
+      else list.push(record)
+    }
+    for (const [repoRoot, records] of byRepo) {
+      const file = joinPathLike(repoRoot, '.git', DISK_REGISTRY_FILE)
+      await mkdir(dirnameLike(repoRoot, file), { recursive: true }).catch(() => undefined)
+      await writeFile(file, JSON.stringify(records, null, 2)).catch(() => undefined)
+    }
   }
 }
 
@@ -359,6 +483,38 @@ async function worktreeDirty(run: GitRunner, repoRoot: string): Promise<boolean>
     // If status is unreadable, err on the side of not touching the worktree.
     return true
   }
+}
+
+/** Whether a path exists on disk (worktree directories are the usual target). */
+async function pathExists(target: string): Promise<boolean> {
+  try {
+    await stat(target)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Immediate subdirectories of `dir` (skips files and unreadable entries). */
+async function listSubdirectories(dir: string): Promise<string[]> {
+  try {
+    const entries = await readdir(dir, { withFileTypes: true })
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+  } catch {
+    return []
+  }
+}
+
+/** The repository's default branch (origin/HEAD), falling back to `main`. */
+async function defaultBranch(run: GitRunner, repoRoot: string): Promise<string> {
+  try {
+    const { stdout } = await run(repoRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
+    const branch = stdout.trim()
+    if (branch !== '' && !branch.endsWith('/HEAD')) return branch.replace(/^origin\//u, '')
+  } catch {
+    // origin/HEAD is unset for local-only repositories.
+  }
+  return 'main'
 }
 
 function runGit(cwd: string, args: readonly string[]): Promise<ExecResult> {

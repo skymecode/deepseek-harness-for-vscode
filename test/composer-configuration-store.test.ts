@@ -94,6 +94,15 @@ describe('composer configuration store', () => {
     expect(tier?.autoActive).toBe(false)
     expect(tier?.selection.reasoningIntent).toBeUndefined()
     expect(tier?.selection.reasoningEffort).toBe('high')
+
+    // Toggling auto mode switches it on and off
+    const toggledOn = store.toggleAuto()
+    expect(toggledOn?.autoActive).toBe(true)
+    expect(toggledOn?.selection.reasoningIntent).toBe('auto')
+
+    const toggledOff = store.toggleAuto()
+    expect(toggledOff?.autoActive).toBe(false)
+    expect(toggledOff?.selection.reasoningIntent).toBeUndefined()
   })
 
   it('switches source without duplicating the two model choices', () => {

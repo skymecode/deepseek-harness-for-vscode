@@ -180,6 +180,12 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         await this.actions.applySettings(settingsInput(value))
         break
       }
+      case 'setExperimentalAutoEffort': {
+        const enabled = value.value === true
+        await this.configuration.setExperimentalAutoEffort(enabled)
+        await this.publishState()
+        break
+      }
       case 'removeProvider': {
         await this.actions.removeProvider(requiredString(value, 'provider'))
         break
@@ -433,6 +439,13 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
           throw new Error(vscode.l10n.t('Compact is not available for this session.'))
         }
         await this.gateway.prompt('/compact')
+        break
+      }
+      case 'sessionChangesReview': {
+        const state = await this.gateway.snapshot()
+        const sessionId = state.active?.id
+        if (sessionId === undefined) break
+        await this.handleWorktreeAction(sessionId)
         break
       }
     }
@@ -704,7 +717,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
             </section>
           </div>
           <footer id="effort-control" class="effort-control" data-effort="high">
-            <div class="effort-main">
+            <div id="effort-standard-row" class="effort-main">
               <div class="effort-heading"><span>${text('configurationEffort')}</span><strong id="effort-value"></strong></div>
               <div class="effort-slider-row">
                 <input id="effort-slider" type="range" min="0" max="2" step="1" value="1" aria-label="${text('configurationEffort')}">
@@ -712,6 +725,24 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
                 <span class="effort-thumb" aria-hidden="true"></span>
               </div>
               <button id="effort-auto" class="effort-auto" type="button" aria-pressed="false" title="${text('effortAutoDescription')}">${text('effortAuto')}</button>
+            </div>
+            <div id="effort-auto-mode-row" class="effort-auto-mode-row hidden">
+              <div class="auto-mode-label">
+                <svg class="auto-mode-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="5" r="2.5"></circle>
+                  <circle cx="6" cy="18" r="2.5"></circle>
+                  <circle cx="18" cy="18" r="2.5"></circle>
+                  <path d="M10.2 7.2L7.8 15.5"></path>
+                  <path d="M13.8 7.2L16.2 15.5"></path>
+                  <path d="M8.5 18h7"></path>
+                </svg>
+                <span>${text('autoMode')}</span>
+              </div>
+              <button id="auto-mode-toggle" class="auto-mode-switch" type="button" role="switch" aria-checked="false" aria-label="${text('autoModeDescription')}" title="${text('autoModeDescription')}">
+                <span class="auto-mode-switch-track">
+                  <span class="auto-mode-switch-thumb"></span>
+                </span>
+              </button>
             </div>
             <p id="configuration-hint">${text('configurationAppliesNextMessage')}</p>
           </footer>
@@ -726,8 +757,8 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         <textarea id="prompt" rows="1" placeholder="${text('promptPlaceholder')}" aria-label="${text('message')}"></textarea>
         <div class="composer-bar">
           <div class="composer-tools">
-            <button id="attach-selection" class="text-button" title="${text('attachSelection')}">⬒ ${text('selection')}</button>
-            <button id="timeline-toggle" class="text-button" title="${text('timeline')}">◷ ${text('timeline')}</button>
+            <button id="attach-selection" class="text-button hidden" title="${text('attachSelection')}">⬒ ${text('selection')}</button>
+            <button id="timeline-toggle" class="text-button hidden" title="${text('timeline')}">◷ ${text('timeline')}</button>
             <button id="details-toggle" class="text-button" title="${text('contextDescription')}">${text('context')}</button>
             <div id="permission" class="permission-picker hidden">
               <button id="permission-toggle" class="permission-toggle" type="button" title="${text('permissionDescription')}" aria-label="${text('permissionDescription')}" aria-haspopup="listbox" aria-expanded="false">
@@ -759,12 +790,9 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
           </div>
           <div class="composer-actions">
             <button id="configuration-toggle" class="configuration-toggle" type="button" title="${text('configurationOpen')}" aria-label="${text('configurationOpen')}" aria-expanded="false" aria-controls="configuration-panel" disabled>
-              <span class="configuration-toggle-icon">◈</span>
-              <span class="configuration-toggle-copy">
-                <strong id="configuration-toggle-model">${text('model')}</strong>
-                <small id="configuration-toggle-mode">${text('agent')}</small>
-              </span>
-              <span class="configuration-toggle-chevron">⌃</span>
+              <span id="configuration-toggle-model" class="configuration-toggle-model">${text('model')}</span>
+              <span id="configuration-toggle-mode" class="configuration-toggle-effort">${text('reasoning')}</span>
+              <span class="configuration-toggle-chevron">⌄</span>
             </button>
             <button id="send" class="send-button" title="${text('sendTitle')}" aria-label="${text('send')}">↑</button>
           </div>
@@ -801,6 +829,10 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
           <span class="settings-label">${text('providerModels')}</span>
           <input id="settings-models" type="text" spellcheck="false" autocomplete="off" placeholder="${text('providerModelsPlaceholder')}">
           <small class="settings-hint">${text('providerModelsHint')}</small>
+        </label>
+        <label class="settings-checkbox-field" id="settings-experimental-auto-effort-field">
+          <input id="settings-experimental-auto-effort" type="checkbox">
+          <span class="settings-label">${text('experimentalAutoEffort')}</span>
         </label>
         <div class="settings-test-row">
           <button id="settings-test" class="secondary-button" type="button">${text('testConnection')}</button>
