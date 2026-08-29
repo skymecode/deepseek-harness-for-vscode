@@ -49,6 +49,7 @@ export type GitRunner = (cwd: string, args: readonly string[]) => Promise<ExecRe
 
 const REGISTRY_KEY = 'dsh.worktrees.v1'
 const SESSION_ROOTS_KEY = 'dsh.worktree-session-roots.v1'
+const DISK_REGISTRY_VERSION = 2
 /**
  * Mirror of the registry written inside each repository's `.git` directory.
  * The VSCode Memento (globalState) is not durable — the `state.vscdb` file can
@@ -56,6 +57,11 @@ const SESSION_ROOTS_KEY = 'dsh.worktree-session-roots.v1'
  * `recover()` restore Review/Merge/Discard affordances after a reset.
  */
 const DISK_REGISTRY_FILE = 'dsh-worktrees.json'
+
+interface DiskRegistrySnapshot {
+  readonly records: readonly WorktreeRecord[]
+  readonly sessionRoots: Readonly<Record<string, string>>
+}
 
 /**
  * Per-session git worktree isolation (plan A2).
@@ -71,6 +77,8 @@ export class WorktreeService implements vscode.Disposable {
   private readonly records = new Map<string, WorktreeRecord>()
   /** Durable project identity retained after a worktree is discarded. */
   private readonly sessionRoots = new Map<string, string>()
+  /** Serializes mirror snapshots so an older save cannot overwrite a newer one. */
+  private diskWriteQueue: Promise<void> = Promise.resolve()
 
   constructor(
     private readonly storage: vscode.Memento,
@@ -122,7 +130,7 @@ export class WorktreeService implements vscode.Disposable {
     }
     this.records.set(sessionId, record)
     this.sessionRoots.set(sessionId, repoRoot)
-    this.save()
+    await this.save()
     return { cwd: worktreePath, isolated: true, record }
   }
 
@@ -298,15 +306,16 @@ export class WorktreeService implements vscode.Disposable {
     this.records.delete(sessionId)
     // Keep the durable project identity: the session log survives discard and
     // must remain visible in the same workspace after the worktree is gone.
-    this.save()
+    await this.save()
     return { ok: true, message: 'discarded' }
   }
 
   /** Forgets a session that failed before it was created by the Host. */
-  forgetSession(sessionId: string): void {
+  async forgetSession(sessionId: string): Promise<void> {
+    const repoRoot = this.repoRootFor(sessionId)
     const removedRecord = this.records.delete(sessionId)
     const removedRoot = this.sessionRoots.delete(sessionId)
-    if (removedRecord || removedRoot) this.save()
+    if (removedRecord || removedRoot) await this.save(repoRoot === undefined ? [] : [repoRoot])
   }
 
   /**
@@ -316,18 +325,22 @@ export class WorktreeService implements vscode.Disposable {
    */
   async cleanupOrphans(liveSessionIds: ReadonlySet<string>): Promise<string[]> {
     const removed: string[] = []
+    const affectedRepoRoots = new Set<string>()
     for (const [sessionId, record] of this.records) {
       if (liveSessionIds.has(sessionId)) continue
       await this.run(record.repoRoot, ['worktree', 'remove', '--force', record.worktreePath]).catch(() => undefined)
       await this.run(record.repoRoot, ['branch', '-D', record.branch]).catch(() => undefined)
       this.records.delete(sessionId)
       this.sessionRoots.delete(sessionId)
+      affectedRepoRoots.add(record.repoRoot)
       removed.push(sessionId)
     }
-    for (const sessionId of this.sessionRoots.keys()) {
-      if (!liveSessionIds.has(sessionId)) this.sessionRoots.delete(sessionId)
+    for (const [sessionId, repoRoot] of this.sessionRoots) {
+      if (liveSessionIds.has(sessionId)) continue
+      this.sessionRoots.delete(sessionId)
+      affectedRepoRoots.add(repoRoot)
     }
-    this.save()
+    await this.save(affectedRepoRoots)
     return removed
   }
 
@@ -344,14 +357,24 @@ export class WorktreeService implements vscode.Disposable {
   async recover(workspaceRoots: readonly string[]): Promise<WorktreeRecord[]> {
     const restored: WorktreeRecord[] = []
     const seen = new Set<string>(this.records.keys())
+    let changed = false
     for (const root of workspaceRoots) {
       if (root === undefined || root === '') continue
-      for (const record of await this.readDiskRegistry(root)) {
+      const disk = await this.readDiskRegistry(root)
+      // Root-only entries deliberately restore even when the worktree no
+      // longer exists: discarded sessions still belong to this repository.
+      for (const [sessionId, repoRoot] of Object.entries(disk.sessionRoots)) {
+        if (this.sessionRoots.has(sessionId)) continue
+        this.sessionRoots.set(sessionId, repoRoot)
+        changed = true
+      }
+      for (const record of disk.records) {
         if (seen.has(record.sessionId) || !(await pathExists(record.worktreePath))) continue
         this.records.set(record.sessionId, record)
         this.sessionRoots.set(record.sessionId, record.repoRoot)
         seen.add(record.sessionId)
         restored.push(record)
+        changed = true
       }
       for (const sessionId of await listSubdirectories(joinPathLike(root, '.dsh-worktrees'))) {
         if (seen.has(sessionId) || sessionId.startsWith('.merge-')) continue
@@ -362,25 +385,38 @@ export class WorktreeService implements vscode.Disposable {
         this.sessionRoots.set(sessionId, record.repoRoot)
         seen.add(sessionId)
         restored.push(record)
+        changed = true
       }
     }
-    if (restored.length > 0) this.save()
+    if (changed) await this.save()
     return restored
   }
 
-  /** Records persisted in `root/.git/dsh-worktrees.json`, if readable. */
-  private async readDiskRegistry(root: string): Promise<WorktreeRecord[]> {
+  /** Records and retained roots persisted in the repository mirror, if readable. */
+  private async readDiskRegistry(root: string): Promise<DiskRegistrySnapshot> {
     try {
       const raw = await readFile(joinPathLike(root, '.git', DISK_REGISTRY_FILE), 'utf8')
       const parsed: unknown = JSON.parse(raw)
-      if (!Array.isArray(parsed)) return []
-      return parsed.filter((entry): entry is WorktreeRecord =>
-        typeof entry?.sessionId === 'string'
-        && typeof entry.repoRoot === 'string'
-        && typeof entry.baseBranch === 'string'
-        && typeof entry.worktreePath === 'string')
+      // Legacy mirrors were a bare WorktreeRecord array. Treat every record as
+      // a root mapping too: an older discard could leave its now-stale record
+      // in the file, and orphan cleanup will remove the mapping if the Host no
+      // longer knows that session.
+      if (Array.isArray(parsed)) {
+        const records = worktreeRecords(parsed)
+        return { records, sessionRoots: rootsFromRecords(records) }
+      }
+      if (typeof parsed !== 'object' || parsed === null) return emptyDiskRegistry()
+      const candidate = parsed as { readonly records?: unknown; readonly sessionRoots?: unknown }
+      const records = worktreeRecords(candidate.records)
+      return {
+        records,
+        sessionRoots: {
+          ...rootsFromRecords(records),
+          ...sessionRootRecord(candidate.sessionRoots),
+        },
+      }
     } catch {
-      return []
+      return emptyDiskRegistry()
     }
   }
 
@@ -432,26 +468,65 @@ export class WorktreeService implements vscode.Disposable {
     }
   }
 
-  private save(): void {
-    void this.storage.update(REGISTRY_KEY, [...this.records.values()])
-    void this.storage.update(SESSION_ROOTS_KEY, Object.fromEntries(this.sessionRoots))
-    void this.writeDiskRegistries().catch(() => undefined)
+  private async save(additionalRepoRoots: Iterable<string> = []): Promise<void> {
+    const records = [...this.records.values()]
+    const sessionRoots = Object.fromEntries(this.sessionRoots)
+    const rootsToWrite = [...additionalRepoRoots]
+    void this.storage.update(REGISTRY_KEY, records)
+    void this.storage.update(SESSION_ROOTS_KEY, sessionRoots)
+    this.diskWriteQueue = this.diskWriteQueue
+      .then(() => this.writeDiskRegistries(records, sessionRoots, rootsToWrite))
+      .catch(() => undefined)
+    await this.diskWriteQueue
   }
 
-  /** Mirrors the registry into each repository's `.git` directory. */
-  private async writeDiskRegistries(): Promise<void> {
-    const byRepo = new Map<string, WorktreeRecord[]>()
-    for (const record of this.records.values()) {
-      const list = byRepo.get(record.repoRoot)
-      if (list === undefined) byRepo.set(record.repoRoot, [record])
-      else list.push(record)
-    }
-    for (const [repoRoot, records] of byRepo) {
+  /** Mirrors live records and retained roots into each repository's `.git` directory. */
+  private async writeDiskRegistries(
+    records: readonly WorktreeRecord[],
+    sessionRoots: Readonly<Record<string, string>>,
+    additionalRepoRoots: readonly string[],
+  ): Promise<void> {
+    const repoRoots = new Set(additionalRepoRoots)
+    for (const record of records) repoRoots.add(record.repoRoot)
+    for (const repoRoot of Object.values(sessionRoots)) repoRoots.add(repoRoot)
+    for (const repoRoot of repoRoots) {
+      const repoRecords = records.filter((record) => record.repoRoot === repoRoot)
+      const repoSessionRoots = Object.fromEntries(
+        Object.entries(sessionRoots).filter(([, storedRoot]) => storedRoot === repoRoot),
+      )
       const file = joinPathLike(repoRoot, '.git', DISK_REGISTRY_FILE)
       await mkdir(dirnameLike(repoRoot, file), { recursive: true }).catch(() => undefined)
-      await writeFile(file, JSON.stringify(records, null, 2)).catch(() => undefined)
+      await writeFile(file, JSON.stringify({
+        version: DISK_REGISTRY_VERSION,
+        records: repoRecords,
+        sessionRoots: repoSessionRoots,
+      }, null, 2)).catch(() => undefined)
     }
   }
+}
+
+function emptyDiskRegistry(): DiskRegistrySnapshot {
+  return { records: [], sessionRoots: {} }
+}
+
+function worktreeRecords(value: unknown): WorktreeRecord[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((entry): entry is WorktreeRecord =>
+    typeof entry?.sessionId === 'string'
+    && typeof entry.repoRoot === 'string'
+    && typeof entry.baseBranch === 'string'
+    && typeof entry.worktreePath === 'string')
+}
+
+function rootsFromRecords(records: readonly WorktreeRecord[]): Record<string, string> {
+  return Object.fromEntries(records.map((record) => [record.sessionId, record.repoRoot]))
+}
+
+function sessionRootRecord(value: unknown): Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== ''),
+  )
 }
 
 async function gitRoot(run: GitRunner, cwd: string): Promise<string | undefined> {

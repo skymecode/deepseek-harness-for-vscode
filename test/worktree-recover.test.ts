@@ -51,6 +51,13 @@ function mockDiskWithMirror(): void {
   vi.mocked(stat).mockResolvedValue({} as never)
 }
 
+function lastWrittenRegistry(): string {
+  const calls = vi.mocked(writeFile).mock.calls
+  const data = calls[calls.length - 1]?.[1]
+  if (typeof data !== 'string') throw new Error('expected a string disk-registry payload')
+  return data
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(mkdir).mockResolvedValue(undefined)
@@ -82,7 +89,7 @@ describe('WorktreeService.recover (Memento reset self-healing)', () => {
     expect(writeFile).toHaveBeenCalledWith('/repo/.git/dsh-worktrees.json', expect.any(String))
   })
 
-  it('keeps a recovered session scoped to its repository after discard', async () => {
+  it('restores a discarded session root from disk after the Memento is reset', async () => {
     const { memento } = memStore()
     mockDiskWithMirror()
     const service = new WorktreeService(memento, () => ok())
@@ -93,6 +100,62 @@ describe('WorktreeService.recover (Memento reset self-healing)', () => {
     expect(service.recordFor('abc123')).toBeUndefined()
     expect(service.displayCwd('abc123', '/repo/.dsh-worktrees/abc123')).toBe('/repo')
     expect(memento.get<Record<string, string>>('dsh.worktree-session-roots.v1')).toEqual({ abc123: '/repo' })
+
+    await flush()
+    const rootOnlyMirror = lastWrittenRegistry()
+    expect(JSON.parse(rootOnlyMirror)).toMatchObject({
+      version: 2,
+      records: [],
+      sessionRoots: { abc123: '/repo' },
+    })
+
+    // Simulate VS Code rebuilding state.vscdb: the new service receives an
+    // empty Memento and can only recover the discarded session from disk.
+    const reset = memStore()
+    vi.mocked(readFile).mockImplementation(async (target) => {
+      if (String(target).endsWith('/.git/dsh-worktrees.json')) return rootOnlyMirror
+      throw new Error('worktree was discarded')
+    })
+    vi.mocked(readdir).mockResolvedValue([])
+    vi.mocked(stat).mockRejectedValue(new Error('ENOENT'))
+    const reloaded = new WorktreeService(reset.memento, () => ok())
+
+    const restored = await reloaded.recover(['/repo'])
+
+    expect(restored).toHaveLength(0)
+    expect(reloaded.recordFor('abc123')).toBeUndefined()
+    expect(reloaded.displayCwd('abc123', '/repo/.dsh-worktrees/abc123')).toBe('/repo')
+    expect(reset.memento.get<Record<string, string>>('dsh.worktree-session-roots.v1')).toEqual({ abc123: '/repo' })
+  })
+
+  it('clears the root-only disk mapping when a failed session is forgotten', async () => {
+    const { state, memento } = memStore()
+    state.set('dsh.worktree-session-roots.v1', { abc123: '/repo' })
+    const service = new WorktreeService(memento, () => ok())
+
+    await service.forgetSession('abc123')
+
+    expect(JSON.parse(lastWrittenRegistry())).toMatchObject({
+      version: 2,
+      records: [],
+      sessionRoots: {},
+    })
+  })
+
+  it('clears root-only disk mappings during orphan cleanup', async () => {
+    const { state, memento } = memStore()
+    state.set('dsh.worktree-session-roots.v1', { abc123: '/repo' })
+    const service = new WorktreeService(memento, () => ok())
+
+    await service.cleanupOrphans(new Set())
+    await flush()
+
+    expect(service.displayCwd('abc123', '/fallback')).toBe('/fallback')
+    expect(JSON.parse(lastWrittenRegistry())).toMatchObject({
+      version: 2,
+      records: [],
+      sessionRoots: {},
+    })
   })
 
   it('rebuilds records by scanning the isolation directory when the mirror is gone', async () => {
@@ -158,7 +221,7 @@ describe('WorktreeService.recover (Memento reset self-healing)', () => {
     expect(service.recordFor('abc123')?.baseBranch).toBe('develop')
   })
 
-  it('does not restore a mirror record whose worktree directory is gone', async () => {
+  it('migrates a legacy root without restoring its missing worktree record', async () => {
     const { memento } = memStore()
     vi.mocked(readFile).mockImplementation(async (target) => {
       if (String(target).endsWith('/.git/dsh-worktrees.json')) return REGISTRY_JSON
@@ -172,5 +235,7 @@ describe('WorktreeService.recover (Memento reset self-healing)', () => {
 
     expect(restored).toHaveLength(0)
     expect(service.recordFor('abc123')).toBeUndefined()
+    expect(service.displayCwd('abc123', '/repo/.dsh-worktrees/abc123')).toBe('/repo')
+    expect(memento.get<Record<string, string>>('dsh.worktree-session-roots.v1')).toEqual({ abc123: '/repo' })
   })
 })

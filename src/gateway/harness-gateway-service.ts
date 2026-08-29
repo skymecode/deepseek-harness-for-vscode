@@ -362,7 +362,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       // Roll back the freshly created worktree so a failed create cannot leak it.
       if (prepared.isolated) {
         await this.worktrees.discard(sessionId).catch(() => undefined)
-        this.worktrees.forgetSession(sessionId)
+        await this.worktrees.forgetSession(sessionId)
       }
       throw cause
     }
