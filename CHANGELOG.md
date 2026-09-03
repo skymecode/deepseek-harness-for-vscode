@@ -2,6 +2,7 @@
 
 ## 0.5.9
 
+- 数据安全：老用户升级后历史会话不再丢失——除了从 globalStorage 迁移旧数据，启动时还会把 DSH CLI / 旧版构建存放在 `~/.dsh/sessions` 的历史会话一次性复制进稳定目录 `~/.dsh/vscode/harness-home/sessions`（幂等：已存在的会话跳过、旧目录永不改动、单会话复制失败自动在下次启动补扫），老安装升级后所有历史消息仍在列表且对话内容正常。
 - 内置运行时升级为官方 `@deepseek-ai/dsh@0.1.2-rc.1`（alpha.4 的正式 RC）：上游已把 `dsh-session-projection-cache` 的 `isSeeded` / `inheritedEventCount` 字段改为可选并兼容旧记录，投影缓存兼容补丁在 rc.1 下自动跳过（旧缓存无需清理）；`dsh-llm-pi-ai` 的 DeepSeek 中继工具回放与显式连接探测补丁在 rc.1 下继续生效。
 - 修复升级到新版 dsh 运行时后网关启动即崩溃的问题：新版 `@deepseek-ai/dsh-session-projection-cache` 给投影缓存记录的身份字段新增 `isSeeded` / `inheritedEventCount` 两个必填项，但没有提升存储版本号，旧版本写下的缓存记录直接让整个插件树加载失败。打包时现在对该包打兼容补丁，两字段按上游惯例（同 workspace 域的 `archivedSessionIds`）默认 `false` / `0`，与 dsh-session 还原旧会话头的取值一致——旧缓存照常可用，无需清理数据。
 - 修复历史会话只显示编辑卡片、推理/工具调用/正文全部丢失、发消息无反应的问题：新版 follow 流快照把推理/正文分片打包成 `chunkrow/*` 存储行（wire 键为 `seq`/`time`），而存储解码器要求 `{seq0, time0}` envelope，扩展解码时未做映射导致快照解析抛异常、会话历史整体加载失败。现在解码前把 wire 键映射回存储键（`seq→seq0`、`time→time0`），chunk 行正常还原为逐条 `assistant/chunk` 事件，历史正文/推理/工具卡完整恢复。
