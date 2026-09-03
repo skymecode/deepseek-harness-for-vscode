@@ -7,7 +7,7 @@ const packageJsonPath = require.resolve('@deepseek-ai/dsh-session-projection-cac
 const packageRoot = dirname(packageJsonPath)
 const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
 
-const SUPPORTED_VERSIONS = ['0.1.2-alpha.4']
+const SUPPORTED_VERSIONS = ['0.1.2-alpha.4', '0.1.2-rc.1']
 
 if (!SUPPORTED_VERSIONS.includes(packageJson.version)) {
   throw new Error(
@@ -28,11 +28,17 @@ const LEGACY_IDENTITY = '\tisSeeded: z$1.boolean(),\n'
   + '\tinheritedEventCount: z$1.number().int().nonnegative().transform(SessionLogOffset)'
 const COMPAT_IDENTITY = '\tisSeeded: z$1.boolean().default(false),\n'
   + '\tinheritedEventCount: z$1.number().int().nonnegative().default(0).transform(SessionLogOffset)'
+// 0.1.2-rc.1 fixed the schema upstream: both fields became optional and reads
+// already fall back (isSeeded ?? false / inheritedEventCount ?? 0), so the
+// patch is a no-op there. The marker below is the optional-form identity block.
+const FIXED_IDENTITY = 'isSeeded: z$1.boolean().optional(),'
 
 const path = join(packageRoot, 'lib/index.js')
 let source = await readFile(path, 'utf8')
 
-if (!source.includes(COMPAT_IDENTITY)) {
+if (source.includes(FIXED_IDENTITY)) {
+  // Upstream already made the fields optional (0.1.2-rc.1+): nothing to patch.
+} else if (!source.includes(COMPAT_IDENTITY)) {
   if (source.split(LEGACY_IDENTITY).length - 1 !== 1) {
     throw new Error(
       'Cannot apply legacy checkpoint-identity patch to lib/index.js: '
