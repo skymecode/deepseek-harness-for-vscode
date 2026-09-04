@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -7,7 +7,7 @@ vi.mock('vscode', () => ({
   // Only harnessHomePath touches vscode; the pure migration under test does not.
 }))
 
-import { legacyDshSessionsRoot, migrateLegacySessions } from '../src/runtime/harness-home.js'
+import { legacyDshSessionsRoot, legacySessionsRoots, migrateLegacySessions } from '../src/runtime/harness-home.js'
 
 let tmpRoot: string | undefined
 
@@ -99,7 +99,7 @@ describe('migrateLegacySessions', () => {
     chmodSync(artifact, 0o600)
 
     migrateLegacySessions(legacy, target)
-    const stat = require('node:fs').statSync(path.join(target, '--proj--', 'session-abc', 'session.jsonl.zstd'))
+    const stat = statSync(path.join(target, '--proj--', 'session-abc', 'session.jsonl.zstd'))
     expect(stat.mode & 0o777).toBe(0o600)
   })
 
@@ -137,5 +137,43 @@ describe('migrateLegacySessions', () => {
 
   it('legacyDshSessionsRoot points under the user home', () => {
     expect(legacyDshSessionsRoot()).toMatch(/[\\/]\.dsh[\\/]sessions$/)
+  })
+})
+
+describe('legacySessionsRoots', () => {
+  const originalDshHome = process.env.DSH_HOME
+
+  afterEach(() => {
+    if (originalDshHome === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = originalDshHome
+  })
+
+  it('always includes the default ~/.dsh/sessions legacy root', () => {
+    delete process.env.DSH_HOME
+    const roots = legacySessionsRoots(path.join('C:', 'Users', 'alice', '.dsh', 'vscode', 'harness-home'))
+    expect(roots).toContain(legacyDshSessionsRoot())
+  })
+
+  it('includes a sessions root derived from an explicit DSH_HOME', () => {
+    process.env.DSH_HOME = path.join('D:', 'custom-homes', 'dsh')
+    const roots = legacySessionsRoots('unused')
+    expect(roots).toContain(path.join('D:', 'custom-homes', 'dsh', 'sessions'))
+  })
+
+  it('never includes the stable home itself even when DSH_HOME points at it', () => {
+    const stableHome = path.join('C:', 'Users', 'alice', '.dsh', 'vscode', 'harness-home')
+    process.env.DSH_HOME = stableHome
+    const roots = legacySessionsRoots(stableHome)
+    expect(roots).not.toContain(path.join(stableHome, 'sessions'))
+    expect(roots).toContain(legacyDshSessionsRoot())
+    expect(roots).toHaveLength(1)
+  })
+
+  it('excludes the stable sessions root even when DSH_HOME equals the CLI default', () => {
+    const stable = path.join('C:', 'Users', 'alice', '.dsh', 'vscode', 'harness-home')
+    process.env.DSH_HOME = path.join('C:', 'Users', 'alice', '.dsh')
+    const roots = legacySessionsRoots(stable)
+    expect(roots).not.toContain(path.join(stable, 'sessions'))
+    expect(roots).toContain(legacyDshSessionsRoot())
   })
 })

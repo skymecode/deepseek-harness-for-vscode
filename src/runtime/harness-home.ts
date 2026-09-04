@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import * as vscode from 'vscode'
+import type * as vscode from 'vscode'
 
 const MIGRATED = new Set<string>()
 
@@ -66,9 +66,31 @@ export function migrateLegacySessions(
  * `~/.dsh`, with session logs under `~/.dsh/sessions`. When such an install
  * upgrades to this extension, every historical session must survive: copy
  * them into the stable home's sessions root once.
+ *
+ * Paths are built with `os.homedir()` + `path.join`, so the location resolves
+ * per OS user on every platform: `~/.dsh/sessions` on POSIX, `C:\Users\<u>\.dsh\sessions`
+ * on Windows. Each user migrates their own home; nothing is shared or global.
  */
 export function legacyDshSessionsRoot(): string {
   return path.join(os.homedir(), '.dsh', 'sessions')
+}
+
+/**
+ * Every legacy harness-home `sessions` root worth scanning, in priority order:
+ * 1. An explicitly configured `DSH_HOME` — covers CLI/older builds launched
+ *    with a custom home on any platform.
+ * 2. The CLI default home `~/.dsh/sessions`.
+ *
+ * The stable extension home is always excluded so the migration can never
+ * copy a root into itself. Missing roots are a no-op for the migrator.
+ */
+export function legacySessionsRoots(stableHome: string): string[] {
+  const roots = new Set<string>()
+  const envHome = process.env.DSH_HOME
+  if (envHome) roots.add(path.join(envHome, 'sessions'))
+  roots.add(legacyDshSessionsRoot())
+  roots.delete(path.join(stableHome, 'sessions'))
+  return [...roots]
 }
 
 /**
@@ -79,15 +101,17 @@ export function legacyDshSessionsRoot(): string {
  * configuration. A stable per-user directory (~/.dsh/vscode/harness-home)
  * survives extension reinstall, uninstall, and state resets.
  *
- * Two legacy homes are migrated once so an existing install keeps its data on
- * upgrade: the previous extension home under globalStorage, and the DSH
- * CLI/older-build home at ~/.dsh/sessions.
+ * Legacy homes are migrated once so an existing install keeps its data on
+ * upgrade: the previous extension home under globalStorage, and every legacy
+ * DSH harness-home sessions root (explicit DSH_HOME, then ~/.dsh/sessions).
  */
 export function harnessHomePath(context: vscode.ExtensionContext): string {
   const stable = path.join(os.homedir(), '.dsh', 'vscode', 'harness-home')
   const legacy = path.join(context.globalStorageUri.fsPath, 'harness-home')
   migrateOnce(legacy, stable)
-  migrateLegacySessions(legacyDshSessionsRoot(), path.join(stable, 'sessions'))
+  for (const root of legacySessionsRoots(stable)) {
+    migrateLegacySessions(root, path.join(stable, 'sessions'))
+  }
   return stable
 }
 
