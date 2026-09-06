@@ -109,6 +109,8 @@ export class HarnessGatewayService implements vscode.Disposable {
   private queue: readonly QueuedInboxItem[] = []
   private approvals = new Map<string, PendingApprovalRecord>()
   private questions = new Map<string, PendingQuestionRecord>()
+  /** Latest `api-session/error` per session, consumed by the next `api-session/status(false)` for it. */
+  private readonly pendingSessionErrors = new Map<string, string>()
   private subagentCount = 0
   private subagents: readonly SubagentListEntry[] = []
   private subagentAddress: SubagentAddress | undefined
@@ -1560,25 +1562,10 @@ export class HarnessGatewayService implements vscode.Disposable {
       this.pendingQueue.release(sessionId)
       this.maybeAutoMergeWorktree(sessionId)
       this.metaStore.recordTurnChanges(sessionId, event, this.entries, sessionId === this.activeSessionId, (id) => this.summaries.has(id))
-      if (sessionId !== this.activeSessionId && event.data.reason.kind !== 'aborted') {
-        const title = this.sessionTitle(sessionId)
-        const actionLabel = vscode.l10n.t('Switch to conversation')
-        const isError = event.data.reason.kind === 'error'
-        const errorMsg = isError && 'error' in event.data.reason ? event.data.reason.error.message : ''
-        const message = isError
-          ? vscode.l10n.t('Harness session "{0}" failed: {1}', title, errorMsg)
-          : vscode.l10n.t('Harness session "{0}" finished its turn.', title)
-        const notify = isError ? vscode.window.showErrorMessage : vscode.window.showInformationMessage
-        void notify(message, actionLabel).then((action) => {
-          if (action === actionLabel) {
-            void this.openSession(sessionId)
-              .then(() => vscode.commands.executeCommand('deepseekHarness.chatView.focus'))
-              .catch((err: unknown) => {
-                this.output.appendLine(vscode.l10n.t('[gateway] Failed to switch session: {0}', errorMessage(err)))
-              })
-          }
-        })
-      }
+      // Background-session turn/end notifications are NOT raised here: this handler is only ever invoked
+      // by pumpActiveFollow(), which breaks its loop the moment activeSessionId changes (see the check just
+      // before handleFollowFrame is called) — so `sessionId` below is always the active session already.
+      // The `api-session/status` branch of handleRemoteEvent() is the host-wide signal used instead.
     }
     this.fireChange()
   }
@@ -1630,14 +1617,40 @@ export class HarnessGatewayService implements vscode.Disposable {
       const running = args[1] === true
       const summary = this.summaries.get(id)
       if (summary !== undefined) this.summaries.set(id, { ...summary, running, blank: running ? false : summary.blank })
-      if (!running) this.pendingQueue.forget(id)
+      if (!running) {
+        this.pendingQueue.forget(id)
+        // Host-wide turn/end signal: fires for every session (not just the active one), unlike the
+        // session-scoped `turn/end` history event handled in handleFollowFrame().
+        if (id !== this.activeSessionId) {
+          const errorMsg = this.pendingSessionErrors.get(id)
+          this.pendingSessionErrors.delete(id)
+          const title = this.sessionTitle(id)
+          const actionLabel = vscode.l10n.t('Switch to conversation')
+          const message = errorMsg === undefined
+            ? vscode.l10n.t('Harness session "{0}" finished its turn.', title)
+            : vscode.l10n.t('Harness session "{0}" failed: {1}', title, errorMsg)
+          const notify = errorMsg === undefined ? vscode.window.showInformationMessage : vscode.window.showErrorMessage
+          void notify(message, actionLabel).then((action) => {
+            if (action === actionLabel) {
+              void this.openSession(id)
+                .then(() => vscode.commands.executeCommand('deepseekHarness.chatView.focus'))
+                .catch((err: unknown) => {
+                  this.output.appendLine(vscode.l10n.t('[gateway] Failed to switch session: {0}', errorMessage(err)))
+                })
+            }
+          })
+        }
+      }
     } else if (event === 'api-session/activity') {
       const id = String(args[0] ?? '')
       const updatedAt = typeof args[1] === 'number' ? args[1] : undefined
       const summary = this.summaries.get(id)
       if (summary !== undefined && updatedAt !== undefined) this.summaries.set(id, { ...summary, updatedAt: Math.max(summary.updatedAt, updatedAt) })
     } else if (event === 'api-session/error') {
-      this.output.appendLine(`[agent ${String(args[0] ?? '')}] ${String(args[1] ?? '')}`)
+      const id = String(args[0] ?? '')
+      const message = String(args[1] ?? '')
+      this.pendingSessionErrors.set(id, message)
+      this.output.appendLine(`[agent ${id}] ${message}`)
     } else if (event === 'commands/change' || event === 'agent-preset/selected') {
       void this.refreshCommands()
     } else if (event === 'llm/adapters-updated' || event === 'settings/document-updated') {
