@@ -1617,7 +1617,11 @@ export class HarnessGatewayService implements vscode.Disposable {
       const running = args[1] === true
       const summary = this.summaries.get(id)
       if (summary !== undefined) this.summaries.set(id, { ...summary, running, blank: running ? false : summary.blank })
-      if (!running) {
+      if (running) {
+        // A turn starting discards any earlier error (e.g. a background session-activation
+        // failure unrelated to any turn) so it can never be misattributed to this turn's outcome.
+        this.pendingSessionErrors.delete(id)
+      } else {
         this.pendingQueue.forget(id)
         // Host-wide turn/end signal: fires for every session (not just the active one), unlike the
         // session-scoped `turn/end` history event handled in handleFollowFrame().
