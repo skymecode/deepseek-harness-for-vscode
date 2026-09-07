@@ -1,4 +1,10 @@
 {
+  "Switch to conversation": "切换至该会话",
+  "[gateway] Failed to switch session: {0}": "[gateway] 切换会话失败：{0}",
+  "Harness session \"{0}\" finished its turn.": "Harness 会话“{0}”已完成本轮。",
+  "Harness session \"{0}\" failed: {1}": "Harness 会话“{0}”失败：{1}",
+  "Harness session \"{0}\" requires approval for tool \"{1}\".": "Harness 会话“{0}”正在等待工具“{1}”的审批。",
+  "Harness session \"{0}\" is waiting for your answer.": "Harness 会话“{0}”正在等待您的回答。",
   "Configure DeepSeek API Key": "配置 DeepSeek API Key",
   "The API Key cannot be empty.": "API Key 不能为空。",
   "The key will be stored by the local Harness credential service.": "密钥将由本地 Harness 凭据服务保存。",

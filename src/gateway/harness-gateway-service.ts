@@ -69,11 +69,13 @@ interface PendingApprovalRecord extends PendingApprovalView {
   readonly clientId: string
   readonly eventId: string
   readonly approvalId: string
+  readonly sessionId?: string
 }
 
 interface PendingQuestionRecord extends PendingQuestionView {
   readonly clientId: string
   readonly eventId: string
+  readonly sessionId?: string
 }
 
 
@@ -107,6 +109,8 @@ export class HarnessGatewayService implements vscode.Disposable {
   private queue: readonly QueuedInboxItem[] = []
   private approvals = new Map<string, PendingApprovalRecord>()
   private questions = new Map<string, PendingQuestionRecord>()
+  /** Latest `api-session/error` per session, consumed by the next `api-session/status(false)` for it. */
+  private readonly pendingSessionErrors = new Map<string, string>()
   private subagentCount = 0
   private subagents: readonly SubagentListEntry[] = []
   private subagentAddress: SubagentAddress | undefined
@@ -393,8 +397,12 @@ export class HarnessGatewayService implements vscode.Disposable {
       skills: this.skills,
       jobs: this.jobs,
       queue: this.queue.map(queuedPromptView),
-      approvals: [...this.approvals.values()].map((pending) => ({ key: pending.key, toolName: pending.toolName, ...(pending.reason === undefined ? {} : { reason: pending.reason }) })),
-      questions: [...this.questions.values()].map((pending) => ({ key: pending.key, questions: pending.questions })),
+      approvals: [...this.approvals.values()]
+        .filter((pending) => pending.sessionId === undefined || pending.sessionId === this.activeSessionId)
+        .map((pending) => ({ key: pending.key, toolName: pending.toolName, ...(pending.reason === undefined ? {} : { reason: pending.reason }) })),
+      questions: [...this.questions.values()]
+        .filter((pending) => pending.sessionId === undefined || pending.sessionId === this.activeSessionId)
+        .map((pending) => ({ key: pending.key, questions: pending.questions })),
       subagentCount: this.subagentCount,
       subagents: this.subagents.map(subagentView),
       ...(this.subagentAddress === undefined ? {} : {
@@ -708,8 +716,6 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.skills = []
     this.jobs = []
     this.queue = []
-    this.approvals.clear()
-    this.questions.clear()
     this.subagentCount = 0
     this.subagents = []
     this.projections = {}
@@ -1059,8 +1065,6 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.subagents = list.entries
     this.subagentCount = list.entries.length
     this.projections = {}
-    this.approvals.clear()
-    this.questions.clear()
     this.fireChange()
   }
 
@@ -1558,6 +1562,10 @@ export class HarnessGatewayService implements vscode.Disposable {
       this.pendingQueue.release(sessionId)
       this.maybeAutoMergeWorktree(sessionId)
       this.metaStore.recordTurnChanges(sessionId, event, this.entries, sessionId === this.activeSessionId, (id) => this.summaries.has(id))
+      // Background-session turn/end notifications are NOT raised here: this handler is only ever invoked
+      // by pumpActiveFollow(), which breaks its loop the moment activeSessionId changes (see the check just
+      // before handleFollowFrame is called) — so `sessionId` below is always the active session already.
+      // The `api-session/status` branch of handleRemoteEvent() is the host-wide signal used instead.
     }
     this.fireChange()
   }
@@ -1598,19 +1606,55 @@ export class HarnessGatewayService implements vscode.Disposable {
       this.pendingQueue.dropForSession(removed)
       this.pendingQueue.forget(removed)
       this.metaStore.removeSession(removed)
+      for (const [key, pending] of this.approvals.entries()) {
+        if (pending.sessionId === removed) this.approvals.delete(key)
+      }
+      for (const [key, pending] of this.questions.entries()) {
+        if (pending.sessionId === removed) this.questions.delete(key)
+      }
     } else if (event === 'api-session/status') {
       const id = String(args[0] ?? '')
       const running = args[1] === true
       const summary = this.summaries.get(id)
       if (summary !== undefined) this.summaries.set(id, { ...summary, running, blank: running ? false : summary.blank })
-      if (!running) this.pendingQueue.forget(id)
+      if (running) {
+        // A turn starting discards any earlier error (e.g. a background session-activation
+        // failure unrelated to any turn) so it can never be misattributed to this turn's outcome.
+        this.pendingSessionErrors.delete(id)
+      } else {
+        this.pendingQueue.forget(id)
+        // Host-wide turn/end signal: fires for every session (not just the active one), unlike the
+        // session-scoped `turn/end` history event handled in handleFollowFrame().
+        if (id !== this.activeSessionId) {
+          const errorMsg = this.pendingSessionErrors.get(id)
+          this.pendingSessionErrors.delete(id)
+          const title = this.sessionTitle(id)
+          const actionLabel = vscode.l10n.t('Switch to conversation')
+          const message = errorMsg === undefined
+            ? vscode.l10n.t('Harness session "{0}" finished its turn.', title)
+            : vscode.l10n.t('Harness session "{0}" failed: {1}', title, errorMsg)
+          const notify = errorMsg === undefined ? vscode.window.showInformationMessage : vscode.window.showErrorMessage
+          void notify(message, actionLabel).then((action) => {
+            if (action === actionLabel) {
+              void this.openSession(id)
+                .then(() => vscode.commands.executeCommand('deepseekHarness.chatView.focus'))
+                .catch((err: unknown) => {
+                  this.output.appendLine(vscode.l10n.t('[gateway] Failed to switch session: {0}', errorMessage(err)))
+                })
+            }
+          })
+        }
+      }
     } else if (event === 'api-session/activity') {
       const id = String(args[0] ?? '')
       const updatedAt = typeof args[1] === 'number' ? args[1] : undefined
       const summary = this.summaries.get(id)
       if (summary !== undefined && updatedAt !== undefined) this.summaries.set(id, { ...summary, updatedAt: Math.max(summary.updatedAt, updatedAt) })
     } else if (event === 'api-session/error') {
-      this.output.appendLine(`[agent ${String(args[0] ?? '')}] ${String(args[1] ?? '')}`)
+      const id = String(args[0] ?? '')
+      const message = String(args[1] ?? '')
+      this.pendingSessionErrors.set(id, message)
+      this.output.appendLine(`[agent ${id}] ${message}`)
     } else if (event === 'commands/change' || event === 'agent-preset/selected') {
       void this.refreshCommands()
     } else if (event === 'llm/adapters-updated' || event === 'settings/document-updated') {
@@ -1630,23 +1674,44 @@ export class HarnessGatewayService implements vscode.Disposable {
     readonly request: Record<string, unknown>
   }): void {
     const clientId = this.remoteEventClientId ?? ''
-    if (frame.event === 'approval/asked' && String(frame.request.sessionId ?? this.activeSessionId) === this.activeSessionId) {
+    if (frame.event === 'approval/asked') {
       const key = `approval:${frame.eventId}`
+      const sessionId = String(frame.request.sessionId ?? this.activeSessionId ?? '')
       this.approvals.set(key, {
         key,
         clientId,
         eventId: frame.eventId,
         approvalId: frame.eventId,
+        sessionId,
         toolName: typeof frame.request.toolName === 'string' ? frame.request.toolName : '',
         ...(typeof frame.request.reason === 'string' ? { reason: frame.request.reason } : {}),
       })
-    } else if (frame.event === 'question/asked' && String(frame.request.sessionId ?? this.activeSessionId) === this.activeSessionId) {
+      if (sessionId !== '' && sessionId !== this.activeSessionId) {
+        const title = this.sessionTitle(sessionId)
+        const actionLabel = vscode.l10n.t('Switch to conversation')
+        const toolName = typeof frame.request.toolName === 'string' ? frame.request.toolName : ''
+        void vscode.window.showWarningMessage(
+          vscode.l10n.t('Harness session "{0}" requires approval for tool "{1}".', title, toolName),
+          actionLabel,
+        ).then((action) => {
+          if (action === actionLabel) {
+            void this.openSession(sessionId)
+              .then(() => vscode.commands.executeCommand('deepseekHarness.chatView.focus'))
+              .catch((err: unknown) => {
+                this.output.appendLine(vscode.l10n.t('[gateway] Failed to switch session: {0}', errorMessage(err)))
+              })
+          }
+        })
+      }
+    } else if (frame.event === 'question/asked') {
       const key = `question:${frame.eventId}`
+      const sessionId = String(frame.request.sessionId ?? this.activeSessionId ?? '')
       const raw = Array.isArray(frame.request.questions) ? frame.request.questions : []
       this.questions.set(key, {
         key,
         clientId,
         eventId: frame.eventId,
+        sessionId,
         questions: raw.map((question) => {
           const record = question as Record<string, unknown>
           return {
@@ -1668,6 +1733,22 @@ export class HarnessGatewayService implements vscode.Disposable {
           }
         }),
       })
+      if (sessionId !== '' && sessionId !== this.activeSessionId) {
+        const title = this.sessionTitle(sessionId)
+        const actionLabel = vscode.l10n.t('Switch to conversation')
+        void vscode.window.showInformationMessage(
+          vscode.l10n.t('Harness session "{0}" is waiting for your answer.', title),
+          actionLabel,
+        ).then((action) => {
+          if (action === actionLabel) {
+            void this.openSession(sessionId)
+              .then(() => vscode.commands.executeCommand('deepseekHarness.chatView.focus'))
+              .catch((err: unknown) => {
+                this.output.appendLine(vscode.l10n.t('[gateway] Failed to switch session: {0}', errorMessage(err)))
+              })
+          }
+        })
+      }
     }
     this.fireChange()
   }
@@ -1789,6 +1870,12 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
 
+
+  private sessionTitle(sessionId: string): string {
+    const summary = this.summaries.get(sessionId)
+    if (summary !== undefined) return sessionListItem(summary, this.labels).title
+    return sessionId
+  }
 
   private visibleSummaries(): SessionSummary[] {
     return this.orderedSummaries().filter((summary) => !this.archives.isArchived(String(summary.sessionId)) && this.inCurrentWorkspace(summary))
