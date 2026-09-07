@@ -368,6 +368,7 @@
   "Send (Enter)": "发送 (Enter)",
   "Stop generating": "停止生成",
   "Working…": "正在工作…",
+  "Processing…": "处理中…",
   "esc to interrupt": "esc 中断",
   "Retrying {reason} ({attempt}/{max})…": "正在重试{reason}（第{attempt}/{max}次）…",
   "Retrying {reason}…": "正在重试{reason}…",

@@ -817,12 +817,22 @@ body.vscode-high-contrast .brand-logo {
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+/* The transcript alone scrolls. Composer/status are normal-flow siblings, so
+   even a tall prompt or retry status cannot cover the last visible message. */
+.transcript-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow-x: hidden;
   overflow-y: auto;
   scroll-behavior: smooth;
 }
 .workbench,
 .chat,
+.transcript-scroll,
 .conversation,
 .messages,
 .message,
@@ -891,72 +901,73 @@ body.vscode-high-contrast .empty-logo {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 14px;
-}
-/* Step timeline: while a conversation is in flight a spine runs
-   down the left corridor of the transcript. Thinking, tool and notice steps
-   each sit on it with a dot, and the dot of the step in flight pulses. Once
-   the turn ends the rail (and its dots) disappear again from the finished
-   transcript. */
-.messages.timeline-live:has(.tool-item, .notice, .reasoning-block) {
+  /* Reserve the timeline corridor even before the first step and after the
+     turn finishes. Toggling the rail must not indent or rewrap the transcript. */
   position: relative;
   padding-left: 22px;
 }
-.messages.timeline-live:has(.tool-item, .notice, .reasoning-block)::before {
-  content: "";
+/* Model handoff placeholder: a compact normal-flow row after the latest
+   message. It never overlays content or changes the timeline corridor. */
+.processing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 2px 0;
+  color: var(--vscode-textLink-foreground, var(--vscode-foreground));
+  font-size: calc(var(--vscode-font-size) + 1px);
+  line-height: 1.5;
+  pointer-events: none;
+  user-select: none;
+}
+.processing-indicator-spinner {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 1.35em;
+  height: 1.35em;
+  animation: processing-indicator-spin 1.1s linear infinite;
+}
+.processing-indicator-spinner svg {
+  width: 100%;
+  height: 100%;
+}
+.processing-indicator-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@keyframes processing-indicator-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .processing-indicator-spinner { animation: none; }
+}
+
+/* Each segment joins existing Thinking headers within one turn. Geometry is
+   owned by ReasoningTimeline; no full-height rail or running-state selector. */
+.reasoning-timeline {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 8px;
-  width: 1px;
-  background: color-mix(
-    in srgb,
-    var(--vscode-descriptionForeground) 42%,
-    transparent
-  );
+  top: 0;
+  left: 0;
+  width: 22px;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
 }
-.messages.timeline-live .tool-item,
-.messages.timeline-live .notice {
-  position: relative;
+.reasoning-timeline-connector {
+  stroke: color-mix(in srgb, var(--vscode-descriptionForeground) 38%, transparent);
+  stroke-width: 1;
 }
-.messages.timeline-live .tool-item::before,
-.messages.timeline-live .notice::before {
-  content: "";
-  position: absolute;
-  top: 10px;
-  left: -17px;
-  width: 7px;
-  height: 7px;
-  background: var(--vscode-charts-blue, #4d8cff);
-  border-radius: 50%;
+.reasoning-timeline-dot {
+  fill: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
 }
-.messages.timeline-live .tool-item:has(> .tool-card.running)::before {
+.reasoning-timeline-dot.running {
   animation: timeline-dot-pulse 1.2s ease-in-out infinite;
-  box-shadow: 0 0 6px
-    color-mix(in srgb, var(--vscode-charts-blue, #4d8cff) 65%, transparent);
 }
-/* The thinking dot rides the message body instead of the reasoning block:
-   the block is `overflow: hidden` for its rounded-corner clipping, which
-   would clip a dot drawn outside its box. The body has no overflow, its left
-   edge sits on the spine corridor, and the thinking step is the first block
-   of the bubble, so the dot lands on the thinking row and pulses while it is
-   still streaming. */
-.messages.timeline-live .message-body:has(.reasoning-block) {
-  position: relative;
-}
-.messages.timeline-live .message-body:has(.reasoning-block)::before {
-  content: "";
-  position: absolute;
-  top: 10px;
-  left: -17px;
-  width: 7px;
-  height: 7px;
-  background: var(--vscode-charts-blue, #4d8cff);
-  border-radius: 50%;
-}
-.messages.timeline-live .message-body:has(.reasoning-block.running)::before {
-  animation: timeline-dot-pulse 1.2s ease-in-out infinite;
-  box-shadow: 0 0 6px
-    color-mix(in srgb, var(--vscode-charts-blue, #4d8cff) 65%, transparent);
+@media (prefers-reduced-motion: reduce) {
+  .reasoning-timeline-dot.running { animation: none; }
 }
 @keyframes timeline-dot-pulse {
   0%,
@@ -1173,71 +1184,129 @@ body.vscode-high-contrast .empty-logo {
 /* highlight.js token colours. Fixed palettes (not theme tokens) by design:
    syntax colours are conventional (VS Code Dark+ / Light+) and must stay
    readable on the code-block surface in both themes. */
-.markdown-body .hljs { color: var(--vscode-editor-foreground); background: transparent; }
+.markdown-body .hljs {
+  color: var(--vscode-editor-foreground);
+  background: transparent;
+}
 .markdown-body .hljs-comment,
-.markdown-body .hljs-quote { color: #6a9955; font-style: italic; }
+.markdown-body .hljs-quote {
+  color: #6a9955;
+  font-style: italic;
+}
 .markdown-body .hljs-keyword,
 .markdown-body .hljs-selector-tag,
 .markdown-body .hljs-literal,
 .markdown-body .hljs-doctag,
 .markdown-body .hljs-meta .hljs-keyword,
-.markdown-body .hljs-template-tag { color: #569cd6; }
+.markdown-body .hljs-template-tag {
+  color: #569cd6;
+}
 .markdown-body .hljs-string,
 .markdown-body .hljs-regexp,
-.markdown-body .hljs-addition { color: #ce9178; }
+.markdown-body .hljs-addition {
+  color: #ce9178;
+}
 .markdown-body .hljs-number,
 .markdown-body .hljs-symbol,
-.markdown-body .hljs-bullet { color: #b5cea8; }
+.markdown-body .hljs-bullet {
+  color: #b5cea8;
+}
 .markdown-body .hljs-title,
 .markdown-body .hljs-title.function_,
-.markdown-body .hljs-section { color: #dcdcaa; }
+.markdown-body .hljs-section {
+  color: #dcdcaa;
+}
 .markdown-body .hljs-type,
 .markdown-body .hljs-class .hljs-title,
 .markdown-body .hljs-built_in,
-.markdown-body .hljs-attr { color: #4ec9b0; }
+.markdown-body .hljs-attr {
+  color: #4ec9b0;
+}
 .markdown-body .hljs-attribute,
 .markdown-body .hljs-variable,
-.markdown-body .hljs-template-variable { color: #9cdcfe; }
+.markdown-body .hljs-template-variable {
+  color: #9cdcfe;
+}
 .markdown-body .hljs-params,
-.markdown-body .hljs-property { color: #d4d4d4; }
+.markdown-body .hljs-property {
+  color: #d4d4d4;
+}
 .markdown-body .hljs-name,
 .markdown-body .hljs-selector-id,
-.markdown-body .hljs-selector-class { color: #c586c0; }
-.markdown-body .hljs-deletion { color: #f48771; }
-.markdown-body .hljs-emphasis { font-style: italic; }
-.markdown-body .hljs-strong { font-weight: 600; }
-.markdown-body .hljs-meta { color: #c586c0; }
-.markdown-body .hljs-subst { color: #d4d4d4; }
-.markdown-body .hljs-addition { background: color-mix(in srgb, #48bb78 18%, transparent); }
-.markdown-body .hljs-deletion { background: color-mix(in srgb, #f14c4c 18%, transparent); }
+.markdown-body .hljs-selector-class {
+  color: #c586c0;
+}
+.markdown-body .hljs-deletion {
+  color: #f48771;
+}
+.markdown-body .hljs-emphasis {
+  font-style: italic;
+}
+.markdown-body .hljs-strong {
+  font-weight: 600;
+}
+.markdown-body .hljs-meta {
+  color: #c586c0;
+}
+.markdown-body .hljs-subst {
+  color: #d4d4d4;
+}
+.markdown-body .hljs-addition {
+  background: color-mix(in srgb, #48bb78 18%, transparent);
+}
+.markdown-body .hljs-deletion {
+  background: color-mix(in srgb, #f14c4c 18%, transparent);
+}
 body.vscode-light .markdown-body .hljs-comment,
-body.vscode-light .markdown-body .hljs-quote { color: #008000; }
+body.vscode-light .markdown-body .hljs-quote {
+  color: #008000;
+}
 body.vscode-light .markdown-body .hljs-keyword,
 body.vscode-light .markdown-body .hljs-selector-tag,
 body.vscode-light .markdown-body .hljs-literal,
-body.vscode-light .markdown-body .hljs-doctag { color: #0000ff; }
+body.vscode-light .markdown-body .hljs-doctag {
+  color: #0000ff;
+}
 body.vscode-light .markdown-body .hljs-string,
 body.vscode-light .markdown-body .hljs-regexp,
-body.vscode-light .markdown-body .hljs-addition { color: #a31515; }
+body.vscode-light .markdown-body .hljs-addition {
+  color: #a31515;
+}
 body.vscode-light .markdown-body .hljs-number,
 body.vscode-light .markdown-body .hljs-symbol,
-body.vscode-light .markdown-body .hljs-bullet { color: #098658; }
+body.vscode-light .markdown-body .hljs-bullet {
+  color: #098658;
+}
 body.vscode-light .markdown-body .hljs-title,
-body.vscode-light .markdown-body .hljs-title.function_ { color: #795e26; }
+body.vscode-light .markdown-body .hljs-title.function_ {
+  color: #795e26;
+}
 body.vscode-light .markdown-body .hljs-type,
 body.vscode-light .markdown-body .hljs-class .hljs-title,
-body.vscode-light .markdown-body .hljs-built_in { color: #267f99; }
+body.vscode-light .markdown-body .hljs-built_in {
+  color: #267f99;
+}
 body.vscode-light .markdown-body .hljs-attribute,
-body.vscode-light .markdown-body .hljs-variable { color: #001080; }
+body.vscode-light .markdown-body .hljs-variable {
+  color: #001080;
+}
 body.vscode-light .markdown-body .hljs-name,
 body.vscode-light .markdown-body .hljs-selector-id,
 body.vscode-light .markdown-body .hljs-selector-class,
-body.vscode-light .markdown-body .hljs-meta { color: #af00db; }
-body.vscode-light .markdown-body .hljs-deletion { color: #cd3131; }
+body.vscode-light .markdown-body .hljs-meta {
+  color: #af00db;
+}
+body.vscode-light .markdown-body .hljs-deletion {
+  color: #cd3131;
+}
 /* diff language: hljs emits addition/deletion tokens (already covered) but
    the legacy em-dash convention should read the same on both surface. */
-body.vscode-light .markdown-body .hljs-addition { background: color-mix(in srgb, #48bb78 14%, transparent); }
-body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb, #f14c4c 14%, transparent); }
+body.vscode-light .markdown-body .hljs-addition {
+  background: color-mix(in srgb, #48bb78 14%, transparent);
+}
+body.vscode-light .markdown-body .hljs-deletion {
+  background: color-mix(in srgb, #f14c4c 14%, transparent);
+}
 .markdown-body .md-codeblock {
   margin: 0.65em 0;
   overflow: hidden;
@@ -1296,7 +1365,8 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
     to top,
     color-mix(
         in srgb,
-        var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 92%,
+        var(--vscode-textCodeBlock-background, var(--vscode-editor-background))
+          92%,
         var(--vscode-foreground) 5%
       )
       98%,
@@ -1357,11 +1427,11 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
   margin: 2px 0 6px;
   overflow: hidden;
   color: var(--vscode-descriptionForeground);
-  background: transparent;
-  border-radius: 8px;
+  background: color-mix(in srgb, var(--vscode-editorWidget-background) 28%, transparent);
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 10px;
 }
-/* A running turn tints the thinking row slightly so the eye can find the
-   in-flight step without a heavy card border. */
+/* Keep card geometry unchanged as the step transitions from live to history. */
 .reasoning-block.running {
   background: color-mix(
     in srgb,
@@ -1370,22 +1440,22 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
   );
 }
 .reasoning-block summary {
-  min-height: 26px;
-  padding: 4px 8px;
+  min-height: 38px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   cursor: pointer;
   list-style: none;
-  font-size: 11px;
+  font-size: var(--vscode-font-size);
   user-select: none;
 }
 .reasoning-block summary::-webkit-details-marker {
   display: none;
 }
 .reasoning-dot {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -1393,19 +1463,24 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
   color: var(--vscode-descriptionForeground);
 }
 .reasoning-dot svg {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
 }
 .reasoning-block.running .reasoning-dot {
   color: var(--vscode-progressBar-background);
-  filter: drop-shadow(0 0 3px
-    color-mix(in srgb, var(--vscode-progressBar-background) 45%, transparent));
+  filter: drop-shadow(
+    0 0 3px
+      color-mix(in srgb, var(--vscode-progressBar-background) 45%, transparent)
+  );
   animation: reasoning-pulse 1.2s ease-in-out infinite;
 }
 .reasoning-label {
   min-width: 0;
-  flex: 0 0 auto;
-  color: var(--vscode-descriptionForeground);
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-foreground);
   font-weight: 500;
 }
 .reasoning-summary {
@@ -1415,7 +1490,7 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
   color: var(--vscode-descriptionForeground);
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: calc(var(--vscode-font-size) - 1px);
   opacity: 0.8;
 }
 .reasoning-summary::before {
@@ -1430,20 +1505,23 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
 }
 .reasoning-chevron {
   flex: none;
-  font-size: 11px;
+  display: inline-flex;
+  margin-left: auto;
+  transform: rotate(90deg);
   transition: transform 140ms ease;
 }
 .reasoning-block[open] .reasoning-chevron {
-  transform: rotate(180deg);
+  transform: rotate(270deg);
 }
 .reasoning-content {
   max-height: min(38vh, 320px);
   margin: 0;
-  padding: 4px 10px 9px 22px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
   overflow-y: auto;
   /* One step above tool cards, one below the message body: the thought text
      stays readable without competing with the actual answer. */
-  font-size: 12px;
+  font-size: var(--vscode-font-size);
   line-height: 1.5;
 }
 .reasoning-block[open] .reasoning-content {
@@ -1504,7 +1582,6 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
 @media (prefers-reduced-motion: reduce) {
   .streaming-indicator-dot,
   .reasoning-block.running .reasoning-dot,
-  .tool-card.running .tool-status svg,
   .startup-logo,
   .startup-dots span,
   .activity-star,
@@ -1515,12 +1592,16 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
   }
 }
 .activity-status {
-  padding: 22px 14px 4px;
-  display: flex;
+  height: 26px;
+  padding: 5px 10px 2px;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
+  gap: 6px;
+  overflow: hidden;
   color: var(--vscode-descriptionForeground);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 18px;
 }
 .activity-star {
   position: relative;
@@ -1532,8 +1613,8 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
 }
 .activity-star svg {
   display: block;
-  width: 18px;
-  height: 13.5px;
+  width: 16px;
+  height: 12px;
 }
 .activity-spout {
   position: absolute;
@@ -1579,16 +1660,25 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
 }
 .activity-verb {
   color: var(--vscode-foreground);
+  white-space: nowrap;
   animation: activity-verb-pulse 1.6s ease-in-out infinite;
 }
 .activity-retry {
-  color: var(--vscode-editorWarning-foreground, var(--vscode-descriptionForeground));
+  grid-column: 3;
+  color: var(
+    --vscode-editorWarning-foreground,
+    var(--vscode-descriptionForeground)
+  );
   font-size: 11px;
   opacity: 0.85;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .activity-hint {
+  grid-column: 4;
+  white-space: nowrap;
   opacity: 0.65;
 }
 @keyframes activity-spout {
@@ -1705,6 +1795,11 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
     transparent
   );
 }
+.tool-card {
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--vscode-editorWidget-background) 28%, transparent);
+}
 /* Give consecutive tool cards more breathing room than the default message gap. */
 .tool-item + .tool-item {
   margin-top: 6px;
@@ -1718,6 +1813,39 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
   cursor: pointer;
   background: transparent;
   font-size: 11px;
+}
+.tool-card > summary {
+  min-height: 38px;
+  padding: 8px 12px;
+  gap: 9px;
+  list-style: none;
+  font-size: var(--vscode-font-size);
+}
+.tool-card > summary::-webkit-details-marker {
+  display: none;
+}
+.tool-glyph,
+.tool-chevron {
+  display: inline-flex;
+  flex: none;
+  color: var(--vscode-descriptionForeground);
+}
+.tool-chevron {
+  margin-left: auto;
+  transform: rotate(90deg);
+  transition: transform 140ms ease;
+}
+.tool-card[open] > summary .tool-chevron {
+  transform: rotate(270deg);
+}
+.reasoning-block > summary:focus-visible,
+.tool-card > summary:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reasoning-chevron,
+  .tool-chevron { transition: none; }
 }
 .tool-status {
   width: 16px;
@@ -1735,13 +1863,16 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
   height: 13px;
 }
 .tool-card.running .tool-status {
-  color: var(--vscode-charts-blue, #4d8cff);
+  color: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
 }
 /* The in-flight tool glyph is a spinning arc (VS Code sync~spin style):
    continuous rotation reads as "executing" far better than a blink. */
 .tool-card.running .tool-status svg {
   animation: spin 0.9s linear infinite;
   transform-origin: 50% 50%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-card.running .tool-status svg { animation: none; }
 }
 .tool-card.success .tool-status {
   color: var(--vscode-testing-iconPassed);
@@ -1850,12 +1981,24 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
   padding: 0 10px;
 }
 .tool-diff .diff-add {
-  color: var(--vscode-diffEditor-insertedTextForeground, var(--vscode-testing-iconPassed));
-  background: var(--vscode-diffEditor-insertedLineBackground, color-mix(in srgb, #48bb78 15%, transparent));
+  color: var(
+    --vscode-diffEditor-insertedTextForeground,
+    var(--vscode-testing-iconPassed)
+  );
+  background: var(
+    --vscode-diffEditor-insertedLineBackground,
+    color-mix(in srgb, #48bb78 15%, transparent)
+  );
 }
 .tool-diff .diff-del {
-  color: var(--vscode-diffEditor-removedTextForeground, var(--vscode-testing-iconFailed));
-  background: var(--vscode-diffEditor-removedLineBackground, color-mix(in srgb, #f14c4c 15%, transparent));
+  color: var(
+    --vscode-diffEditor-removedTextForeground,
+    var(--vscode-testing-iconFailed)
+  );
+  background: var(
+    --vscode-diffEditor-removedLineBackground,
+    color-mix(in srgb, #f14c4c 15%, transparent)
+  );
 }
 .tool-preview {
   min-width: 0;
@@ -1865,10 +2008,10 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
+  font-size: calc(var(--vscode-font-size) - 1px);
 }
 .tool-card.running .tool-preview {
-  color: var(--vscode-charts-blue, #4d8cff);
+  color: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
 }
 .notice {
   padding: 6px 8px;
@@ -2340,11 +2483,8 @@ body.vscode-light .markdown-body .hljs-deletion { background: color-mix(in srgb,
   margin: 2px 6px 4px;
   overflow: visible;
   flex: none;
-  /* The composer floats above the transcript: the whole .chat is
-     the scroll container, so the scrollbar runs the full panel height down to
-     the input box while the composer itself stays pinned to the bottom. */
-  position: sticky;
-  bottom: 0;
+  /* Retain the positioning context for menus, without covering messages. */
+  position: relative;
   z-index: 20;
   background: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
@@ -3180,11 +3320,16 @@ body.vscode-light .effort-control[data-effort="max"] {
      updates instantly while dragging. */
   background:
     linear-gradient(
-      to right,
-      color-mix(in srgb, var(--effort-color) 85%, var(--vscode-editor-background)) 0%,
-      var(--effort-color) 100%
-    )
-    0 var(--effort-progress),
+        to right,
+        color-mix(
+            in srgb,
+            var(--effort-color) 85%,
+            var(--vscode-editor-background)
+          )
+          0%,
+        var(--effort-color) 100%
+      )
+      0 var(--effort-progress),
     color-mix(
       in srgb,
       var(--effort-color) 16%,
@@ -3256,8 +3401,7 @@ body.vscode-light .effort-control[data-effort="max"] {
   border: 2px solid color-mix(in srgb, var(--effort-color) 88%, #fff);
   border-radius: 50%;
   box-shadow:
-    0 0 0 3px
-      color-mix(in srgb, var(--effort-color) 26%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--effort-color) 26%, transparent),
     0 1px 5px color-mix(in srgb, #000 42%, transparent);
   transition:
     left 240ms cubic-bezier(0.3, 0.9, 0.3, 1),
@@ -3365,14 +3509,13 @@ body.vscode-light .effort-control[data-effort="max"] {
    visible against the effort colour. */
 .effort-tick.active::before {
   background: color-mix(in srgb, #fff 92%, transparent);
-  box-shadow: 0 0 4px
-    color-mix(in srgb, var(--effort-color) 60%, transparent);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--effort-color) 60%, transparent);
 }
 .effort-tick[aria-current="true"] {
   color: var(--vscode-foreground);
   font-weight: 600;
 }
-}
+
 .effort-tick[aria-current="true"]::before {
   opacity: 0;
 }
@@ -4710,13 +4853,16 @@ body.vscode-light .effort-control[data-effort="max"] {
    like the editor's own scrollbars, so it never competes with the content. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, 0.34)) transparent;
+  scrollbar-color: var(
+      --vscode-scrollbarSlider-background,
+      rgba(127, 127, 127, 0.34)
+    )
+    transparent;
 }
 /* Only the real scroll container reserves a gutter: a global `stable` would
    reserve one on every element, jittering layout and creating phantom gaps.
-   The chat panel always has a scrollbar (content can overflow at any width),
-   so the gutter is stable there without shifting body/workbench. */
-.chat {
+   Reserve space on the transcript viewport, not on the composer or chrome. */
+.transcript-scroll {
   scrollbar-gutter: stable;
 }
 ::-webkit-scrollbar {
@@ -4792,6 +4938,10 @@ body.vscode-light .effort-control[data-effort="max"] {
   white-space: nowrap;
 }
 .session-tag.shared {
-  background: color-mix(in srgb, var(--vscode-badge-background) 55%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--vscode-badge-background) 55%,
+    transparent
+  );
   color: var(--vscode-descriptionForeground);
 }

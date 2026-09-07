@@ -43,28 +43,28 @@ import { clipboardImageFiles } from './clipboard-images.js'
 // arms the interaction (drag intent before the first scroll event), wheel-up
 // and touch-drag-up pause following immediately, and the pin only re-latches
 // on wheel-down at the bottom or touching the very bottom.
-elements.conversation.addEventListener('pointerdown', () => setInteractionArmed(true), { passive: true })
-elements.conversation.addEventListener('wheel', (event) => {
+elements.transcript.addEventListener('pointerdown', () => setInteractionArmed(true), { passive: true })
+elements.transcript.addEventListener('wheel', (event) => {
   if (event.deltaY < 0) {
     setFollowStream(false)
-  } else if (event.deltaY > 0 && !followStream && isAtBottom(elements.chat)) {
+  } else if (event.deltaY > 0 && !followStream && isAtBottom(elements.transcript)) {
     setFollowStream(true)
   }
 }, { passive: true })
 
 let touchAnchorY: number | undefined
-elements.conversation.addEventListener('touchstart', (event) => {
+elements.transcript.addEventListener('touchstart', (event) => {
   touchAnchorY = event.touches[0]?.clientY
 }, { passive: true })
-elements.conversation.addEventListener('touchmove', (event) => {
+elements.transcript.addEventListener('touchmove', (event) => {
   const y = event.touches[0]?.clientY
   if (touchAnchorY === undefined || y === undefined) return
   // A finger moving down reveals earlier content (scrolls up).
   if (y > touchAnchorY) setFollowStream(false)
   touchAnchorY = y
 }, { passive: true })
-elements.chat.addEventListener('scroll', () => {
-  if (isAtBottom(elements.chat)) {
+elements.transcript.addEventListener('scroll', () => {
+  if (isAtBottom(elements.transcript)) {
     setFollowStream(true)
   } else if (followStream) {
     // A scroll that left the bottom while following can only be the reader
@@ -74,9 +74,9 @@ elements.chat.addEventListener('scroll', () => {
   }
   if (interactionArmed) setInteractionArmed(false)
 }, { passive: true })
-elements.conversation.addEventListener('pointerup', () => setInteractionArmed(false), { passive: true })
-elements.conversation.addEventListener('pointercancel', () => setInteractionArmed(false), { passive: true })
-elements.conversation.addEventListener('pointerleave', () => setInteractionArmed(false), { passive: true })
+elements.transcript.addEventListener('pointerup', () => setInteractionArmed(false), { passive: true })
+elements.transcript.addEventListener('pointercancel', () => setInteractionArmed(false), { passive: true })
+elements.transcript.addEventListener('pointerleave', () => setInteractionArmed(false), { passive: true })
 
 window.addEventListener('message', (event) => {
   if (event.data?.type === 'pluginState') {
@@ -241,8 +241,8 @@ elements.prompt.addEventListener('blur', () => {
 // A user scrolling away from the newest message (for example to re-read a
 // file reference inside an earlier question) must release the load pin;
 // otherwise the next catalog push would yank the conversation back down.
-elements.chat.addEventListener('scroll', () => {
-  if (!isNearBottom(elements.chat)) cancelStickToBottom()
+elements.transcript.addEventListener('scroll', () => {
+  if (!isNearBottom(elements.transcript)) cancelStickToBottom()
 }, { passive: true })
 document.addEventListener('paste', (event) => {
   const target = event.target

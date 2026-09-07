@@ -1,18 +1,9 @@
 import type { ChatItem } from '../../domain/workbench-state.js'
-import { components, elements, messageSignatures, t } from './context.js'
-
-export function messageSignature(item: ChatItem): string {
-  return JSON.stringify(item)
-}
-
-export function setMessageMetadata(element: HTMLElement, id: string, signature: string): void {
-  element.dataset.messageId = id
-  messageSignatures.set(element, signature)
-}
+import { components, elements, t } from './context.js'
 
 /** Mutates only text inside the active assistant card for smooth token flow. */
 export function patchStreamingMessage(element: HTMLElement, item: ChatItem): boolean {
-  if (item.kind !== 'message' || element.tagName !== 'ARTICLE') return false
+  if (item.kind !== 'message' || item.role !== 'assistant' || element.tagName !== 'ARTICLE') return false
   const body = element.querySelector('.message-body')
   if (!body) return false
   if (!components.streamingMessage.patch(body as HTMLElement, item)) return false
@@ -68,7 +59,7 @@ export function isAtBottom(element: HTMLElement): boolean {
  * animation that fights the reader's scrollbar drag.
  */
 export function scrollConversationToBottom(): void {
-  const chat = elements.chat
+  const chat = elements.transcript
   const previous = chat.style.scrollBehavior
   chat.style.scrollBehavior = 'auto'
   chat.scrollTop = chat.scrollHeight
@@ -86,7 +77,7 @@ export function scrollConversationToBottom(): void {
  * {@link scrollConversationToBottom}, without the extra RAF re-assert.
  */
 export function pinConversationToBottom(): void {
-  const chat = elements.chat
+  const chat = elements.transcript
   const previous = chat.style.scrollBehavior
   chat.style.scrollBehavior = 'auto'
   chat.scrollTop = chat.scrollHeight

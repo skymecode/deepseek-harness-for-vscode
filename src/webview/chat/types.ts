@@ -76,6 +76,7 @@ export interface ChatElements {
   readonly retry: HTMLElement
   readonly showLogs: HTMLElement
   readonly chat: HTMLElement
+  readonly transcript: HTMLElement
   readonly conversation: HTMLElement
   readonly loadOlder: HTMLElement
   readonly empty: HTMLElement

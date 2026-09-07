@@ -239,12 +239,13 @@
     "@vscode/vsce": "^3.6.0",
     "esbuild": "^0.25.9",
     "eslint": "^9.33.0",
+    "happy-dom": "20.14.0",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.39.1",
     "vitest": "^4.0.0"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "^0.1.2-rc.1",
+    "@deepseek-ai/dsh": "0.1.3-alpha.2",
     "dompurify": "3.4.13",
     "highlight.js": "^11.12.0",
     "markdown-it": "15.0.0",
@@ -257,9 +258,11 @@
     "node@22.22.3": true,
     "esbuild@0.25.12": true,
     "node-pty@1.2.0-beta.15": true,
-    "koffi@3.1.5": true,
+    "koffi@3.2.1": true,
     "keytar@7.9.0": true,
-    "protobufjs@7.6.5": true,
+    "protobufjs@7.6.6": true,
+    "@deepseek-ai/dsh-subprocess-local@0.1.3-alpha.2": true,
+    "fs-ext@2.1.1": true,
     "@vscode/vsce-sign@2.0.9": true,
     "@google/genai@1.52.0": true
   }

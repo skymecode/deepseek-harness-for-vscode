@@ -44,6 +44,11 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
   let defaultProvider = DEEPSEEK_OFFICIAL_PROVIDER
   let activeProvider: string | undefined
   let confirmingRemove = false
+  // Streaming pushes arrive up to every frame while a turn runs. Rebuilding
+  // the open panel on each one wipes in-flight edits (the API key field is
+  // cleared on every renderFields) and makes the provider select flicker, so
+  // updates only repaint when the underlying provider data actually changed.
+  let updateSignature = ''
 
   const selected = (): ConnectionProviderView | undefined => state.providers.find((item) => item.id === providerSelect.value)
   const input = (): Record<string, unknown> => ({
@@ -166,26 +171,35 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
     event.preventDefault()
     panel.classList.add('hidden')
   })
-
   return {
     open: () => {
       options.onOpen?.()
+      // Force one rebuild on open: the signature gate above skips pushes whose
+      // data did not change, so the panel may hold stale fields after an edit
+      // was applied elsewhere (native settings, apply from another window).
+      updateSignature = ''
       renderProviders()
       panel.classList.remove('hidden')
       baseUrl.focus()
     },
     close: () => panel.classList.add('hidden'),
     update: (next, selectedProvider, currentProvider, isExperimentalAutoEffort) => {
-      state = next
-      defaultProvider = selectedProvider
-      activeProvider = currentProvider
       if (typeof isExperimentalAutoEffort === 'boolean') {
         experimentalAutoEffort.checked = isExperimentalAutoEffort
       }
+      const nextSignature = JSON.stringify([next, selectedProvider, currentProvider])
+      if (nextSignature === updateSignature) return
+      updateSignature = nextSignature
+      state = next
+      defaultProvider = selectedProvider
+      activeProvider = currentProvider
       if (!panel.classList.contains('hidden')) renderProviders()
       else if (selected() !== undefined) remove.disabled = selected()!.id === activeProvider
     },
     renderTestResult: (result) => {
+      // A late test answer mutates fields (adopted model ids, reset button
+      // label); the next data push must repaint despite the signature gate.
+      updateSignature = ''
       test.disabled = false
       test.textContent = t('testConnection')
       testResult.classList.remove('hidden', 'success', 'error', 'warn')

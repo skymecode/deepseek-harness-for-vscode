@@ -7,7 +7,7 @@ const packageJsonPath = require.resolve('@deepseek-ai/dsh-session-projection-cac
 const packageRoot = dirname(packageJsonPath)
 const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
 
-const SUPPORTED_VERSIONS = ['0.1.2-alpha.4', '0.1.2-rc.1']
+const SUPPORTED_VERSIONS = ['0.1.2-alpha.4', '0.1.2-rc.1', '0.1.3-alpha.2']
 
 if (!SUPPORTED_VERSIONS.includes(packageJson.version)) {
   throw new Error(

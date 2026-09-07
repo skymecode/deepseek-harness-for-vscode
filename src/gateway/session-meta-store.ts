@@ -1,38 +1,24 @@
 /**
  * Locally-owned per-session state that the harness never persists for us:
- * reasoning-effort intents, session metadata (pin/tags), per-turn edited-file
- * cards, and the auto-title marker. Every mutation is transactional — the
+ * reasoning-effort intents, session metadata (pin/tags), and the auto-title
+ * marker. Edited-file cards are derived from history, not persisted seq ids.
+ * Every mutation is transactional — the
  * candidate map is persisted to the Memento first, then committed to memory —
  * so a failed write can never leave a ghost state the UI echoes as durable.
  */
 import * as vscode from 'vscode'
-import type { HistoryEntry } from './gateway-wire.js'
 import type { EffortIntent } from '../domain/session-effort.js'
 import { readSessionMeta, type SessionMeta } from '../domain/session-meta.js'
 import { metaSortRank } from '../domain/session-meta.js'
-import { projectSessionChanges, type SessionChangesView } from '../domain/session-changes.js'
-import type { TurnChangesView } from '../domain/workbench-state.js'
-import { lastAssistantSeqForTurn, lastAssistantSeq } from './gateway-helpers.js'
 
 const EFFORT_INTENT_STATE_KEY = 'deepseekHarness.sessionEffortIntents'
 const SESSION_META_STATE_KEY = 'deepseekHarness.sessionMeta'
-const TURN_CHANGES_STATE_KEY = 'deepseekHarness.sessionTurnChanges'
-
-/** One recorded per-turn edited-file card for a session. */
-interface TurnChangesEntry {
-  readonly seq: number
-  readonly turn: number
-  readonly conclusionSeq: number
-  readonly changes: SessionChangesView
-}
 
 export class SessionMetaStore {
   /** Per-session reasoning-effort intent ('auto' is an extension-side layer). */
   private readonly effortIntents = new Map<string, EffortIntent>()
   /** Locally-owned session metadata (pin / tags). */
   private readonly metaBySession = new Map<string, SessionMeta>()
-  /** Per-session finished-turn edited-file cards, kept with the transcript. */
-  private readonly turnChangesBySession = new Map<string, TurnChangesEntry[]>()
   // Sessions whose title was generated from their first user message. A
   // session is only auto-named once; after that the title is the user's to
   // edit, so a later message never overwrites a manual rename.
@@ -44,7 +30,8 @@ export class SessionMetaStore {
   ) {
     loadEffortIntents(globalState.get(EFFORT_INTENT_STATE_KEY), this.effortIntents)
     loadSessionMeta(globalState.get(SESSION_META_STATE_KEY), this.metaBySession)
-    loadTurnChanges(globalState.get(TURN_CHANGES_STATE_KEY), this.turnChangesBySession)
+    // Legacy sessionTurnChanges is deliberately left on disk for rollback,
+    // but never read: a runtime migration may have renumbered its anchors.
   }
 
   effortIntentFor(sessionId: string): EffortIntent | undefined {
@@ -97,51 +84,6 @@ export class SessionMetaStore {
     if (this.metaBySession.delete(sessionId)) void this.persistSessionMeta().catch(() => undefined)
   }
 
-  /** The recorded turn cards for one session, in transcript order. */
-  turnChangesFor(sessionId: string): TurnChangesView[] {
-    return (this.turnChangesBySession.get(sessionId) ?? []).map((entry) => ({
-      seq: entry.seq,
-      turn: entry.turn,
-      conclusionId: `event-${entry.conclusionSeq}`,
-      changes: entry.changes,
-    }))
-  }
-
-  /**
-   * Snapshots one finished turn's edited-file card so it stays with the
-   * transcript (below that turn's conclusion) instead of being replaced by
-   * the newest turn. Only the active session's entries are known here — the
-   * in-memory transcript belongs to the active conversation — so background
-   * sessions' turn cards are recorded when their turn ends while selected.
-   */
-  recordTurnChanges(
-    sessionId: string,
-    event: HistoryEntry['event'],
-    entries: readonly HistoryEntry[],
-    isActiveSession: boolean,
-    sessionExists: (sessionId: string) => boolean,
-  ): void {
-    if (!isActiveSession || event.type !== 'turn/end') return
-    const turn = typeof event.data?.turn === 'number' ? event.data.turn : undefined
-    if (turn === undefined) return
-    const changes = projectSessionChanges(entries)
-    if (changes === undefined || changes.files.length === 0) return
-    // Prefer the turn-scoped conclusion: the recorded card must anchor to this
-    // turn's own last assistant message, never a later turn's (streamed
-    // history or a runtime upgrade can shift the transcript tail).
-    const conclusionSeq = lastAssistantSeqForTurn(entries, turn) ?? lastAssistantSeq(entries)
-    if (conclusionSeq === undefined) return
-    const existing = this.turnChangesBySession.get(sessionId) ?? []
-    const next = existing.filter((candidate) => candidate.turn !== turn)
-    next.push({ seq: event.seq, turn, conclusionSeq, changes })
-    next.sort((left, right) => left.turn - right.turn)
-    this.turnChangesBySession.set(sessionId, next)
-    for (const key of Array.from(this.turnChangesBySession.keys())) {
-      if (key !== sessionId && !sessionExists(key)) this.turnChangesBySession.delete(key)
-    }
-    void this.persistTurnChanges()
-  }
-
   /** True once the session has been auto-named; a manual rename marks it too. */
   markAutoTitled(sessionId: string): boolean {
     if (this.autoTitledSessions.has(sessionId)) return false
@@ -175,9 +117,6 @@ export class SessionMetaStore {
     }
   }
 
-  private persistTurnChanges(): void {
-    void this.globalState.update(TURN_CHANGES_STATE_KEY, Object.fromEntries(this.turnChangesBySession))
-  }
 }
 
 function errorMessageFor(cause: unknown): string {
@@ -200,19 +139,5 @@ function loadSessionMeta(raw: unknown, target: Map<string, SessionMeta>): void {
   for (const [sessionId, value] of Object.entries(raw)) {
     const meta = readSessionMeta(value)
     if (meta !== undefined) target.set(sessionId, meta)
-  }
-}
-
-function loadTurnChanges(raw: unknown, target: Map<string, TurnChangesEntry[]>): void {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return
-  for (const [sessionId, value] of Object.entries(raw)) {
-    if (!Array.isArray(value)) continue
-    const entries = value.filter((entry): entry is TurnChangesEntry =>
-      typeof entry === 'object' && entry !== null
-      && typeof (entry as { seq?: unknown }).seq === 'number'
-      && typeof (entry as { turn?: unknown }).turn === 'number'
-      && typeof (entry as { conclusionSeq?: unknown }).conclusionSeq === 'number'
-      && typeof (entry as { changes?: unknown }).changes === 'object')
-    if (entries.length > 0) target.set(sessionId, entries)
   }
 }

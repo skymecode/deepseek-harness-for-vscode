@@ -153,6 +153,7 @@ export const ENGLISH_WEBVIEW_MESSAGES = {
   sendTitle: 'Send (Enter)',
   stopGenerating: 'Stop generating',
   activityWorking: 'Working…',
+  processing: 'Processing…',
   activityEscHint: 'esc to interrupt',
   retryingWithAttempt: 'Retrying {reason} ({attempt}/{max})…',
   retryingAlways: 'Retrying {reason}…',

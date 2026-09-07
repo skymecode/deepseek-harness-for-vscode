@@ -6,7 +6,6 @@ import type {
   JobView,
   MessageId,
   QueuedInboxItem,
-  RemoteEvent,
   RpcId,
   SessionId,
   SessionModels,
@@ -26,6 +25,7 @@ import type { PromptAttachment } from '../domain/prompt-context.js'
 import { agentPresetTransition, type PromptConfiguration } from '../domain/prompt-configuration.js'
 import { conversationTitle } from '../domain/session-title.js'
 import { projectSessionChanges } from '../domain/session-changes.js'
+import { projectTurnChanges } from '../domain/turn-changes.js'
 import { isAutoEffort, resolveEffortIntent, type AutoEffortSignals, type EffortIntent, type PromptEffortSignals } from '../domain/session-effort.js'
 import { pickAutoModel, type ModelProfileInput } from '../domain/model-profile.js'
 import { setTags, togglePinned } from '../domain/session-meta.js'
@@ -43,12 +43,11 @@ import {
   sessionListItem,
   type CommandEntry,
   type HarnessWorkbenchState,
-  type PendingApprovalView,
-  type PendingQuestionView,
 } from '../domain/workbench-state.js'
 import type { HarnessHostRuntime } from '../runtime/web-runtime.js'
 import type { ConnectionSettingsService } from '../services/connection-settings-service.js'
 import { ArchiveState } from './archive-state.js'
+import { AssistantStreamState, presentationHistory } from './assistant-stream-state.js'
 import {
   attachmentPart,
   carryEventText,
@@ -63,21 +62,9 @@ import {
 } from './gateway-helpers.js'
 import { NodeGatewayClient } from './node-gateway-client.js'
 import { PendingConfigurationQueue, type PendingConfigEntry } from './pending-queue.js'
+import { PendingInteractions, type PendingInteraction } from './pending-interactions.js'
+import type { RemoteEventOutcome, RemoteWaterfallEvent } from './remote-event-protocol.js'
 import { SessionMetaStore } from './session-meta-store.js'
-
-interface PendingApprovalRecord extends PendingApprovalView {
-  readonly clientId: string
-  readonly eventId: string
-  readonly approvalId: string
-  readonly sessionId?: string
-}
-
-interface PendingQuestionRecord extends PendingQuestionView {
-  readonly clientId: string
-  readonly eventId: string
-  readonly sessionId?: string
-}
-
 
 /**
  * Application service for the native VS Code workbench. It owns Gateway
@@ -92,8 +79,8 @@ export class HarnessGatewayService implements vscode.Disposable {
   private followAbort: AbortController | undefined
   /** Per-session follow cursor (the snapshot `cursor` handed to session/page). */
   private readonly followCursor = new Map<string, number>()
-  /** The $events client id of the current remote-event generation. */
-  private remoteEventClientId: string | undefined
+  private readonly assistantStream = new AssistantStreamState()
+  private readonly interactions = new PendingInteractions()
   /** Latest archived-session snapshot from `workspace/follow`, if seen. */
   private archivedFromHost: readonly string[] | undefined
   /** Setters waiting for the current follow snapshot (keyed by session id). */
@@ -107,8 +94,6 @@ export class HarnessGatewayService implements vscode.Disposable {
   private skills: readonly SkillEntry[] = []
   private jobs: readonly JobView[] = []
   private queue: readonly QueuedInboxItem[] = []
-  private approvals = new Map<string, PendingApprovalRecord>()
-  private questions = new Map<string, PendingQuestionRecord>()
   /** Latest `api-session/error` per session, consumed by the next `api-session/status(false)` for it. */
   private readonly pendingSessionErrors = new Map<string, string>()
   private subagentCount = 0
@@ -365,14 +350,14 @@ export class HarnessGatewayService implements vscode.Disposable {
     }))
 
     const activeSummary = this.activeSessionId === undefined ? undefined : this.summaries.get(this.activeSessionId)
-    const projected = projectConversation(this.entries, this.labels)
+    const projected = projectConversation(presentationHistory(this.entries, this.assistantStream.entries()), this.labels)
     const permissions = projectionPermissions(this.projections.permissions)
     const plan = projectionPlan(this.projections.plan)
     const goal = projectionGoal(this.projections.goal)
     const tokenUsage = projectionTokenUsage(this.projections.tokenUsage)
     const contextPressure = projectionContextPressure(this.projections.contextPressure)
     const changes = projectSessionChanges(this.entries)
-    const turnChanges = activeSummary === undefined ? undefined : this.metaStore.turnChangesFor(String(activeSummary.sessionId))
+    const turnChanges = projectTurnChanges(this.entries, projected.messages)
     const stats = projectionSessionStats(this.projections.sessionStats) ?? projectSessionStats(this.entries)
     const effortIntent = activeSummary === undefined ? undefined : this.metaStore.effortIntentFor(String(activeSummary.sessionId))
     const active = activeSummary === undefined ? undefined : {
@@ -397,12 +382,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       skills: this.skills,
       jobs: this.jobs,
       queue: this.queue.map(queuedPromptView),
-      approvals: [...this.approvals.values()]
-        .filter((pending) => pending.sessionId === undefined || pending.sessionId === this.activeSessionId)
-        .map((pending) => ({ key: pending.key, toolName: pending.toolName, ...(pending.reason === undefined ? {} : { reason: pending.reason }) })),
-      questions: [...this.questions.values()]
-        .filter((pending) => pending.sessionId === undefined || pending.sessionId === this.activeSessionId)
-        .map((pending) => ({ key: pending.key, questions: pending.questions })),
+      ...this.interactions.forSession(this.activeSessionId),
       subagentCount: this.subagentCount,
       subagents: this.subagents.map(subagentView),
       ...(this.subagentAddress === undefined ? {} : {
@@ -416,7 +396,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       ...(tokenUsage === undefined ? {} : { tokenUsage }),
       ...(contextPressure === undefined ? {} : { contextPressure }),
       ...(changes === undefined ? {} : { changes }),
-      ...(turnChanges === undefined || turnChanges.length === 0 ? {} : { turnChanges }),
+      turnChanges,
       ...(stats.turns > 0 ? { stats } : {}),
       ...(effortIntent === undefined ? {} : { effortIntent }),
     }
@@ -711,6 +691,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.followAbort?.abort()
     this.subagentAddress = undefined
     this.entries = []
+    this.assistantStream.reset()
     this.hasMore = false
     this.models = undefined
     this.skills = []
@@ -932,6 +913,7 @@ export class HarnessGatewayService implements vscode.Disposable {
           parentSessionId: this.subagentAddress.parentSessionId,
           childSessionId: this.subagentAddress.childSessionId,
           mode: 'continuable',
+          delivery: mode === 'steer' ? 'steer' : 'queue',
           content: content.flatMap((part) => part.type === 'text' ? [{ type: 'text' as const, text: part.text }] : []),
           clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         })
@@ -1057,6 +1039,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.activeSessionId = childSessionId
     this.followCursor.set(childSessionId, 0)
     this.entries = []
+    this.assistantStream.reset()
     this.hasMore = false
     this.models = undefined
     this.skills = []
@@ -1376,20 +1359,14 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   async answerApproval(key: string, outcome: 'allowed-once' | 'rejected'): Promise<void> {
-    const pending = this.approvals.get(key)
-    if (pending === undefined) throw new Error(vscode.l10n.t('This approval request is no longer active.'))
-    this.approvals.delete(key)
-    await this.respondRemoteEvent(pending.clientId, pending.eventId, { kind: 'result', value: outcome })
+    await this.respondToInteraction(key, 'approval', { kind: 'result', value: outcome })
   }
 
   async answerQuestions(
     key: string,
     answers: readonly { readonly id: string; readonly selected: readonly string[]; readonly custom?: string }[],
   ): Promise<void> {
-    const pending = this.questions.get(key)
-    if (pending === undefined) throw new Error(vscode.l10n.t('This question is no longer active.'))
-    this.questions.delete(key)
-    await this.respondRemoteEvent(pending.clientId, pending.eventId, {
+    await this.respondToInteraction(key, 'question', {
       kind: 'result',
       value: {
         answers: answers.map((answer) => ({
@@ -1409,6 +1386,8 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   private startEventStreams(): void {
     this.streamAbort?.abort()
+    this.interactions.disconnect()
+    this.fireChange()
     const abort = new AbortController()
     this.streamAbort = abort
     void this.pumpControl(abort.signal)
@@ -1435,30 +1414,22 @@ export class HarnessGatewayService implements vscode.Disposable {
   /** Host-wide forwarded events (session added/removed/status, commands, …): `$events`. */
   private async pumpRemoteEvents(signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
+      let generation: number | undefined
       try {
-        for await (const frame of this.requireClient().remoteEvents(signal)) {
-          const remote = frame as RemoteEvent & { readonly type?: string }
+        for await (const remote of this.requireClient().remoteEvents(signal)) {
+          // Abort can race a buffered frame from the old socket.
+          if (signal.aborted) break
           if (remote.type === 'ready') {
-            this.remoteEventClientId = String((remote as { readonly clientId?: string }).clientId ?? '')
+            generation = this.interactions.beginConnection(remote.clientId)
             this.markConnected()
             continue
           }
           if (remote.type === 'waterfall') {
-            const event = remote as unknown as {
-              readonly type: 'waterfall'
-              readonly event: string
-              readonly eventId: string
-              readonly agentId: string
-              readonly request: Record<string, unknown>
-            }
-            this.handleWaterfall(event)
+            if (generation !== undefined) this.handleWaterfall(remote, generation)
             continue
           }
           if (remote.type === 'cancel') {
-            const cancelled = (remote as unknown as { readonly eventId: string }).eventId
-            this.approvals.delete(`approval:${cancelled}`)
-            this.questions.delete(`question:${cancelled}`)
-            this.fireChange()
+            if (generation !== undefined && this.interactions.cancel(remote.eventId, generation)) this.fireChange()
             continue
           }
           if (remote.type === 'emit') {
@@ -1467,6 +1438,10 @@ export class HarnessGatewayService implements vscode.Disposable {
         }
       } catch (cause) {
         if (!signal.aborted) this.output.appendLine(vscode.l10n.t('[gateway] Reconnecting remote-event stream: {0}', errorMessage(cause)))
+      } finally {
+        // A host replays live requests after the next ready frame. Drop old
+        // delivery/client IDs even if no cancellation arrived before the loss.
+        if (generation !== undefined && this.interactions.disconnect(generation)) this.fireChange()
       }
       if (!signal.aborted) await this.waitToReconnect(signal)
     }
@@ -1535,11 +1510,18 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   private handleFollowFrame(sessionId: string, frame: FollowFrame): void {
+    if (frame.type === 'assistant-stream') {
+      this.assistantStream.accept(frame.frame)
+      this.fireChange()
+      return
+    }
     if (frame.type === 'snapshot') {
       const records = NodeGatewayClient.expandRecords(frame.records as unknown[]) as HistoryEntry[]
       this.followCursor.set(sessionId, frame.cursor)
       // Merging keeps events received during the read (and repair re-reads).
       this.entries = mergeHistory(records, this.entries)
+      this.assistantStream.reset(frame.assistantStream)
+      for (const { event } of this.entries) this.assistantStream.settle(event)
       this.hasMore = frame.hasMore
       this.projections = recordValue((frame.projections as { readonly values?: Record<string, unknown> } | undefined)?.values)
       this.applyTitleProjection(sessionId, projectionTitle((frame.projections as { readonly values?: Record<string, unknown> } | undefined)?.values))
@@ -1549,6 +1531,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     }
     const event = frame.event as unknown as HistoryEntry['event']
     this.acceptEvent({ event })
+    this.assistantStream.settle(event)
     const summary = this.summaries.get(sessionId)
     if (summary !== undefined) {
       this.summaries.set(sessionId, {
@@ -1561,7 +1544,6 @@ export class HarnessGatewayService implements vscode.Disposable {
     if (event.type === 'turn/end') {
       this.pendingQueue.release(sessionId)
       this.maybeAutoMergeWorktree(sessionId)
-      this.metaStore.recordTurnChanges(sessionId, event, this.entries, sessionId === this.activeSessionId, (id) => this.summaries.has(id))
       // Background-session turn/end notifications are NOT raised here: this handler is only ever invoked
       // by pumpActiveFollow(), which breaks its loop the moment activeSessionId changes (see the check just
       // before handleFollowFrame is called) — so `sessionId` below is always the active session already.
@@ -1606,12 +1588,8 @@ export class HarnessGatewayService implements vscode.Disposable {
       this.pendingQueue.dropForSession(removed)
       this.pendingQueue.forget(removed)
       this.metaStore.removeSession(removed)
-      for (const [key, pending] of this.approvals.entries()) {
-        if (pending.sessionId === removed) this.approvals.delete(key)
-      }
-      for (const [key, pending] of this.questions.entries()) {
-        if (pending.sessionId === removed) this.questions.delete(key)
-      }
+      this.interactions.removeSession(removed)
+      this.pendingSessionErrors.delete(removed)
     } else if (event === 'api-session/status') {
       const id = String(args[0] ?? '')
       const running = args[1] === true
@@ -1668,89 +1646,36 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.fireChange()
   }
 
-  private handleWaterfall(frame: {
-    readonly event: string
-    readonly eventId: string
-    readonly request: Record<string, unknown>
-  }): void {
-    const clientId = this.remoteEventClientId ?? ''
-    if (frame.event === 'approval/asked') {
-      const key = `approval:${frame.eventId}`
-      const sessionId = String(frame.request.sessionId ?? this.activeSessionId ?? '')
-      this.approvals.set(key, {
-        key,
-        clientId,
-        eventId: frame.eventId,
-        approvalId: frame.eventId,
-        sessionId,
-        toolName: typeof frame.request.toolName === 'string' ? frame.request.toolName : '',
-        ...(typeof frame.request.reason === 'string' ? { reason: frame.request.reason } : {}),
-      })
-      if (sessionId !== '' && sessionId !== this.activeSessionId) {
-        const title = this.sessionTitle(sessionId)
-        const actionLabel = vscode.l10n.t('Switch to conversation')
-        const toolName = typeof frame.request.toolName === 'string' ? frame.request.toolName : ''
-        void vscode.window.showWarningMessage(
-          vscode.l10n.t('Harness session "{0}" requires approval for tool "{1}".', title, toolName),
-          actionLabel,
-        ).then((action) => {
-          if (action === actionLabel) {
-            void this.openSession(sessionId)
-              .then(() => vscode.commands.executeCommand('deepseekHarness.chatView.focus'))
-              .catch((err: unknown) => {
-                this.output.appendLine(vscode.l10n.t('[gateway] Failed to switch session: {0}', errorMessage(err)))
-              })
-          }
-        })
-      }
-    } else if (frame.event === 'question/asked') {
-      const key = `question:${frame.eventId}`
-      const sessionId = String(frame.request.sessionId ?? this.activeSessionId ?? '')
-      const raw = Array.isArray(frame.request.questions) ? frame.request.questions : []
-      this.questions.set(key, {
-        key,
-        clientId,
-        eventId: frame.eventId,
-        sessionId,
-        questions: raw.map((question) => {
-          const record = question as Record<string, unknown>
-          return {
-            id: typeof record.id === 'string' ? record.id : '',
-            question: typeof record.question === 'string' ? record.question : '',
-            ...(typeof record.header === 'string' ? { header: record.header } : {}),
-            ...(typeof record.detail === 'string' ? { detail: record.detail } : {}),
-            options: Array.isArray(record.options)
-              ? record.options.map((option) => {
-                if (typeof option === 'string') return { label: option }
-                const candidate = option as Record<string, unknown>
-                return {
-                  label: typeof candidate.label === 'string' ? candidate.label : typeof candidate.value === 'string' ? candidate.value : '',
-                  ...(typeof candidate.description === 'string' ? { description: candidate.description } : {}),
-                }
-              })
-              : [],
-            multiSelect: record.multiSelect === true,
-          }
-        }),
-      })
-      if (sessionId !== '' && sessionId !== this.activeSessionId) {
-        const title = this.sessionTitle(sessionId)
-        const actionLabel = vscode.l10n.t('Switch to conversation')
-        void vscode.window.showInformationMessage(
-          vscode.l10n.t('Harness session "{0}" is waiting for your answer.', title),
-          actionLabel,
-        ).then((action) => {
-          if (action === actionLabel) {
-            void this.openSession(sessionId)
-              .then(() => vscode.commands.executeCommand('deepseekHarness.chatView.focus'))
-              .catch((err: unknown) => {
-                this.output.appendLine(vscode.l10n.t('[gateway] Failed to switch session: {0}', errorMessage(err)))
-              })
-          }
-        })
-      }
-    }
+  private handleWaterfall(frame: RemoteWaterfallEvent, generation: number): void {
+    const pending = this.interactions.receive(frame, generation)
+    if (pending === undefined) return
     this.fireChange()
+    if (pending.sessionId === this.activeSessionId) return
+    this.notifyPendingInteraction(pending)
+  }
+
+  /** Navigation does not own a request; its originating agent/session does. */
+  private notifyPendingInteraction(pending: PendingInteraction): void {
+    const title = this.sessionTitle(pending.sessionId)
+    const actionLabel = vscode.l10n.t('Switch to conversation')
+    const notification = pending.kind === 'approval'
+      ? vscode.window.showWarningMessage(
+        vscode.l10n.t('Harness session "{0}" requires approval for tool "{1}".', title, pending.view.toolName),
+        actionLabel,
+      )
+      : vscode.window.showInformationMessage(
+        vscode.l10n.t('Harness session "{0}" is waiting for your answer.', title),
+        actionLabel,
+      )
+    void notification.then((action) => {
+      // Toasts can outlive a cancellation or socket reconnect.
+      if (action !== actionLabel || !this.interactions.has(pending.key)) return
+      void this.openSession(pending.sessionId)
+        .then(() => vscode.commands.executeCommand('deepseekHarness.chatView.focus'))
+        .catch((err: unknown) => {
+          this.output.appendLine(vscode.l10n.t('[gateway] Failed to switch session: {0}', errorMessage(err)))
+        })
+    })
   }
 
   private handleWorkspace(frame: unknown): void {
@@ -2012,8 +1937,21 @@ export class HarnessGatewayService implements vscode.Disposable {
     })
   }
 
-  private async respondRemoteEvent(clientId: string, eventId: string, outcome: unknown): Promise<void> {
-    await this.requireClient().resolveRemoteEvent(clientId, eventId, outcome)
+  private async respondToInteraction(key: string, kind: PendingInteraction['kind'], outcome: RemoteEventOutcome): Promise<void> {
+    const pending = this.interactions.beginResponse(key, kind)
+    if (pending === undefined) {
+      throw new Error(kind === 'approval'
+        ? vscode.l10n.t('This approval request is no longer active.')
+        : vscode.l10n.t('This question is no longer active.'))
+    }
+    let succeeded = false
+    try {
+      await this.requireClient().resolveRemoteEvent(pending.clientId, pending.eventId, outcome)
+      succeeded = true
+    } finally {
+      this.interactions.finishResponse(pending, succeeded)
+      this.fireChange()
+    }
   }
 
   private markConnected(): void {
@@ -2057,6 +1995,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.selectionGeneration += 1
     this.streamAbort?.abort()
     this.streamAbort = undefined
+    this.interactions.disconnect()
     this.client = undefined
     this.connectionSettings.disconnect()
     this.phase = 'idle'
@@ -2064,6 +2003,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     // the revision so any in-flight workspace.list response is discarded, and
     // clear the flag so an empty archivedIds is not treated as authoritative.
     this.archives.markDisconnected()
+    this.fireChange()
   }
 
   private fireChange(): void {

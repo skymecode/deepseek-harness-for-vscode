@@ -30,7 +30,7 @@ export function renderComposer(active: ActiveSessionView | undefined): void {
   })
 }
 
-/** Claude-style running status line with an interrupt hint. */
+/** Compact in-composer running status; never overlays the transcript viewport. */
 export function renderActivityStatus(active: ActiveSessionView | undefined): void {
   // The host only flips `running` for LLM turns; host commands such as
   // /compact surface as a notice item that stays `running` until command/done.
@@ -40,10 +40,12 @@ export function renderActivityStatus(active: ActiveSessionView | undefined): voi
   if (retry === undefined) {
     elements.activityRetry.classList.add('hidden')
     elements.activityRetry.textContent = ''
+    elements.activityRetry.removeAttribute('title')
     return
   }
   elements.activityRetry.classList.remove('hidden')
   elements.activityRetry.textContent = retryStatusText(retry)
+  elements.activityRetry.title = elements.activityRetry.textContent
 }
 
 /** One-line live model-request retry label, e.g. "model request timed out · retrying (2/5)…". */

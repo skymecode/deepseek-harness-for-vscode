@@ -46,6 +46,7 @@ export const elements: ChatElements = {
   retry: byId<HTMLElement>('retry'),
   showLogs: byId<HTMLElement>('show-logs'),
   chat: byId<HTMLElement>('chat'),
+  transcript: byId<HTMLElement>('transcript-scroll'),
   conversation: byId<HTMLElement>('conversation'),
   loadOlder: byId<HTMLElement>('load-older'),
   empty: byId<HTMLElement>('empty'),
@@ -145,7 +146,6 @@ export function setStartupComplete(value: boolean): void {
   startupComplete = value
 }
 
-export const messageSignatures = new WeakMap<HTMLElement, string>()
 
 export let searchResults: readonly SearchResult[] = []
 export function setSearchResults(value: readonly SearchResult[]): void {

@@ -6,6 +6,8 @@ import type {} from '@deepseek-ai/dsh-tool-todo'
 import type { ContextPressureView } from './context-pressure.js'
 import type { EffortIntent } from './session-effort.js'
 import type { SessionChangesView } from './session-changes.js'
+import type { TurnChangesView } from './turn-changes.js'
+export type { TurnChangesView } from './turn-changes.js'
 import type { SessionMeta } from './session-meta.js'
 import type { SessionStatsView } from './session-stats.js'
 import { projectTurnDurations, type TurnDurationView } from './turn-duration.js'
@@ -55,6 +57,13 @@ export interface ChatItem {
   readonly detail?: string
   /** Tool result text; present on a merged tool item once its result arrives. */
   readonly result?: string
+  /**
+   * Stable streaming identity `<turn>:<step>` for assistant messages: shared
+   * by the running partial bubble and the finalized message that replaces it,
+   * so the webview can carry per-block UI state (reasoning expansion) across
+   * the id handoff. Absent on non-streamed items.
+   */
+  readonly streamKey?: string
   /**
    * Turn timing, attached to the turn's last assistant message so the
    * cumulative "worked for" counter lives at the bottom of the turn; tool
@@ -151,19 +160,6 @@ export interface ModelRetryView {
   readonly delayMs?: number
   /** Whether the wait has finished and the retried request is in flight. */
   readonly started: boolean
-}
-
-/**
- * One finished turn's edited-file card, kept as part of the transcript: it
- * rides below the turn's conclusion and survives session/history switches.
- * `conclusionId` is the event id (`event-<seq>`) of the turn's last assistant
- * message, used to slot the card directly under that conclusion.
- */
-export interface TurnChangesView {
-  readonly seq: number
-  readonly turn: number
-  readonly conclusionId: string
-  readonly changes: SessionChangesView
 }
 
 /**
@@ -421,6 +417,10 @@ export function projectConversation(entries: readonly HistoryEntry[], labels = E
   const blockTimes = new Map<string, Map<number, TurnDurationView>>()
   const stepUsage = new Map<string, { readonly reasoningTokens?: number }>()
   const partials = new Map<string, PartialBlocks>()
+  // (turn, step) of the newest streamed step: any partial at or below it is
+  // provably stale once a different step streamed later (see the partial
+  // emission loop at the end of this function).
+  const newestStep = { turn: -1, step: -1 }
   const commandRuns = new Map<string, {
     readonly seq: number
     readonly time: number
@@ -445,6 +445,12 @@ export function projectConversation(entries: readonly HistoryEntry[], labels = E
       // streamed usage record (adapter-reported reasoning tokens) per step.
       const chunk = event.data.chunk
       const key = stepKey(event.data.turn, event.data.step)
+      const turn = event.data.turn
+      const step = event.data.step
+      if (turn > newestStep.turn || (turn === newestStep.turn && step > newestStep.step)) {
+        newestStep.turn = turn
+        newestStep.step = step
+      }
       if (chunk.type === 'usage') {
         stepUsage.set(key, chunk.usage)
       } else if ('index' in chunk && typeof chunk.index === 'number') {
@@ -529,6 +535,7 @@ export function projectConversation(entries: readonly HistoryEntry[], labels = E
             time: event.time,
             kind: 'message',
             role: 'assistant',
+            streamKey: key,
             blocks,
           }, event.data.turn)
         }
@@ -614,6 +621,18 @@ export function projectConversation(entries: readonly HistoryEntry[], labels = E
   }
 
   for (const [key, partial] of partials) {
+    // A page-edge can slice between a step's packed chunk rows and its
+    // finalized `assistant/message`, leaving old steps' partials behind
+    // forever: several "Thinking…" bubbles pinned mid-transcript with
+    // spinner-tool cards around them. A step is only truly streaming while
+    // no later step of the same turn (and no later turn) has produced an
+    // event — drop every stale partial older than the newest seen step.
+    const turn = turnFromStepKey(key)
+    const step = Number(key.slice(key.indexOf(':') + 1))
+    const stale = turn < newestStep.turn
+      || (turn === newestStep.turn && step < newestStep.step)
+      || finalSteps.has(key)
+    if (stale) continue
     addMessage({
       id: `partial-${key}`,
       seq: partial.seq,
@@ -621,6 +640,7 @@ export function projectConversation(entries: readonly HistoryEntry[], labels = E
       kind: 'message',
       role: 'assistant',
       status: 'running',
+      streamKey: key,
       blocks: partial.blocks(),
     }, turnFromStepKey(key))
   }

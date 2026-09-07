@@ -17,7 +17,6 @@ import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { Agent as UndiciAgent, fetch as undiciFetch } from 'undici'
 import { RpcId, serverResponseSchema, type ClientRequest, type ConnectionRpcResult, type ServerResponse } from '@deepseek-ai/dsh-client-connection'
-import { decodeStorageRecord } from '@deepseek-ai/dsh-session/chunk-rows'
 import type { SessionPage } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { AgentPresetRoster } from '@deepseek-ai/dsh-agent-presets/types'
 import type { CommandDescriptor as WireCommandDescriptor } from '@deepseek-ai/dsh-commands/types'
@@ -47,6 +46,7 @@ import type {
   WorkspaceFollowFrame,
 } from './domain-api.js'
 import { parseImportDiscoverResult, parseImportResult, type ImportDiscoverRequest, type ImportDiscoverResult, type ImportRequest, type ImportResult } from '../import/types.js'
+import { parseRemoteEvent, type RemoteEvent, type RemoteEventOutcome } from './remote-event-protocol.js'
 
 /** A host-registered slash command descriptor, as served by `commands/list`. */
 export interface HostCommandDescriptor extends WireCommandDescriptor {}
@@ -57,9 +57,6 @@ export interface HostCommandExecution {
 }
 
 type RemoteValue<T> = ConnectionRpcResult<T>
-
-/** One decoded history record before chunk expansion. */
-type WireRecord = { readonly type: 'event'; readonly event: { readonly type: string; readonly seq: number; readonly time: number; readonly data: unknown } } | { readonly type: 'chunks'; readonly event: { readonly type: string; readonly seq: number; readonly time: number; readonly data: unknown } }
 
 /**
  * Node transport for the Harness Gateway. Unary calls use a typed fetch
@@ -206,7 +203,7 @@ export class NodeGatewayClient {
 
   /** Session event stream: snapshot window plus ordered events (Typert `session/follow`). */
   sessionFollow(request: SessionFollowRequest, signal: AbortSignal): AsyncGenerator<SessionFollowFrame> {
-    return this.openStream<SessionFollowFrame>('session/follow', { request }, signal)
+    return this.openStream<SessionFollowFrame>('session/follow', { request: { ...request, assistantStream: true } }, signal)
   }
 
   /** Host-wide live state stream (Typert `session/control`). */
@@ -265,7 +262,7 @@ export class NodeGatewayClient {
   }
 
   /** Submits one Remote Event waterfall outcome (Typert `$events/result`). */
-  async resolveRemoteEvent(clientId: string, eventId: string, outcome: unknown): Promise<void> {
+  async resolveRemoteEvent(clientId: string, eventId: string, outcome: RemoteEventOutcome): Promise<void> {
     await this.callRaw<unknown>('$events/result', { clientId, eventId, outcome })
   }
 
@@ -315,8 +312,11 @@ export class NodeGatewayClient {
   }
 
   /** Host-wide forwarded remote events (the `$events` logical stream). */
-  remoteEvents(signal: AbortSignal): AsyncGenerator<{ readonly event: string; readonly args: readonly unknown[] }> {
-    return this.openStream<{ readonly event: string; readonly args: readonly unknown[] }>('$events', {}, signal)
+  async *remoteEvents(signal: AbortSignal): AsyncGenerator<RemoteEvent> {
+    for await (const value of this.openStream<unknown>('$events', {}, signal)) {
+      const frame = parseRemoteEvent(value)
+      if (frame !== undefined) yield frame
+    }
   }
 
   /** Connectivity check: an authenticated unary round-trip. */
@@ -324,20 +324,14 @@ export class NodeGatewayClient {
     await this.callRaw<{ readonly blanks: readonly unknown[] }>('session/list', { _request: {} })
   }
 
-  /** Expands wire history records (chunk rows) back to the exact events. */
+  /** Unwraps V2 durable records; live assistant frames never enter this list. */
   static expandRecords(records: readonly unknown[]): { readonly event: unknown }[] {
     const events: { readonly event: unknown }[] = []
     for (const record of records) {
-      const unwrapped = record as WireRecord
-      if (unwrapped.type === 'event') {
-        events.push({ event: (unwrapped.event as { readonly data?: unknown })['data'] === undefined ? unwrapped.event : { ...unwrapped.event } })
-      } else {
-        const row = unwrapped.event as unknown
-        const stripped = typeof row === 'object' && row !== null && typeof Reflect.get(row, 'type') === 'string'
-          ? { ...(row as Record<string, unknown>), type: String(Reflect.get(row, 'type')).replace(/^chunkrow\//u, '') }
-          : row
-        for (const event of decodeStorageRecord(normalizeChunkRowEnvelope(stripped)) as unknown[]) events.push({ event })
+      if (typeof record !== 'object' || record === null || Reflect.get(record, 'type') !== 'event') {
+        throw new Error('Unsupported Harness history record; expected a V2 event.')
       }
+      events.push({ event: Reflect.get(record, 'event') })
     }
     return events
   }
@@ -533,27 +527,4 @@ function rawDataText(data: RawData): string {
   if (data instanceof ArrayBuffer) return Buffer.from(data).toString('utf8')
   if (Array.isArray(data)) return Buffer.concat(data).toString('utf8')
   return data.toString('utf8')
-}
-
-/**
- * The follow wire encodes chunk rows as chunkrow/* records carrying seq and
- * time, while the storage decoder (@deepseek-ai/dsh-session chunk-rows)
- * validates the exact {type, seq0, time0, data} envelope and throws on any
- * deviation. Remap the wire keys (and drop the originals) so decoded chunk
- * runs survive; without this the follow snapshot crashed and history
- * sessions rendered no conversation.
- */
-function normalizeChunkRowEnvelope(row: unknown): unknown {
-  if (typeof row !== 'object' || row === null) return row
-  const record = row as Record<string, unknown>
-  const type = typeof record.type === 'string' ? record.type : ''
-  if (type !== 'text-chunks' && type !== 'reasoning-chunks' && type !== 'tool-call-chunks') return row
-  if (!(typeof record.seq === 'number' && typeof record.time === 'number')) return row
-  const envelope: Record<string, unknown> = {}
-  for (const key of Object.keys(record)) {
-    if (key !== 'seq' && key !== 'time') envelope[key] = record[key]
-  }
-  envelope.seq0 = record.seq
-  envelope.time0 = record.time
-  return envelope
 }

@@ -23,6 +23,7 @@ body {
 .key-banner,
 .workbench,
 .chat,
+.transcript-scroll,
 .conversation,
 .messages,
 .message-body,
@@ -323,10 +324,36 @@ body {
   overflow-wrap: anywhere;
 }
 
-.tool-card summary,
 .context-card summary {
   flex-wrap: wrap;
   overflow: hidden;
+}
+
+/* Keep the status and disclosure control reachable even in a 260px sidebar. */
+.tool-card > summary {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.tool-card > summary .tool-title {
+  flex: 0 1 auto;
+  white-space: nowrap;
+}
+.tool-card > summary .tool-preview {
+  flex: 1 1 0;
+  white-space: nowrap;
+}
+@media (max-width: 360px) {
+  .reasoning-block > summary,
+  .tool-card > summary {
+    padding-inline: 9px;
+    gap: 7px;
+  }
+  .reasoning-summary {
+    display: none;
+  }
+  .reasoning-block.running .reasoning-summary {
+    display: none;
+  }
 }
 
 .tool-title,

@@ -1,13 +1,17 @@
 import type { ActiveSessionView, ChatItem } from '../../domain/workbench-state.js'
 import { splitCarriedBlocks } from '../../domain/carry-over.js'
+import { shouldShowProcessing } from '../../domain/processing-status.js'
+import { projectReasoningTimeline } from '../../domain/reasoning-timeline.js'
 import { renderMarkdown, resetReferenceValidation } from '../markdown.js'
 import { createSessionChangesCard } from '../session-changes/component.js'
+import { ProcessingIndicator } from '../processing-indicator/component.js'
+import { ReasoningTimeline } from '../reasoning-timeline/component.js'
+import { createToolCardHeader } from '../tool-card/header.js'
 import {
   components,
   elements,
   followStream,
   interactionArmed,
-  messageSignatures,
   node,
   optimisticBubbles,
   payload,
@@ -19,8 +23,10 @@ import {
   stickToBottomOnLoad,
   t,
 } from './context.js'
-import { applyIcon, icon, type IconName } from '../icons.js'
+import type { IconName } from '../icons.js'
 import { markdownActions } from './markdown-actions.js'
+import { MessageReconciler } from './message-reconciler.js'
+import { TurnChangesController } from './turn-changes-controller.js'
 import { appendTodoRows, todoListSignature, todoProgress, type TodoEntry } from './todo-list.js'
 import type { OptimisticBubble } from './types.js'
 import {
@@ -30,12 +36,21 @@ import {
   estimateReasoningTokens,
   formatTokenCount,
   isNearBottom,
-  messageSignature,
   patchStreamingMessage,
   restoreDisclosures,
   scrollConversationToBottom,
-  setMessageMetadata,
 } from './utils.js'
+
+const messageReconciler = new MessageReconciler()
+const processingIndicator = new ProcessingIndicator(document, t('processing'))
+const reasoningTimeline = new ReasoningTimeline(document)
+const turnChangesController = new TurnChangesController(() => createSessionChangesCard({
+  document,
+  translate: t,
+  onOpenFile: (path) => post('openFile', { path }),
+  onReview: () => post('sessionChangesReview'),
+  onUndo: () => post('sessionChangesUndo'),
+}))
 
 export function cancelStickToBottom(): void {
   if (stickToBottomOnLoad) setStickToBottomOnLoad(false)
@@ -47,7 +62,7 @@ export function cancelStickToBottom(): void {
  * that fights the reader's scrollbar.
  */
 function setConversationScroll(top: number): void {
-  const chat = elements.chat
+  const chat = elements.transcript
   const previous = chat.style.scrollBehavior
   chat.style.scrollBehavior = 'auto'
   chat.scrollTop = top
@@ -63,12 +78,12 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
     // A new transcript means a new existence ledger: verified references from
     // the previous session must be re-checked before becoming clickable again.
     resetReferenceValidation()
-    clearTurnChangesCards()
   }
   if (sessionChanged && optimisticBubbles.length > 0) setOptimisticBubbles([])
   reconcileOptimistic(realMessages)
   const running = active?.running ?? false
   const messages = settleRunningDurations([...realMessages, ...optimisticBubbles], running)
+  const processing = shouldShowProcessing(active, messages, payload?.state.phase, optimisticBubbles.length > 0)
   // Keep forcing the view to the bottom while a newly opened session is still
   // loading: selectSession first pushes an empty state (which would otherwise
   // scroll to the top), then the transcript arrives in a later state push.
@@ -77,56 +92,36 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   // transcript asynchronously after render, so a pre-render probe here would
   // otherwise misclassify "user is reading an older message" as "at bottom"
   // and yank the view down to the newest bubble.
-  const wasNearBottom = isNearBottom(elements.chat)
+  const wasNearBottom = isNearBottom(elements.transcript)
   const shouldStick = stickToBottomOnLoad || sessionChanged || (followStream && wasNearBottom)
-  const previousTop = elements.chat.scrollTop
-  const previousHeight = elements.chat.scrollHeight
-  const previousFirstId = (elements.messages.firstElementChild as HTMLElement | null)?.dataset.messageId
+  const previousTop = elements.transcript.scrollTop
+  const previousHeight = elements.transcript.scrollHeight
+  // The decorative SVG is not a history item and may be the first child.
+  const previousFirstId = elements.messages.querySelector<HTMLElement>(':scope > [data-message-id]')?.dataset.messageId
   const conclusionId = latestConclusionId(messages)
-  // The step timeline spine only exists while a conversation is in flight;
-  // once the turn ends the rail disappears from the finished transcript.
-  elements.messages.classList.toggle('timeline-live', running)
-  const existing = new Map(Array.from(elements.messages.children)
-    .filter((child) => !(child.classList.contains('turn-changes-card')))
-    .map((child) => [(child as HTMLElement).dataset.messageId ?? '', child as HTMLElement]))
-  const retained = new Set<string>()
-  let cursor = elements.messages.firstElementChild
-
-  for (const item of messages) {
-    const id = String(item.id)
-    const signature = messageSignature(item)
-    let element = existing.get(id)
-    if (!element) {
-      element = renderMessage(item, conclusionId, running)
-      setMessageMetadata(element, id, signature)
-    } else if (messageSignatures.get(element) !== signature) {
-      if (patchStreamingMessage(element, item)) {
-        messageSignatures.set(element, signature)
-      } else {
-        const wasCursor = element === cursor
-        const disclosureState = captureDisclosures(element)
-        const replacement = renderMessage(item, conclusionId, running)
-        restoreDisclosures(replacement, disclosureState)
-        setMessageMetadata(replacement, id, signature)
-        element.replaceWith(replacement)
-        element = replacement
-        if (wasCursor) cursor = replacement
-      }
-    }
-    retained.add(id)
-    if (element !== cursor) elements.messages.insertBefore(element, cursor)
-    cursor = element.nextElementSibling
-  }
-
-  for (const [id, element] of existing) {
-    if (!retained.has(id)) element.remove()
-  }
+  messageReconciler.reconcile(elements.messages, sessionId, messages, {
+    create: (item) => renderMessage(item),
+    patch: patchStreamingMessage,
+    replace: (element, item) => {
+      const replacement = renderMessage(item)
+      restoreDisclosures(replacement, captureDisclosures(element))
+      return replacement
+    },
+    release: (element) => components.streamingMessage.dispose(element),
+  })
   // The copy button only survives on the finished conclusion; remove any that
   // are stale (streaming moved on, turn restarted, or a new conclusion
   // replaced the old one).
   for (const footer of Array.from(elements.messages.querySelectorAll<HTMLElement>('.message-copy-footer'))) {
     const article = footer.closest('article')
     if (running || article?.dataset.messageId !== conclusionId) footer.remove()
+  }
+  // Finalizing now patches the original streaming node instead of remounting
+  // it, so add the conclusion action independently of initial rendering.
+  const conclusion = !running ? messages.find((item) => item.id === conclusionId) : undefined
+  if (conclusion !== undefined) {
+    const article = elements.messages.querySelector<HTMLElement>(`[data-message-id="${cssEscape(conclusion.id)}"]`)
+    if (article !== null && article.querySelector('.message-copy-footer') === null) article.append(createCopyFooter(conclusion))
   }
   // Keep worked-time footers only under DeepSeek bubbles; remove any that
   // leaked onto user bubbles.
@@ -138,11 +133,15 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   // above would otherwise leave them stale. Refresh every card whose bound
   // checklist diverged from the current session state.
   refreshTodoCards(active?.todos ?? [])
-  elements.empty.classList.toggle('hidden', messages.length > 0)
+  elements.empty.classList.toggle('hidden', messages.length > 0 || processing)
   // Per-turn edited-file cards sit below their conclusion; reconcile them
   // BEFORE the scroll logic so the bottom-pin measurement includes card
   // heights (otherwise the first card pushes the transcript past the view).
-  renderTurnChanges(active)
+  turnChangesController.reconcile(elements.messages, sessionId, active?.turnChanges)
+  // A transient tail, never a history item or a fixed overlay. Update before
+  // measuring so auto-follow includes it and manual scroll remains untouched.
+  processingIndicator.update(elements.messages, processing)
+  reasoningTimeline.update(elements.messages, sessionId, projectReasoningTimeline(messages, running))
   const prepended = !sessionChanged && previousFirstId !== undefined
     && messages.findIndex((item) => String(item.id) === previousFirstId) > 0
   const pinnedInteraction = shouldStick && !interactionArmed
@@ -150,7 +149,7 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
     scrollConversationToBottom()
   } else if (prepended) {
     // Anchor the pre-render position so history prepends don't shift the view.
-    setConversationScroll(previousTop + elements.chat.scrollHeight - previousHeight)
+    setConversationScroll(previousTop + elements.transcript.scrollHeight - previousHeight)
   } else if (!stickToBottomOnLoad) {
     // Streaming below the viewport must not steal the reader's position, but
     // a freshly opened session must keep pinning to the bottom until its
@@ -171,102 +170,13 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   if (stickToBottomOnLoad && messages.length > 0) {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (stickToBottomOnLoad && isNearBottom(elements.chat)) setStickToBottomOnLoad(false)
+        if (stickToBottomOnLoad && isNearBottom(elements.transcript)) setStickToBottomOnLoad(false)
       })
     })
   }
-  // Per-turn edited-file cards stay with the transcript, each slotted below
-  // its turn's conclusion. They are excluded from the message reconciliation
-  // loop (no messageId) and reconciled here by turn seq.
-  renderTurnChanges(active)
   setRenderedSessionId(sessionId)
 }
 
-/** Cards for finished turns, keyed by turn seq and kept with the transcript. */
-const turnChangesCards = new Map<number, ReturnType<typeof createSessionChangesCard>>()
-
-/** Drops every turn card (session switch). */
-function clearTurnChangesCards(): void {
-  for (const card of turnChangesCards.values()) card.element.remove()
-  turnChangesCards.clear()
-}
-
-/**
- * Renders one "edited files" card per finished turn, slotting each below the
- * conclusion message of its turn. Cards for turns whose conclusion is not in
- * the loaded page fall to the tail of the stream; removed turns drop their
- * card. State (show-all, dismiss) survives re-renders per card instance.
- */
-function renderTurnChanges(active: ActiveSessionView | undefined): void {
-  const views = active?.turnChanges ?? []
-  const ids = new Set(views.map((view) => view.turn))
-  // Only delete cards when authoritative data arrived (turnChanges present but
-  // a turn is missing). A transient state push without the field must never
-  // yank the previous turn's card out of the transcript.
-  if (active?.turnChanges !== undefined) {
-    for (const [turn, card] of turnChangesCards) {
-      if (ids.has(turn)) continue
-      card.element.remove()
-      turnChangesCards.delete(turn)
-    }
-  }
-  for (const view of views) {
-    let card = turnChangesCards.get(view.turn)
-    if (card === undefined) {
-      card = createSessionChangesCard({
-        document,
-        translate: t,
-        onOpenFile: (path) => post('openFile', { path }),
-        onReview: () => post('sessionChangesReview'),
-        onUndo: () => post('sessionChangesUndo'),
-      })
-      turnChangesCards.set(view.turn, card)
-    }
-    card.update(view.changes)
-    // Anchor the card directly under its turn's conclusion. When the recorded
-    // conclusion id no longer matches (a runtime upgrade can shift event seqs),
-    // fall back to the first message after this turn's own seq — never append
-    // to the tail, which would strand the card below later turns' messages.
-    const conclusion = elements.messages.querySelector<HTMLElement>(`article.message[data-message-id="${cssEscape(view.conclusionId)}"]`)
-    if (conclusion !== null && conclusion.nextElementSibling !== card.element) {
-      conclusion.after(card.element)
-      continue
-    }
-    if (conclusion !== null) continue
-    const anchor = firstMessageAfterSeq(view.seq)
-    if (anchor === null) {
-      const lastAssistant = lastMessageElement()
-      if (lastAssistant !== null && lastAssistant.nextElementSibling !== card.element) {
-        lastAssistant.after(card.element)
-      } else if (lastAssistant === null && elements.messages.lastElementChild !== card.element) {
-        elements.messages.append(card.element)
-      }
-    } else if (anchor !== card.element && anchor.previousElementSibling !== card.element) {
-      elements.messages.insertBefore(card.element, anchor)
-    }
-  }
-}
-
-/** The first message element whose `event-<seq>` id is after the given seq. */
-function firstMessageAfterSeq(seq: number): HTMLElement | null {
-  if (!Number.isFinite(seq)) return null
-  for (const child of Array.from(elements.messages.children)) {
-    if (!(child instanceof HTMLElement) || child.classList.contains('turn-changes-card')) continue
-    const match = /^event-(\d+)$/u.exec(child.dataset.messageId ?? '')
-    if (match === null) continue
-    if (Number(match[1]) > seq) return child
-  }
-  return null
-}
-
-/** The last assistant message element in the transcript, or null. */
-function lastMessageElement(): HTMLElement | null {
-  for (let index = elements.messages.children.length - 1; index >= 0; index -= 1) {
-    const child = elements.messages.children[index]
-    if (child instanceof HTMLElement && child.classList.contains('message') && child.classList.contains('assistant')) return child
-  }
-  return null
-}
 
 export function messageText(item: ChatItem): string {
   return (item.blocks || [])
@@ -357,7 +267,7 @@ function createCopyFooter(item: ChatItem): HTMLButtonElement {
   return button
 }
 
-function renderMessage(item: ChatItem, conclusionId: string | undefined, running: boolean): HTMLElement {
+function renderMessage(item: ChatItem): HTMLElement {
   if (item.kind === 'tool') return renderTool(item)
   if (item.kind === 'context') return renderContext(item)
   if (item.kind === 'notice') {
@@ -384,7 +294,6 @@ function renderMessage(item: ChatItem, conclusionId: string | undefined, running
   // turn runs and freezes when done). The copy button belongs only to the
   // finished turn's final conclusion.
   if (item.role === 'assistant') components.workDuration.update(article, item.workDuration)
-  if (!running && item.role === 'assistant' && item.id === conclusionId) article.append(createCopyFooter(item))
   return article
 }
 
@@ -393,24 +302,12 @@ function renderTool(item: ChatItem): HTMLElement {
   const container = node('div', 'tool-item')
   const details = node('details', `tool-card ${item.status || ''}`) as HTMLDetailsElement
   details.dataset.disclosureKey = 'tool'
-  const summary = node('summary')
-  // One merged row per tool: a per-tool glyph on the call card; standalone
-  // result cards (call missing from this history page) keep a status mark.
-  const isResultOnly = String(item.id || '').endsWith('-result')
-  const statusIcon = isResultOnly
-    ? (item.status === 'error' ? icon('cancel', 12) : icon('check', 12))
-    : item.status === 'running'
-      // An in-flight call shows a spinning arc instead of the tool glyph:
-      // the reader instantly sees the tool is still executing.
-      ? icon('spinner', 13)
-      : icon(toolIcon(item.title), 13)
-  const status = node('span', 'tool-status')
-  applyIcon(status, statusIcon)
-  summary.append(status, node('span', 'tool-title', toolDisplayName(item.title || t('tool'))))
-  if (item.detail && item.detail.trim() !== '') {
-    summary.append(node('span', 'tool-preview', toolPreviewText(item.detail)))
-  }
-  details.append(summary)
+  details.append(createToolCardHeader(document, {
+    title: toolDisplayName(item.title || t('tool')),
+    glyph: toolIcon(item.title),
+    status: item.status,
+    ...(item.detail?.trim() ? { preview: toolPreviewText(item.detail) } : {}),
+  }))
   if (item.detail && item.detail.trim() !== '') {
     details.append(toolSectionLabel(t('toolArguments'), estimateReasoningTokens(item.detail)))
     const detail = node('div', 'tool-detail')

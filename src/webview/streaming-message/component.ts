@@ -3,7 +3,7 @@ import { createSequentialActivityDots } from '../activity-indicator/component.js
 import { applyIcon, icon } from '../icons.js'
 import { nextStreamText, shouldRebuildStreamFrame, STREAMING_REBUILD_CHAR_THRESHOLD, STREAMING_REBUILD_MIN_INTERVAL_MS } from './model.js'
 
-type StreamingMessage = Pick<ChatItem, 'status' | 'blocks'>
+type StreamingMessage = Pick<ChatItem, 'status' | 'blocks' | 'streamKey'>
 
 interface StreamState {
   rendered: string
@@ -29,6 +29,7 @@ function estimateTokens(text: string): number {
 /** Owns reasoning disclosure state and smooth incremental assistant text. */
 export class StreamingMessageComponent {
   private readonly streams = new WeakMap<HTMLElement, StreamState>()
+  private readonly blockSignatures = new WeakMap<HTMLElement, string>()
 
   constructor(private readonly options: {
     readonly document: Document
@@ -44,7 +45,7 @@ export class StreamingMessageComponent {
   render(body: HTMLElement, item: StreamingMessage): void {
     const running = item.status === 'running'
     for (const [index, block] of (item.blocks ?? []).entries()) {
-      body.append(this.renderBlock(block, index, running))
+      body.append(this.createBlock(block, index, running, item.streamKey))
     }
     if (running) body.append(createSequentialActivityDots(this.options.document))
   }
@@ -53,50 +54,69 @@ export class StreamingMessageComponent {
     const blocks = item.blocks ?? []
     const renderedBlocks = Array.from(body.children).filter((child) => !child.classList.contains('streaming-indicator'))
     const running = item.status === 'running'
-    // Streaming appends blocks (a new reasoning block starts, a text block
-    // follows a tool call). Growing is a normal patch, not a structure change:
-    // render the new blocks instead of bailing to a full re-render — a full
-    // re-render would rebuild every reasoning <details> closed and make the
-    // reader's expand snap shut in real time.
-    if (renderedBlocks.length < blocks.length) {
-      for (let index = renderedBlocks.length; index < blocks.length; index += 1) {
-        const block = blocks[index]
-        if (block !== undefined) body.insertBefore(this.renderBlock(block, index, running), body.querySelector('.streaming-indicator'))
-      }
-    } else if (renderedBlocks.length > blocks.length) {
-      return false
-    }
-    const settled = Array.from(body.children).filter((child) => !child.classList.contains('streaming-indicator'))
+    const indicator = Array.from(body.children).find((child) => child.classList.contains('streaming-indicator'))
+    // Reconcile at block granularity: appending text or removing a trailing
+    // placeholder must never replace an earlier native <details> element.
     for (let index = 0; index < blocks.length; index += 1) {
       const block = blocks[index]
-      const rendered = settled[index]
-      if (block === undefined || !(rendered instanceof HTMLElement)) return false
-      if (!this.patchBlock(rendered, block, running)) return false
+      if (block === undefined) continue
+      const rendered = renderedBlocks[index]
+      if (!(rendered instanceof HTMLElement)) {
+        body.insertBefore(this.createBlock(block, index, running, item.streamKey), indicator ?? null)
+        continue
+      }
+      const signature = this.blockSignature(block, running, item.streamKey)
+      if (this.blockSignatures.get(rendered) === signature) continue
+      if (this.patchBlock(rendered, block, running, item.streamKey)) {
+        this.blockSignatures.set(rendered, signature)
+      } else {
+        this.dispose(rendered)
+        rendered.replaceWith(this.createBlock(block, index, running, item.streamKey))
+      }
     }
-    const indicator = body.querySelector('.streaming-indicator')
-    if (running && indicator === null) body.append(createSequentialActivityDots(this.options.document))
+    for (const stale of renderedBlocks.slice(blocks.length)) {
+      if (stale instanceof HTMLElement) this.dispose(stale)
+      stale.remove()
+    }
+    if (running && indicator === undefined) body.append(createSequentialActivityDots(this.options.document))
     else if (!running) indicator?.remove()
     return true
   }
 
-  private renderBlock(block: ChatBlock, index: number, messageRunning: boolean): HTMLElement {
+  /** Cancel detached streams on replacement or session switch. */
+  dispose(root: HTMLElement): void {
+    this.finishStream(root)
+    for (const target of Array.from(root.querySelectorAll<HTMLElement>('.reasoning-content, .content-block'))) this.finishStream(target)
+  }
+
+  private createBlock(block: ChatBlock, index: number, running: boolean, streamKey?: string): HTMLElement {
+    const element = this.renderBlock(block, index, running, streamKey)
+    this.blockSignatures.set(element, this.blockSignature(block, running, streamKey))
+    return element
+  }
+
+  private blockSignature(block: ChatBlock, messageRunning: boolean, streamKey?: string): string {
+    // A finished block is independent of whether a later block is streaming.
+    return JSON.stringify([block, messageRunning && block.streaming === true, streamKey])
+  }
+
+  private renderBlock(block: ChatBlock, index: number, messageRunning: boolean, streamKey?: string): HTMLElement {
     const running = messageRunning && block.streaming === true
     if (block.kind === 'reasoning') {
       const details = this.options.document.createElement('details')
       details.className = `reasoning-block${running ? ' running' : ''}`
       details.dataset.disclosureKey = `reasoning-${index}`
+      // Stable identity `<turn>:<step>#<blockIndex>`: shared by the running
+      // partial bubble and the finalized message that replaces it, so the
+      // transcript can carry this block's reader expand/collapse intent
+      // across the id handoff (text prefixes cannot — the text grows until
+      // the step finalizes).
+      if (streamKey !== undefined) details.dataset.streamKey = `${streamKey}#${index}`
       // Like the DSH Web UI, the thinking block stays collapsed by default;
       // the summary row carries a one-line live preview while it streams, and
       // the reader expands it explicitly if they want the full reasoning.
       details.dataset.autoOpen = 'false'
       details.open = false
-      // A collapse by the reader overrides the streaming auto-open. The toggle
-      // is tracked manually (the summary click arrives before `open` flips, so
-      // "not open" alone cannot distinguish "was open" from "was closed").
-      details.addEventListener('toggle', () => {
-        if (!details.open) details.dataset.readerCollapsed = 'true'
-        else delete details.dataset.readerCollapsed
-      })
       const summary = this.options.document.createElement('summary')
       summary.append(this.reasoningDot(), this.label(running, block), this.reasoningPreview(block.text), this.chevron())
       const content = this.options.document.createElement('div')
@@ -111,7 +131,7 @@ export class StreamingMessageComponent {
     return content
   }
 
-  private patchBlock(rendered: HTMLElement, block: ChatBlock, messageRunning: boolean): boolean {
+  private patchBlock(rendered: HTMLElement, block: ChatBlock, messageRunning: boolean, streamKey?: string): boolean {
     const running = messageRunning && block.streaming === true
     if (block.kind === 'reasoning') {
       if (!(rendered instanceof HTMLDetailsElement) || !rendered.classList.contains('reasoning-block')) return false
@@ -119,16 +139,25 @@ export class StreamingMessageComponent {
       const label = rendered.querySelector<HTMLElement>('.reasoning-label')
       if (content === null || label === null) return false
       rendered.classList.toggle('running', running)
+      // Keep the identity current only for elements that predate the key
+      // (older bubbles without one). Never rewrite an existing streamKey:
+      // the `#<blockIndex>` suffix must stay stable across streaming frames,
+      // otherwise the reader's expand/collapse intent (keyed by streamKey in
+      // messages.ts) is lost and the reasoning card snaps shut mid-stream.
+      if (streamKey !== undefined && (rendered.dataset.streamKey === undefined || rendered.dataset.streamKey === '')) {
+        const children = rendered.parentElement?.children ?? []
+        rendered.dataset.streamKey = `${streamKey}#${Array.from(children).indexOf(rendered)}`
+      }
       // The disclosure stays whatever the reader set it to: no per-frame
       // force-close (which made an explicit expand snap back instantly).
       // Initial render starts collapsed; the summary row keeps the live
       // one-line preview while streaming.
-      label.textContent = this.labelText(running, block)
+      setLabel(label, this.labelText(running, block))
       const summary = rendered.querySelector<HTMLElement>('.reasoning-summary')
       if (summary !== null) {
         const value = this.reasoningPreviewText(block.text)
-        summary.textContent = value
-        summary.title = value
+        setText(summary, value)
+        if (summary.title !== value) summary.title = value
       }
       content.classList.toggle('streaming-content', running)
       this.renderContent(content, block, running)
@@ -176,7 +205,7 @@ export class StreamingMessageComponent {
       state.target = text
       if (tokens !== undefined) state.tokens = tokens
     }
-    if (state.frame === undefined) this.schedule(target, state)
+    if (state.frame === undefined && state.rendered !== state.target) this.schedule(target, state)
   }
 
   private schedule(target: HTMLElement, state: StreamState): void {
@@ -215,13 +244,13 @@ export class StreamingMessageComponent {
     const label = target.closest('.reasoning-block')?.querySelector('.reasoning-label')
     if (!(label instanceof HTMLElement)) return
     if (state.tokens !== undefined) {
-      label.textContent = this.options.thinkingLabel(state.tokens)
+      setLabel(label, this.options.thinkingLabel(state.tokens))
       return
     }
-    const estimate = estimateTokens(state.rendered)
+    const estimate = estimateTokens(state.target)
     if (estimate <= (state.labelTokens ?? 0)) return
     state.labelTokens = estimate
-    label.textContent = this.options.thinkingLabel(estimate)
+    setLabel(label, this.options.thinkingLabel(estimate))
   }
 
   private finishStream(target: HTMLElement): void {
@@ -255,14 +284,14 @@ export class StreamingMessageComponent {
   private reasoningDot(): HTMLElement {
     const dot = this.options.document.createElement('span')
     dot.className = 'reasoning-dot'
-    applyIcon(dot, icon('atom', 12))
+    applyIcon(dot, icon('bulb', 16))
     return dot
   }
 
   private label(running: boolean, block?: ChatBlock): HTMLElement {
     const label = this.options.document.createElement('span')
     label.className = 'reasoning-label'
-    label.textContent = this.labelText(running, block)
+    setLabel(label, this.labelText(running, block))
     return label
   }
 
@@ -286,8 +315,19 @@ export class StreamingMessageComponent {
   private chevron(): HTMLElement {
     const chevron = this.options.document.createElement('span')
     chevron.className = 'reasoning-chevron'
-    chevron.textContent = '⌄'
+    applyIcon(chevron, icon('chevron', 14))
     chevron.setAttribute('aria-hidden', 'true')
     return chevron
   }
+}
+
+/** Avoid replacing text nodes on unchanged summaries while a sibling streams. */
+function setText(target: HTMLElement, value: string): void {
+  if (target.textContent !== value) target.textContent = value
+}
+
+/** Narrow cards may ellipsize the label; retain the complete timing/usage. */
+function setLabel(target: HTMLElement, value: string): void {
+  setText(target, value)
+  if (target.title !== value) target.title = value
 }

@@ -1,5 +1,5 @@
 /**
- * Gateway wire-type mapping for the dsh 0.1.2 Typert Remote protocol.
+ * Gateway wire-type mapping for the dsh 0.1.3 Typert Remote protocol.
  *
  * dsh 0.1.2 replaced the host-apiproxy / client-connection domain clients
  * with the Typert Remote wire (unary `POST /api/<ns>/<method>` + the
@@ -24,6 +24,7 @@ import type {
   SubagentListEntry as WireSubagentListEntry,
 } from '@deepseek-ai/dsh-subagent/client'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+import type { StreamChunk } from '@deepseek-ai/dsh-llm/types'
 
 export type { SessionId } from '@deepseek-ai/dsh-session/types'
 export type { RpcId, ConnectionRpcResult as RpcResult, ConnectionRpcFailure as RpcFailure } from '@deepseek-ai/dsh-client-connection'
@@ -31,7 +32,15 @@ export type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 
 /** One raw conversation event, as consumed by the workbench projections. */
 export interface HistoryEntry {
-  readonly event: SessionEvent
+  readonly event: SessionEvent | PresentationChunkEvent
+}
+
+/** Display-only adapter event. Never persisted or used as a pagination cursor. */
+export interface PresentationChunkEvent {
+  readonly type: 'assistant/chunk'
+  readonly seq: number
+  readonly time: number
+  readonly data: { readonly turn: number; readonly step: number; readonly chunk: StreamChunk }
 }
 
 /** Session list row; `agentPreset` is an extension-side memo carried by the summary. */
@@ -64,8 +73,8 @@ export type SessionModels = {
   readonly routableProviders: readonly string[]
 }
 
-/** One session page (history) or follow snapshot record before chunk expansion. */
-export type SessionHistoryRecord = SessionEventEntry | import('@deepseek-ai/dsh-api-session-controller/types').SessionChunkRun
+/** V2 history embeds compact timed streams in durable assistant events. */
+export type SessionHistoryRecord = SessionEventEntry
 
 /** One session event stream frame (snapshot + delta) from `session/follow`. */
 export type FollowFrame = WireFollowFrame
@@ -79,11 +88,7 @@ export type SessionPage = WirePage
 /** Session-address discriminator (ordinary session or direct subagent child). */
 export type SessionAddress = import('@deepseek-ai/dsh-api-session-controller/types').SessionAddress
 
-/** One Host-wide forwarded remote event (the `$events` stream items). */
-export interface RemoteEvent {
-  readonly event: string
-  readonly args: readonly unknown[]
-}
+export type { RemoteEvent } from './remote-event-protocol.js'
 
 /** Stable remote-endpoint function descriptors for the typed client seam. */
 export interface RemoteRpc {
