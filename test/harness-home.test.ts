@@ -88,7 +88,7 @@ describe('migrateLegacySessions', () => {
     expect(readFileSync(path.join(existing, 'session.jsonl.zstd'), 'utf8')).toBe('newer')
   })
 
-  it('preserves file modes of copied artifacts', () => {
+  it.each([0o600, 0o400])('preserves platform-supported file modes of copied artifacts (%i)', (mode) => {
     const root = makeTmp()
     const legacy = path.join(root, 'legacy-sessions')
     const target = path.join(root, 'target-sessions')
@@ -96,11 +96,18 @@ describe('migrateLegacySessions', () => {
     mkdirSync(session, { recursive: true })
     const artifact = path.join(session, 'session.jsonl.zstd')
     writeFileSync(artifact, 'zstd-bytes')
-    chmodSync(artifact, 0o600)
+    chmodSync(artifact, mode)
+    // Windows exposes a read-only flag, not separate POSIX owner/group/other
+    // permissions. Compare the supported source mode while keeping the exact
+    // chmod assertion on POSIX. Both writable and read-only copies are tested.
+    const sourceMode = statSync(artifact).mode & 0o777
+    if (process.platform !== 'win32') expect(sourceMode).toBe(mode)
 
-    migrateLegacySessions(legacy, target)
-    const stat = statSync(path.join(target, '--proj--', 'session-abc', 'session.jsonl.zstd'))
-    expect(stat.mode & 0o777).toBe(0o600)
+    expect(migrateLegacySessions(legacy, target)).toEqual({ copied: 1, skipped: 0 })
+    const copiedArtifact = path.join(target, '--proj--', 'session-abc', 'session.jsonl.zstd')
+    expect(statSync(copiedArtifact).mode & 0o777).toBe(sourceMode)
+    expect(statSync(artifact).mode & 0o777).toBe(sourceMode)
+    expect(readFileSync(copiedArtifact, 'utf8')).toBe('zstd-bytes')
   })
 
   it('is a no-op when the legacy root is missing', () => {
