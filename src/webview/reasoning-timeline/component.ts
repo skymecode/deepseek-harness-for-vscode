@@ -1,4 +1,5 @@
 import type { ReasoningTimelinePoint } from '../../domain/reasoning-timeline.js'
+import { transcriptMessageElements } from '../chat/transcript-elements.js'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 const CENTER_X = 8.5
@@ -44,8 +45,7 @@ export class ReasoningTimeline {
       root.addEventListener('toggle', this.schedule, true)
     }
     this.points = points
-    const messages = new Map(Array.from(root.children)
-      .filter((child): child is HTMLElement => child instanceof HTMLElement && child.dataset.messageId !== undefined)
+    const messages = new Map(transcriptMessageElements(root)
       .map((child) => [child.dataset.messageId, child]))
     const nextAnchors = new Map<string, HTMLElement>()
     for (const point of points) {
@@ -97,7 +97,9 @@ export class ReasoningTimeline {
     const rootTop = this.root.getBoundingClientRect().top
     // Finish all layout reads before writing SVG attributes.
     const measured = this.points.flatMap((point) => {
-      const rect = this.anchors.get(point.key)?.getBoundingClientRect()
+      const anchor = this.anchors.get(point.key)
+      if (anchor?.closest('.turn-process:not([open])')) return []
+      const rect = anchor?.getBoundingClientRect()
       return rect === undefined || rect.height === 0 ? [] : [{ point, y: rect.top + rect.height / 2 - rootTop }]
     })
     const keys = new Set(measured.map(({ point }) => point.key))

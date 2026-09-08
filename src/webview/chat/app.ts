@@ -1,7 +1,6 @@
-import type { ChatBlock, HarnessWorkbenchState, TokenUsageView } from '../../domain/workbench-state.js'
-import { formatTokenCount } from '../token-format.js'
+import type { ChatBlock, HarnessWorkbenchState } from '../../domain/workbench-state.js'
 import { closeCommandMenu, updateCommandMenu } from './command-menu.js'
-import { renderComposer, renderActivityStatus, renderQueued, resizePrompt } from './composer-core.js'
+import { renderComposer, renderQueued, resizePrompt } from './composer-core.js'
 import {
   components,
   elements,
@@ -23,19 +22,20 @@ import { renderMessages } from './messages.js'
 import { renderSelectors, renderSessions } from './sessions.js'
 import { closeTimeline, renderTimelinePanel } from './timeline.js'
 import { scrollConversationToBottom } from './utils.js'
+import { conversationScroll } from './scroll.js'
+import { workbenchHeader } from './header.js'
 
 export function render(): void {
   if (!payload) return
+  conversationScroll.beforeLayout()
   const { state } = payload
   const active = state.active
+  workbenchHeader.update(state)
   components.editorContext.setAutoAttach(payload.configuration?.autoAttachSelection === true)
   renderPhase(state)
   if (!elements.historyPanel.classList.contains('hidden')) renderSessions()
   renderSelectors(active)
   elements.keyBanner.classList.toggle('hidden', state.hasApiKey)
-  elements.sessionTitle.textContent = active?.title || t('newConversation')
-  elements.sessionTitle.disabled = !active || !!active.parentSessionId
-  renderSessionStats(active)
   elements.backParent.classList.toggle('hidden', !active?.parentSessionId)
   elements.fork.disabled = !active || active.blank
   elements.loadOlder.classList.toggle('hidden', !active?.hasMore)
@@ -43,7 +43,6 @@ export function render(): void {
   renderInteractions(active)
   if (!elements.details.classList.contains('hidden')) renderDetails()
   renderComposer(active)
-  renderActivityStatus(active)
   renderQueued(active)
   updateCommandMenu()
   components.connectionSettings.update(
@@ -58,12 +57,13 @@ export function render(): void {
     renderPhase(state)
     scrollConversationToBottom()
   }
+  // Composer/approval changes happen after messages; include them in the same
+  // scroll correction, then let ResizeObserver handle late images and fonts.
+  conversationScroll.afterLayout()
 }
 
 export function renderPhase(state: HarnessWorkbenchState): void {
   const phase = state.phase
-  elements.connection.className = `connection ${phase}`
-  elements.connection.textContent = phase === 'connected' ? t('connected') : phase === 'reconnecting' ? t('reconnecting') : phase === 'error' ? t('connectionError') : t('starting')
   const failed = phase === 'error'
   const loading = !startupComplete && phase !== 'error'
   elements.loading.classList.toggle('hidden', !loading)
@@ -129,10 +129,7 @@ export function sendPrompt(): void {
   if (optimisticBubbles.length > 0) {
     renderMessages(payload?.state.active)
     // Sending is an explicit intent to see the newest content: pin to the
-    // bottom no matter how far the pre-render position was from it. The
-    // wasNearBottom gate in renderMessages would otherwise strand the user's
-    // own bubble below the fold when they sent from a spot >100px above the
-    // very bottom (e.g. while re-reading an earlier message).
+    // bottom even when the reader was looking at an earlier message.
     scrollConversationToBottom()
   }
 }
@@ -148,64 +145,4 @@ function rejectImagePrompt(): void {
     hint.textContent = t('composerHint')
     hint.classList.remove('image-rejected')
   }, 2600)
-}
-
-/**
- * Renders a compact per-session activity line in the header: turn count and
- * cumulative duration. The token flow (↑ in / ↓ out) moved to the session
- * heading's right edge as its own pill (`#session-usage`).
- */
-function renderSessionStats(active: HarnessWorkbenchState['active']): void {
-  const stats = active?.stats
-  if (stats === undefined) {
-    elements.sessionStats.textContent = ''
-    elements.sessionStats.classList.add('hidden')
-  } else {
-    const tokenUsage = active?.tokenUsage
-    const totalTokens = tokenUsage === undefined ? 0
-      : tokenUsage.uncachedInputTokens + tokenUsage.outputTokens
-        + tokenUsage.cacheReadTokens + tokenUsage.cacheWriteTokens
-    const parts = [
-      `${stats.turns} ${stats.turns === 1 ? t('sessionStatsTurn') : t('sessionStatsTurns')}`,
-      `⏱ ${formatDuration(stats.durationMs)}`,
-      ...(totalTokens > 0 ? [`${formatTokens(totalTokens)} ${t('sessionStatsTokenShort')}`] : []),
-      ...(stats.windowScoped === true ? [t('sessionStatsWindowScoped')] : []),
-    ]
-    elements.sessionStats.textContent = parts.join(' · ')
-    elements.sessionStats.classList.remove('hidden')
-  }
-  renderSessionUsage(active?.tokenUsage)
-}
-
-/** Cumulative token flow in the session heading's top-right corner. */
-function renderSessionUsage(tokenUsage: TokenUsageView | undefined): void {
-  if (tokenUsage === undefined) {
-    elements.sessionUsage.textContent = ''
-    elements.sessionUsage.classList.add('hidden')
-    return
-  }
-  const input = tokenUsage.uncachedInputTokens + tokenUsage.cacheReadTokens
-  const output = tokenUsage.outputTokens
-  if (input === 0 && output === 0) {
-    elements.sessionUsage.textContent = ''
-    elements.sessionUsage.classList.add('hidden')
-    return
-  }
-  elements.sessionUsage.textContent = `↑${formatTokenCount(input)} / ↓${formatTokenCount(output)}`
-  elements.sessionUsage.classList.remove('hidden')
-}
-
-function formatDuration(durationMs: number): string {
-  const totalSeconds = Math.max(0, Math.round(durationMs / 1000))
-  if (totalSeconds < 60) return `${totalSeconds}${t('durationSecondShort')}`
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return seconds === 0
-    ? `${minutes}${t('durationMinuteShort')}`
-    : `${minutes}${t('durationMinuteShort')} ${seconds}${t('durationSecondShort')}`
-}
-
-function formatTokens(count: number): string {
-  if (count >= 1000) return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`
-  return String(count)
 }

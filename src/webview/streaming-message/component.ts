@@ -1,5 +1,4 @@
 import type { ChatBlock, ChatItem } from '../../domain/workbench-state.js'
-import { createSequentialActivityDots } from '../activity-indicator/component.js'
 import { applyIcon, icon } from '../icons.js'
 import { nextStreamText, shouldRebuildStreamFrame, STREAMING_REBUILD_CHAR_THRESHOLD, STREAMING_REBUILD_MIN_INTERVAL_MS } from './model.js'
 
@@ -47,14 +46,12 @@ export class StreamingMessageComponent {
     for (const [index, block] of (item.blocks ?? []).entries()) {
       body.append(this.createBlock(block, index, running, item.streamKey))
     }
-    if (running) body.append(createSequentialActivityDots(this.options.document))
   }
 
   patch(body: HTMLElement, item: StreamingMessage): boolean {
     const blocks = item.blocks ?? []
-    const renderedBlocks = Array.from(body.children).filter((child) => !child.classList.contains('streaming-indicator'))
+    const renderedBlocks = Array.from(body.children)
     const running = item.status === 'running'
-    const indicator = Array.from(body.children).find((child) => child.classList.contains('streaming-indicator'))
     // Reconcile at block granularity: appending text or removing a trailing
     // placeholder must never replace an earlier native <details> element.
     for (let index = 0; index < blocks.length; index += 1) {
@@ -62,7 +59,7 @@ export class StreamingMessageComponent {
       if (block === undefined) continue
       const rendered = renderedBlocks[index]
       if (!(rendered instanceof HTMLElement)) {
-        body.insertBefore(this.createBlock(block, index, running, item.streamKey), indicator ?? null)
+        body.append(this.createBlock(block, index, running, item.streamKey))
         continue
       }
       const signature = this.blockSignature(block, running, item.streamKey)
@@ -78,8 +75,6 @@ export class StreamingMessageComponent {
       if (stale instanceof HTMLElement) this.dispose(stale)
       stale.remove()
     }
-    if (running && indicator === undefined) body.append(createSequentialActivityDots(this.options.document))
-    else if (!running) indicator?.remove()
     return true
   }
 

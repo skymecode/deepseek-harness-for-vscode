@@ -379,6 +379,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       messages: projected.messages,
       todos: projected.todos,
       ...(projected.retry === undefined ? {} : { retry: projected.retry }),
+      ...(projected.turnActivity === undefined ? {} : { turnActivity: projected.turnActivity }),
       skills: this.skills,
       jobs: this.jobs,
       queue: this.queue.map(queuedPromptView),

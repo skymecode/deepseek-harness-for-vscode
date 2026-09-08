@@ -1,5 +1,6 @@
 import type { TurnChangesView } from '../../domain/turn-changes.js'
 import type { SessionChangesCard } from '../session-changes/component.js'
+import { transcriptMessageElements } from './transcript-elements.js'
 
 /** Owns turn-card identity and placement; message rendering stays independent. */
 export class TurnChangesController {
@@ -24,9 +25,7 @@ export class TurnChangesController {
       card.element.remove()
       this.cards.delete(turn)
     }
-    const anchors = new Map(Array.from(root.children).flatMap((element) =>
-      element instanceof HTMLElement && element.dataset.messageId !== undefined
-        ? [[element.dataset.messageId, element] as const] : []))
+    const anchors = new Map(transcriptMessageElements(root).map((element) => [element.dataset.messageId, element]))
     for (const view of this.views) {
       const anchor = anchors.get(view.conclusionId)
       let card = this.cards.get(view.turn)
@@ -42,7 +41,10 @@ export class TurnChangesController {
         this.cards.set(view.turn, card)
       }
       card.update(view.changes)
-      if (anchor.nextElementSibling !== card.element) anchor.after(card.element)
+      // Tool-only turns have no final answer outside the process. Their edit
+      // card still belongs outside the collapsed group and remains actionable.
+      const position = anchor.closest<HTMLElement>('.turn-process') ?? anchor
+      if (position.nextElementSibling !== card.element) position.after(card.element)
     }
   }
 }

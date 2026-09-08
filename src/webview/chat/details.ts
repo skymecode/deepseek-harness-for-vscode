@@ -16,10 +16,26 @@ import { clearPastedImages } from './images.js'
 import { closeTimeline } from './timeline.js'
 import { appendTodoRows } from './todo-list.js'
 import { cssEscape, formatRelativeTime } from './utils.js'
+import { RuntimeContextInspector } from '../runtime-context/component.js'
+
+const runtimeContext = new RuntimeContextInspector(document, t)
 
 export function renderDetails(): void {
   if (!payload) return
   const active = payload.state.active
+  elements.todoCount.textContent = String(active?.todos.length || 0)
+  elements.skillCount.textContent = String(active?.skills.length || 0)
+  elements.jobCount.textContent = String(active?.jobs.length || 0)
+  elements.agentCount.textContent = String(active?.subagents.length || 0)
+  for (const tab of Array.from(document.querySelectorAll<HTMLElement>('[data-detail]'))) tab.classList.toggle('active', tab.dataset.detail === currentDetail)
+  if (currentDetail === 'runtime') {
+    // Keep open records/focus intact when unrelated assistant chunks arrive.
+    // Reset the other tabs' cache so switching back cannot leave this view mounted.
+    setDetailSignature('runtime')
+    runtimeContext.update(active?.id ?? '', active?.messages ?? [])
+    if (runtimeContext.element.parentElement !== elements.detailContent) elements.detailContent.replaceChildren(runtimeContext.element)
+    return
+  }
   const nextSignature = JSON.stringify({
     sessionId: active?.id,
     currentDetail,
@@ -34,11 +50,6 @@ export function renderDetails(): void {
   })
   if (nextSignature === detailSignature) return
   setDetailSignature(nextSignature)
-  elements.todoCount.textContent = String(active?.todos.length || 0)
-  elements.skillCount.textContent = String(active?.skills.length || 0)
-  elements.jobCount.textContent = String(active?.jobs.length || 0)
-  elements.agentCount.textContent = String(active?.subagents.length || 0)
-  for (const tab of Array.from(document.querySelectorAll<HTMLElement>('[data-detail]'))) tab.classList.toggle('active', tab.dataset.detail === currentDetail)
   const fragment = document.createDocumentFragment()
   if (currentDetail === 'todos') {
     const plan = active?.plan

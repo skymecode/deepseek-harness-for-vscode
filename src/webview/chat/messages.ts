@@ -1,17 +1,20 @@
 import type { ActiveSessionView, ChatItem } from '../../domain/workbench-state.js'
 import { splitCarriedBlocks } from '../../domain/carry-over.js'
-import { shouldShowProcessing } from '../../domain/processing-status.js'
+import { projectProcessingStatus } from '../../domain/processing-status.js'
 import { projectReasoningTimeline } from '../../domain/reasoning-timeline.js'
+import { projectTurnProcesses } from '../../domain/turn-process.js'
+import { visibleTranscript } from '../../domain/transcript-context.js'
+import { createContextNotice } from '../runtime-context/notice.js'
 import { renderMarkdown, resetReferenceValidation } from '../markdown.js'
 import { createSessionChangesCard } from '../session-changes/component.js'
 import { ProcessingIndicator } from '../processing-indicator/component.js'
+import { retryStatusText, activityPhrases } from '../processing-indicator/labels.js'
 import { ReasoningTimeline } from '../reasoning-timeline/component.js'
+import { TurnProcessComponent } from '../turn-process/component.js'
 import { createToolCardHeader } from '../tool-card/header.js'
 import {
   components,
   elements,
-  followStream,
-  interactionArmed,
   node,
   optimisticBubbles,
   payload,
@@ -19,13 +22,12 @@ import {
   renderedSessionId,
   setOptimisticBubbles,
   setRenderedSessionId,
-  setStickToBottomOnLoad,
-  stickToBottomOnLoad,
   t,
 } from './context.js'
 import type { IconName } from '../icons.js'
 import { markdownActions } from './markdown-actions.js'
 import { MessageReconciler } from './message-reconciler.js'
+import { conversationScroll } from './scroll.js'
 import { TurnChangesController } from './turn-changes-controller.js'
 import { appendTodoRows, todoListSignature, todoProgress, type TodoEntry } from './todo-list.js'
 import type { OptimisticBubble } from './types.js'
@@ -35,14 +37,16 @@ import {
   cssEscape,
   estimateReasoningTokens,
   formatTokenCount,
-  isNearBottom,
   patchStreamingMessage,
   restoreDisclosures,
-  scrollConversationToBottom,
 } from './utils.js'
 
 const messageReconciler = new MessageReconciler()
-const processingIndicator = new ProcessingIndicator(document, t('processing'))
+const turnProcess = new TurnProcessComponent(document, t)
+const processingIndicator = new ProcessingIndicator({
+  document, accessibleLabel: t('processing'), phrases: activityPhrases(t),
+  retryLabel: (retry) => retryStatusText(retry, t),
+})
 const reasoningTimeline = new ReasoningTimeline(document)
 const turnChangesController = new TurnChangesController(() => createSessionChangesCard({
   document,
@@ -52,29 +56,12 @@ const turnChangesController = new TurnChangesController(() => createSessionChang
   onUndo: () => post('sessionChangesUndo'),
 }))
 
-export function cancelStickToBottom(): void {
-  if (stickToBottomOnLoad) setStickToBottomOnLoad(false)
-}
-
-/**
- * Instant scroll write: position restoration must not animate, otherwise the
- * `scroll-behavior: smooth` container turns every state push into a glide
- * that fights the reader's scrollbar.
- */
-function setConversationScroll(top: number): void {
-  const chat = elements.transcript
-  const previous = chat.style.scrollBehavior
-  chat.style.scrollBehavior = 'auto'
-  chat.scrollTop = top
-  chat.style.scrollBehavior = previous
-}
-
 export function renderMessages(active: ActiveSessionView | undefined): void {
-  const realMessages = active?.messages || []
+  conversationScroll.beforeLayout()
+  const realMessages = visibleTranscript(active?.messages || [])
   const sessionId = active?.id || ''
   const sessionChanged = sessionId !== renderedSessionId
   if (sessionChanged) {
-    setStickToBottomOnLoad(true)
     // A new transcript means a new existence ledger: verified references from
     // the previous session must be re-checked before becoming clickable again.
     resetReferenceValidation()
@@ -82,24 +69,14 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   if (sessionChanged && optimisticBubbles.length > 0) setOptimisticBubbles([])
   reconcileOptimistic(realMessages)
   const running = active?.running ?? false
-  const messages = settleRunningDurations([...realMessages, ...optimisticBubbles], running)
-  const processing = shouldShowProcessing(active, messages, payload?.state.phase, optimisticBubbles.length > 0)
-  // Keep forcing the view to the bottom while a newly opened session is still
-  // loading: selectSession first pushes an empty state (which would otherwise
-  // scroll to the top), then the transcript arrives in a later state push.
-  // The isNearBottom probe runs against the *pre-render* geometry: file
-  // references (clickable links) and images inside a user message can grow the
-  // transcript asynchronously after render, so a pre-render probe here would
-  // otherwise misclassify "user is reading an older message" as "at bottom"
-  // and yank the view down to the newest bubble.
-  const wasNearBottom = isNearBottom(elements.transcript)
-  const shouldStick = stickToBottomOnLoad || sessionChanged || (followStream && wasNearBottom)
-  const previousTop = elements.transcript.scrollTop
-  const previousHeight = elements.transcript.scrollHeight
-  // The decorative SVG is not a history item and may be the first child.
-  const previousFirstId = elements.messages.querySelector<HTMLElement>(':scope > [data-message-id]')?.dataset.messageId
+  const rawMessages = [...realMessages, ...optimisticBubbles]
+  const processing = projectProcessingStatus(active, rawMessages, payload?.state.phase, optimisticBubbles.length > 0)
+  const presentation = projectTurnProcesses(rawMessages, running)
+  const messages = settleRunningDurations(presentation.messages, running)
   const conclusionId = latestConclusionId(messages)
   messageReconciler.reconcile(elements.messages, sessionId, messages, {
+    groups: turnProcess.prepare(sessionId, presentation.groups),
+    tail: processingIndicator.element,
     create: (item) => renderMessage(item),
     patch: patchStreamingMessage,
     replace: (element, item) => {
@@ -133,47 +110,19 @@ export function renderMessages(active: ActiveSessionView | undefined): void {
   // above would otherwise leave them stale. Refresh every card whose bound
   // checklist diverged from the current session state.
   refreshTodoCards(active?.todos ?? [])
-  elements.empty.classList.toggle('hidden', messages.length > 0 || processing)
+  elements.empty.classList.toggle('hidden', messages.length > 0 || processing.kind !== 'hidden')
   // Per-turn edited-file cards sit below their conclusion; reconcile them
   // BEFORE the scroll logic so the bottom-pin measurement includes card
   // heights (otherwise the first card pushes the transcript past the view).
   turnChangesController.reconcile(elements.messages, sessionId, active?.turnChanges)
-  // A transient tail, never a history item or a fixed overlay. Update before
-  // measuring so auto-follow includes it and manual scroll remains untouched.
-  processingIndicator.update(elements.messages, processing)
+  // One silent-handoff tail, never a history item or a fixed overlay. Update
+  // before measuring so auto-follow includes it and manual scroll stays put.
+  processingIndicator.update(elements.messages, sessionId, processing)
   reasoningTimeline.update(elements.messages, sessionId, projectReasoningTimeline(messages, running))
-  const prepended = !sessionChanged && previousFirstId !== undefined
-    && messages.findIndex((item) => String(item.id) === previousFirstId) > 0
-  const pinnedInteraction = shouldStick && !interactionArmed
-  if (pinnedInteraction) {
-    scrollConversationToBottom()
-  } else if (prepended) {
-    // Anchor the pre-render position so history prepends don't shift the view.
-    setConversationScroll(previousTop + elements.transcript.scrollHeight - previousHeight)
-  } else if (!stickToBottomOnLoad) {
-    // Streaming below the viewport must not steal the reader's position, but
-    // a freshly opened session must keep pinning to the bottom until its
-    // load-scroll has actually landed.
-    setConversationScroll(previousTop)
-  }
-  // Keep forcing the bottom until the freshly opened session's transcript has
-  // actually landed there. Clearing it as soon as messages exist lets the
-  // catalog pushes (models/skills/subagents/commands) that follow an open
-  // reset the view to the top before the load-scroll applies.
-  //
-  // The release probe must also wait for layout to settle: file references and
-  // images inside a user message are decorated into clickable links during
-  // render, which can grow the transcript *after* this synchronous pass. If we
-  // probed isNearBottom here, a message that starts just below the fold would
-  // measure as "near bottom", clear the pin too early, and then the next
-  // catalog push would strand the user's own bubble at the bottom.
-  if (stickToBottomOnLoad && messages.length > 0) {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (stickToBottomOnLoad && isNearBottom(elements.transcript)) setStickToBottomOnLoad(false)
-      })
-    })
-  }
+  // New sessions follow even if their transcript arrives after an empty state.
+  // Later renders preserve the reader's text anchor, including history prepends.
+  if (sessionChanged) conversationScroll.toBottom()
+  else conversationScroll.afterLayout()
   setRenderedSessionId(sessionId)
 }
 
@@ -271,10 +220,11 @@ function renderMessage(item: ChatItem): HTMLElement {
   if (item.kind === 'tool') return renderTool(item)
   if (item.kind === 'context') return renderContext(item)
   if (item.kind === 'notice') {
+    if (item.contextNotice !== undefined) return createContextNotice(document, item.contextNotice, t)
     const notice = node('div', `notice ${item.status || ''}`)
     notice.append(node('strong', '', item.title || t('status')))
     if (item.detail) notice.append(node('span', '', item.detail))
-    components.workDuration.update(notice, item.status === 'running' ? undefined : item.workDuration, item.status === 'running')
+    components.workDuration.update(notice, item.status === 'running' ? undefined : item.workDuration)
     return notice
   }
   const article = node('article', `message ${item.role || ''}`)

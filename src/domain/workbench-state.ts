@@ -11,6 +11,8 @@ export type { TurnChangesView } from './turn-changes.js'
 import type { SessionMeta } from './session-meta.js'
 import type { SessionStatsView } from './session-stats.js'
 import { projectTurnDurations, type TurnDurationView } from './turn-duration.js'
+import { projectContextSource, type ContextNoticeView, type ContextSourceView } from './transcript-context.js'
+import { projectTurnActivityScope, type TurnActivityScope } from './turn-activity.js'
 
 export type ConnectionPhase = 'idle' | 'starting' | 'connected' | 'reconnecting' | 'error'
 
@@ -47,6 +49,8 @@ export interface ChatBlock {
 
 export interface ChatItem {
   readonly id: string
+  /** Runtime turn identity, including tools and terminal notices. */
+  readonly turn?: number
   readonly seq: number
   readonly time: number
   readonly kind: 'message' | 'context' | 'tool' | 'notice'
@@ -55,6 +59,9 @@ export interface ChatItem {
   readonly status?: 'running' | 'success' | 'error' | 'info'
   readonly blocks?: readonly ChatBlock[]
   readonly detail?: string
+  /** Producer-declared semantics for internal context and concise UI notices. */
+  readonly contextSource?: ContextSourceView
+  readonly contextNotice?: ContextNoticeView
   /** Tool result text; present on a merged tool item once its result arrives. */
   readonly result?: string
   /**
@@ -138,6 +145,8 @@ export interface ActiveSessionView {
   readonly effortIntent?: EffortIntent
   /** Live model-request retry (dsh-llm-retry); visible while the turn is in flight. */
   readonly retry?: ModelRetryView
+  /** Latest runtime turn, independent of queued prompts and delayed running flags. */
+  readonly turnActivity?: TurnActivityScope
 }
 
 /**
@@ -406,11 +415,12 @@ export function projectConversation(entries: readonly HistoryEntry[], labels = E
   readonly messages: ChatItem[]
   readonly todos: { readonly content: string; readonly status: string }[]
   readonly retry?: ModelRetryView
+  readonly turnActivity?: TurnActivityScope
 } {
   const messages: ChatItem[] = []
   const messageTurns = new Map<string, number>()
   const addMessage = (message: ChatItem, turn?: number): void => {
-    messages.push(message)
+    messages.push(turn === undefined ? message : { ...message, turn })
     if (turn !== undefined) messageTurns.set(message.id, turn)
   }
   const finalSteps = new Set<string>()
@@ -509,7 +519,7 @@ export function projectConversation(entries: readonly HistoryEntry[], labels = E
           time: event.time,
           kind: human ? 'message' : 'context',
           role: 'user',
-          ...(!human ? { title: contextTitle(source, labels) } : {}),
+          ...(!human ? { title: contextTitle(source, labels), contextSource: projectContextSource(source) } : {}),
           blocks: projectBlocks(event.data.content, labels),
         })
         break
@@ -646,7 +656,8 @@ export function projectConversation(entries: readonly HistoryEntry[], labels = E
   }
   messages.sort((left, right) => left.seq - right.seq)
   attachTurnDurations(messages, messageTurns, projectTurnDurations(entries))
-  return { messages, todos, ...(retry === undefined ? {} : { retry }) }
+  const turnActivity = projectTurnActivityScope(entries)
+  return { messages, todos, ...(retry === undefined ? {} : { retry }), ...(turnActivity === undefined ? {} : { turnActivity }) }
 }
 
 /** Attaches one cumulative footer per turn to its last visible item. */

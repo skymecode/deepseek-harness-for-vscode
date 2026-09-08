@@ -29,6 +29,9 @@ export const elements: ChatElements = {
   exportSession: byId<HTMLElement>('export-session'),
   sessionStats: byId<HTMLElement>('session-stats'),
   sessionUsage: byId<HTMLElement>('session-usage'),
+  headerMenu: byId<HTMLElement>('header-menu'),
+  headerMenuToggle: byId<HTMLButtonElement>('header-menu-toggle'),
+  headerStats: byId<HTMLElement>('header-stats'),
   permission: byId<HTMLElement>('permission'),
   permissionToggle: byId<HTMLButtonElement>('permission-toggle'),
   permissionToggleLabel: byId<HTMLElement>('permission-toggle-label'),
@@ -47,6 +50,8 @@ export const elements: ChatElements = {
   showLogs: byId<HTMLElement>('show-logs'),
   chat: byId<HTMLElement>('chat'),
   transcript: byId<HTMLElement>('transcript-scroll'),
+  transcriptContent: byId<HTMLElement>('transcript-content'),
+  composerDock: byId<HTMLElement>('composer-dock'),
   conversation: byId<HTMLElement>('conversation'),
   loadOlder: byId<HTMLElement>('load-older'),
   empty: byId<HTMLElement>('empty'),
@@ -71,8 +76,6 @@ export const elements: ChatElements = {
   attachSelection: byId<HTMLElement>('attach-selection'),
   send: byId<HTMLButtonElement>('send'),
   composerStatus: byId<HTMLElement>('composer-status'),
-  activityStatus: byId<HTMLElement>('activity-status'),
-  activityRetry: byId<HTMLElement>('activity-retry'),
   composerHint: byId<HTMLElement>('composer-hint'),
   queuedPanel: byId<HTMLElement>('queued-panel'),
 }
@@ -105,11 +108,6 @@ export function setCurrentDetail(value: string): void {
 export let renderedSessionId = ''
 export function setRenderedSessionId(value: string): void {
   renderedSessionId = value
-}
-
-export let stickToBottomOnLoad = false
-export function setStickToBottomOnLoad(value: boolean): void {
-  stickToBottomOnLoad = value
 }
 
 /** Whether streaming updates should keep pinning the view to the bottom. */

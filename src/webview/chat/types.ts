@@ -59,6 +59,9 @@ export interface ChatElements {
   readonly exportSession: HTMLElement
   readonly sessionStats: HTMLElement
   readonly sessionUsage: HTMLElement
+  readonly headerMenu: HTMLElement
+  readonly headerMenuToggle: HTMLButtonElement
+  readonly headerStats: HTMLElement
   readonly permission: HTMLElement
   readonly permissionToggle: HTMLButtonElement
   readonly permissionToggleLabel: HTMLElement
@@ -77,6 +80,8 @@ export interface ChatElements {
   readonly showLogs: HTMLElement
   readonly chat: HTMLElement
   readonly transcript: HTMLElement
+  readonly transcriptContent: HTMLElement
+  readonly composerDock: HTMLElement
   readonly conversation: HTMLElement
   readonly loadOlder: HTMLElement
   readonly empty: HTMLElement
@@ -101,8 +106,6 @@ export interface ChatElements {
   readonly attachSelection: HTMLElement
   readonly send: HTMLButtonElement
   readonly composerStatus: HTMLElement
-  readonly activityStatus: HTMLElement
-  readonly activityRetry: HTMLElement
   readonly composerHint: HTMLElement
   readonly queuedPanel: HTMLElement
 }

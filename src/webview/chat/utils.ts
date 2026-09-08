@@ -1,5 +1,6 @@
 import type { ChatItem } from '../../domain/workbench-state.js'
-import { components, elements, t } from './context.js'
+import { components, t } from './context.js'
+import { conversationScroll } from './scroll.js'
 
 /** Mutates only text inside the active assistant card for smooth token flow. */
 export function patchStreamingMessage(element: HTMLElement, item: ChatItem): boolean {
@@ -43,45 +44,14 @@ function disclosureElements(root: HTMLElement): HTMLDetailsElement[] {
   return root.tagName === 'DETAILS' ? [root as HTMLDetailsElement, ...descendants] : descendants
 }
 
-export function isNearBottom(element: HTMLElement): boolean {
-  return element.scrollHeight - element.scrollTop - element.clientHeight < 100
-}
-
-/** True only when the scroller is essentially pinned to its very bottom. */
-export function isAtBottom(element: HTMLElement): boolean {
-  return element.scrollHeight - element.scrollTop - element.clientHeight <= 4
-}
-
-/**
- * Instantly pins the conversation to its bottom, cancelling any in-flight
- * smooth-scroll animation. `scroll-behavior: smooth` on the container would
- * otherwise turn every streaming frame's position assert into a short
- * animation that fights the reader's scrollbar drag.
- */
+/** Explicit navigation; layout/stream following is owned by the controller. */
 export function scrollConversationToBottom(): void {
-  const chat = elements.transcript
-  const previous = chat.style.scrollBehavior
-  chat.style.scrollBehavior = 'auto'
-  chat.scrollTop = chat.scrollHeight
-  chat.style.scrollBehavior = previous
-  // Re-assert once layout settles in case late content (images, markdown)
-  // grows the transcript after the jump.
-  window.requestAnimationFrame(() => {
-    chat.scrollTop = chat.scrollHeight
-  })
+  conversationScroll.toBottom()
 }
 
-/**
- * Streaming-frame pin that cancels in-flight smooth animations by temporarily
- * switching the container to instant scrolling — the same guard used by
- * {@link scrollConversationToBottom}, without the extra RAF re-assert.
- */
+/** A stream frame must honor existing intent, never re-enable following. */
 export function pinConversationToBottom(): void {
-  const chat = elements.transcript
-  const previous = chat.style.scrollBehavior
-  chat.style.scrollBehavior = 'auto'
-  chat.scrollTop = chat.scrollHeight
-  chat.style.scrollBehavior = previous
+  conversationScroll.afterLayout()
 }
 
 export function formatRelativeTime(time: number): string {

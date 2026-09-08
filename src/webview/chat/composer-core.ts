@@ -22,57 +22,13 @@ export function renderComposer(active: ActiveSessionView | undefined): void {
   elements.prompt.placeholder = active?.running ? t('queuedPromptPlaceholder') : t('promptPlaceholder')
   elements.send.disabled = !ready || (!active?.running && elements.prompt.value.trim() === '' && pastedImages.length === 0)
   elements.send.textContent = active?.running ? '■' : '↑'
-  elements.send.title = active?.running ? t('stopGenerating') : t('sendTitle')
+  elements.send.title = active?.running ? `${t('stopGenerating')} · ${t('activityEscHint')}` : t('sendTitle')
+  elements.send.setAttribute('aria-label', active?.running ? t('stopGenerating') : t('send'))
   components.contextMeter.update(active?.contextPressure)
   elements.composerStatus.textContent = composerStatusText(active, {
     oneShotReadOnly: t('oneShotReadOnly'),
     continuableSubagent: t('continuableSubagent'),
   })
-}
-
-/** Compact in-composer running status; never overlays the transcript viewport. */
-export function renderActivityStatus(active: ActiveSessionView | undefined): void {
-  // The host only flips `running` for LLM turns; host commands such as
-  // /compact surface as a notice item that stays `running` until command/done.
-  const commandRunning = (active?.messages ?? []).some((item) => item.kind === 'notice' && item.status === 'running')
-  elements.activityStatus.classList.toggle('hidden', active?.running !== true && !commandRunning)
-  const retry = active?.retry
-  if (retry === undefined) {
-    elements.activityRetry.classList.add('hidden')
-    elements.activityRetry.textContent = ''
-    elements.activityRetry.removeAttribute('title')
-    return
-  }
-  elements.activityRetry.classList.remove('hidden')
-  elements.activityRetry.textContent = retryStatusText(retry)
-  elements.activityRetry.title = elements.activityRetry.textContent
-}
-
-/** One-line live model-request retry label, e.g. "model request timed out · retrying (2/5)…". */
-function retryStatusText(retry: NonNullable<ActiveSessionView['retry']>): string {
-  const reason = retryReasonLabel(retry.code)
-  const attempt = retry.mode === 'always'
-    ? t('retryingAlways', { reason })
-    : t('retryingWithAttempt', { reason, attempt: retry.attempt, max: retry.maxRetries ?? retry.attempt })
-  if (retry.started) return attempt
-  const seconds = retryDelaySeconds(retry.delayMs)
-  return seconds > 0 ? `${attempt} · ${t('retryInSeconds', { seconds })}` : attempt
-}
-
-function retryReasonLabel(code: string | undefined): string {
-  switch (code) {
-    case 'TIMEOUT': return t('retryReasonTimeout')
-    case 'TRANSPORT': return t('retryReasonTransport')
-    case 'SERVER': return t('retryReasonServer')
-    case 'RATE_LIMIT': return t('retryReasonRateLimit')
-    case 'EMPTY_RESPONSE': return t('retryReasonEmptyResponse')
-    default: return t('retryReasonGeneric')
-  }
-}
-
-function retryDelaySeconds(delayMs: number | undefined): number {
-  if (delayMs === undefined) return 0
-  return Math.max(1, Math.round(delayMs / 1000))
 }
 
 /** QueueDock: prompts the user queued while a turn was running. */

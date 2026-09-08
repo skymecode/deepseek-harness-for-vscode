@@ -31,30 +31,42 @@ afterAll(() => {
 })
 
 describe('composer and transcript layout boundaries', () => {
-  it('keeps conversation, details, and approvals in the scroll viewport, outside the composer', () => {
+  it('extends the scroll viewport through a sticky composer that reserves its flow height', () => {
     const transcript = document.querySelector('#transcript-scroll')!
     const composer = document.querySelector('.composer-shell')!
     for (const selector of ['#conversation', '#details', '#interactions']) {
       expect(transcript.contains(document.querySelector(selector)!)).toBe(true)
     }
-    expect(transcript.contains(composer)).toBe(false)
-    expect(transcript.parentElement).toBe(composer.parentElement)
+    const dock = document.querySelector('#composer-dock')!
+    expect(transcript.contains(composer)).toBe(true)
+    expect(dock.contains(composer)).toBe(true)
+    expect(dock.contains(document.querySelector('#composer-hint')!)).toBe(true)
+    expect(getComputedStyle(dock).position).toBe('sticky')
+    expect(getComputedStyle(dock).bottom).toBe('0px')
+    expect(getComputedStyle(dock).flexShrink).toBe('0')
     expect(getComputedStyle(transcript).overflowY).toBe('auto')
     expect(getComputedStyle(document.querySelector('#chat')!).overflow).toBe('hidden')
     expect(getComputedStyle(composer).position).toBe('relative')
+    expect(getComputedStyle(transcript).scrollBehavior).toBe('auto')
+    expect(getComputedStyle(transcript).overflowAnchor).toBe('none')
   })
 
-  it('contains the compact activity row and long retry labels inside the input shell', () => {
-    const activity = document.querySelector('#activity-status')!
-    const retry = document.querySelector('#activity-retry')!
-    expect(activity.closest('.composer-shell')).not.toBeNull()
-    activity.classList.remove('hidden')
-    retry.classList.remove('hidden')
-    retry.textContent = 'Model request timed out, retrying. '.repeat(30)
-    expect(getComputedStyle(activity).height).toBe('26px')
-    expect(getComputedStyle(activity).overflow).toBe('hidden')
-    expect(getComputedStyle(retry).textOverflow).toBe('ellipsis')
-    expect(getComputedStyle(retry).whiteSpace).toBe('nowrap')
+  it('does not crush context and approval panels into border-only separators', () => {
+    for (const selector of ['#details', '#interactions']) {
+      const panel = document.querySelector(selector)!
+      expect(getComputedStyle(panel).flexShrink).toBe('0')
+      expect(document.querySelector('#transcript-content')!.contains(panel)).toBe(true)
+      expect(document.querySelector('#composer-dock')!.contains(panel)).toBe(false)
+    }
+    expect(getComputedStyle(document.querySelector('#composer-dock')!).borderTopStyle).not.toBe('solid')
+  })
+
+  it('removes the redundant running row entirely while retaining the send/stop control', async () => {
+    expect(document.querySelector('#activity-status, #activity-retry, .activity-star')).toBeNull()
+    expect(document.querySelector('#send')?.closest('.composer-shell')).not.toBeNull()
+    const context = await readFile(resolve(import.meta.dirname, '../src/webview/chat/context.ts'), 'utf8')
+    expect(context).not.toContain("byId<HTMLElement>('activity-status')")
+    expect(context).not.toContain("byId<HTMLElement>('activity-retry')")
   })
 
   it('retains the composer as the positioning context for its menus', () => {
@@ -64,12 +76,14 @@ describe('composer and transcript layout boundaries', () => {
   })
 
   it('routes scrolling, stream following, and timeline navigation to the transcript viewport', async () => {
-    for (const name of ['messages.ts', 'utils.ts', 'main.ts', 'timeline.ts']) {
+    for (const name of ['messages.ts', 'utils.ts', 'app.ts', 'timeline.ts']) {
       const source = await readFile(resolve(import.meta.dirname, '../src/webview/chat', name), 'utf8')
-      expect(source).toContain('elements.transcript')
-      expect(source).not.toContain('elements.chat')
+      expect(source).toContain('conversationScroll.')
+      expect(source).not.toContain('.scrollTop =')
     }
     const context = await readFile(resolve(import.meta.dirname, '../src/webview/chat/context.ts'), 'utf8')
     expect(context).toContain("transcript: byId<HTMLElement>('transcript-scroll')")
+    expect(context).toContain("transcriptContent: byId<HTMLElement>('transcript-content')")
+    expect(context).toContain("composerDock: byId<HTMLElement>('composer-dock')")
   })
 })

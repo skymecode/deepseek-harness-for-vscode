@@ -11,16 +11,12 @@ import { resizePrompt } from './composer-core.js'
 import {
   components,
   elements,
-  followStream,
-  interactionArmed,
   menuState,
   optimisticBubbles,
   payload,
   post,
   searchTimer,
   setCurrentDetail,
-  setFollowStream,
-  setInteractionArmed,
   setMenuState,
   setOptimisticBubbles,
   setPayload,
@@ -31,52 +27,11 @@ import {
 } from './context.js'
 import { renderDetails } from './details.js'
 import { addPastedImages, clearPastedImages, closeImagePreview } from './images.js'
-import { cancelStickToBottom } from './messages.js'
 import { applyReferenceValidation, setReferenceValidator } from '../markdown.js'
 import { closePermissionConfirm, closePermissionPopup, renderSessions, toggleArchivedHistory, toggleHistory, togglePermissionPopup } from './sessions.js'
-import { isAtBottom, isNearBottom } from './utils.js'
 import { FULL_ACCESS_PERMISSION_ID } from '../../domain/permissions.js'
 import { closeTimeline, openTimeline } from './timeline.js'
 import { clipboardImageFiles } from './clipboard-images.js'
-
-// Streaming auto-follow yields to any reach for the scrollbar. A mouse-down
-// arms the interaction (drag intent before the first scroll event), wheel-up
-// and touch-drag-up pause following immediately, and the pin only re-latches
-// on wheel-down at the bottom or touching the very bottom.
-elements.transcript.addEventListener('pointerdown', () => setInteractionArmed(true), { passive: true })
-elements.transcript.addEventListener('wheel', (event) => {
-  if (event.deltaY < 0) {
-    setFollowStream(false)
-  } else if (event.deltaY > 0 && !followStream && isAtBottom(elements.transcript)) {
-    setFollowStream(true)
-  }
-}, { passive: true })
-
-let touchAnchorY: number | undefined
-elements.transcript.addEventListener('touchstart', (event) => {
-  touchAnchorY = event.touches[0]?.clientY
-}, { passive: true })
-elements.transcript.addEventListener('touchmove', (event) => {
-  const y = event.touches[0]?.clientY
-  if (touchAnchorY === undefined || y === undefined) return
-  // A finger moving down reveals earlier content (scrolls up).
-  if (y > touchAnchorY) setFollowStream(false)
-  touchAnchorY = y
-}, { passive: true })
-elements.transcript.addEventListener('scroll', () => {
-  if (isAtBottom(elements.transcript)) {
-    setFollowStream(true)
-  } else if (followStream) {
-    // A scroll that left the bottom while following can only be the reader
-    // dragging the scrollbar up; our own position restore only runs when the
-    // view is already not following.
-    setFollowStream(false)
-  }
-  if (interactionArmed) setInteractionArmed(false)
-}, { passive: true })
-elements.transcript.addEventListener('pointerup', () => setInteractionArmed(false), { passive: true })
-elements.transcript.addEventListener('pointercancel', () => setInteractionArmed(false), { passive: true })
-elements.transcript.addEventListener('pointerleave', () => setInteractionArmed(false), { passive: true })
 
 window.addEventListener('message', (event) => {
   if (event.data?.type === 'pluginState') {
@@ -238,12 +193,6 @@ elements.prompt.addEventListener('keydown', (event) => {
 elements.prompt.addEventListener('blur', () => {
   setTimeout(() => { if (!elements.commandMenu.matches(':hover')) closeCommandMenu() }, 120)
 })
-// A user scrolling away from the newest message (for example to re-read a
-// file reference inside an earlier question) must release the load pin;
-// otherwise the next catalog push would yank the conversation back down.
-elements.transcript.addEventListener('scroll', () => {
-  if (!isNearBottom(elements.transcript)) cancelStickToBottom()
-}, { passive: true })
 document.addEventListener('paste', (event) => {
   const target = event.target
   if (!(target instanceof Node) || !elements.prompt.parentElement?.contains(target)) return

@@ -9,7 +9,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function transcript() {
+function transcript(tail?: HTMLElement) {
   const stream = streamingDom()
   const root = messageBody()
   const reconciler = new MessageReconciler()
@@ -21,6 +21,7 @@ function transcript() {
     return article
   }
   const renderer = {
+    ...(tail === undefined ? {} : { tail }),
     create: vi.fn(create),
     patch: vi.fn((element: HTMLElement, item: ChatItem) => stream.component.patch(element.firstElementChild as HTMLElement, item)),
     replace: vi.fn((_element: HTMLElement, item: ChatItem) => create(item)),
@@ -30,6 +31,27 @@ function transcript() {
 }
 
 describe('transcript node identity', () => {
+  it('inserts new messages before a persistent activity tail without detaching it', () => {
+    const tail = document.createElement('div')
+    const { root, render } = transcript(tail)
+    root.append(tail)
+    const old = assistant('old', [{ kind: 'reasoning', text: 'Previous thought' }], false)
+    render([old])
+    const card = document.createElement('div')
+    root.firstElementChild!.after(card)
+    const observer = new MutationObserver(() => {})
+    observer.observe(root, { childList: true })
+    const items = [old]
+    for (let step = 1; step < 10; step++) {
+      items.push(assistant(`step-${step}`, [{ kind: 'text', text: 'Next output' }], false, `2:${step}`))
+      render(items)
+      expect(root.lastElementChild).toBe(tail)
+    }
+    expect(observer.takeRecords().every((record) => !Array.from(record.removedNodes).includes(tail))).toBe(true)
+    observer.disconnect()
+    expect(root.children[1]).toBe(card)
+  })
+
   it('ignores interleaved file-change cards instead of detaching later reasoning cards', () => {
     const { root, render, flush } = transcript()
     const old = assistant('event-2', [{ kind: 'reasoning', text: 'Old thought' }], false)

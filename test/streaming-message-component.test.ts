@@ -8,6 +8,23 @@ afterEach(() => {
 })
 
 describe('reasoning disclosure during streaming', () => {
+  it('renders only message blocks, never three-dot placeholders at any streaming stage', () => {
+    const { component, flush } = streamingDom()
+    const body = messageBody()
+    component.render(body, assistant('partial-1:1', []))
+    expect(body.children).toHaveLength(0)
+    for (const item of [
+      assistant('partial-1:1', [{ kind: 'reasoning', text: 'Thinking', streaming: true }]),
+      assistant('partial-1:1', [{ kind: 'reasoning', text: 'Thought' }, { kind: 'text', text: 'Answer', streaming: true }]),
+      assistant('event-10', [{ kind: 'reasoning', text: 'Thought' }, { kind: 'text', text: 'Answer' }], false),
+    ]) {
+      component.patch(body, item)
+      flush()
+      expect(body.querySelector('.streaming-indicator, .streaming-indicator-dot')).toBeNull()
+      expect(body.children).toHaveLength(item.blocks!.length)
+    }
+  })
+
   it('lets native summary clicks expand/collapse between deltas and appended blocks', () => {
     const { component, flush } = streamingDom()
     const body = messageBody()

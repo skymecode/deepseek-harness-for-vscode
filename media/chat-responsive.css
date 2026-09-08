@@ -18,12 +18,13 @@ body {
 }
 
 .shell-header,
-.brand-row,
-.brand,
+.header-row,
 .key-banner,
 .workbench,
 .chat,
 .transcript-scroll,
+.transcript-content,
+.composer-dock,
 .conversation,
 .messages,
 .message-body,
@@ -44,11 +45,6 @@ body {
   max-width: 100%;
 }
 
-.brand {
-  overflow: hidden;
-}
-
-.brand strong,
 .key-banner span,
 .interaction-card p,
 .settings-header strong {
@@ -222,10 +218,16 @@ body {
     padding-inline: 6px;
   }
 
-  .brand strong {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .header-row {
+    gap: 3px;
+  }
+
+  .header-actions {
+    gap: 0;
+  }
+
+  .header-row .icon-button {
+    width: 25px;
   }
 
   .configuration-panel {
@@ -265,7 +267,6 @@ body {
 }
 
 @media (max-width: 260px) {
-  .connection,
   .composer-status,
   .composer-hint {
     display: none;
@@ -328,6 +329,10 @@ body {
   flex-wrap: wrap;
   overflow: hidden;
 }
+
+/* Extra context tabs remain reachable without shrinking labels to unreadable widths. */
+.detail-tabs { overflow-x: auto; min-width: 0; }
+.detail-tabs button { flex: 1 0 auto; white-space: nowrap; }
 
 /* Keep the status and disclosure control reachable even in a 260px sidebar. */
 .tool-card > summary {
