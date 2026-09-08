@@ -96,6 +96,7 @@ export function renderDetails(): void {
       button.addEventListener('click', () => {
         elements.prompt.value = `/${skill.name} `
         resizePrompt()
+        components.detailsPanel.close()
         elements.prompt.focus()
       })
       fragment.append(button)

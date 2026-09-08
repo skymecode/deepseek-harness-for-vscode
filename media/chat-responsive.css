@@ -125,7 +125,7 @@ body {
 
   .permission-toggle {
     max-width: min(138px, 40vw);
-    /* Never shrink below a readable pill: the icon and a shortened label
+    /* Never shrink below a readable control: the icon and a shortened label
        stay visible/clickable instead of the component collapsing to zero. */
     min-width: 76px;
   }
@@ -177,8 +177,7 @@ body {
   }
 
   #attach-selection,
-  #timeline-toggle,
-  #details-toggle {
+  #timeline-toggle {
     width: 28px;
     padding: 0;
     overflow: hidden;
@@ -189,7 +188,6 @@ body {
 
   #attach-selection::before { content: '⮒'; font-size: 14px; }
   #timeline-toggle::before { content: '◷'; font-size: 14px; }
-  #details-toggle::before { content: '⋯'; font-size: 16px; }
 
   .context-meter-value,
   .configuration-source-switch > span {
@@ -267,8 +265,7 @@ body {
 }
 
 @media (max-width: 260px) {
-  .composer-status,
-  .composer-hint {
+  .composer-status {
     display: none;
   }
 

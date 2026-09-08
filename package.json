@@ -2,7 +2,7 @@
   "name": "deepseek-harness-for-vscode",
   "displayName": "DeepSeek Harness for Visual Studio Code",
   "description": "%extension.description%",
-  "version": "0.5.9",
+  "version": "0.6.0-dev",
   "type": "module",
   "publisher": "skymecode",
   "license": "MIT",
@@ -71,6 +71,10 @@
         "title": "%command.clearApiKey%"
       },
       {
+        "command": "deepseekHarness.testSystemNotification",
+        "title": "%command.testSystemNotification%"
+      },
+      {
         "command": "deepseekHarness.showLogs",
         "title": "%command.showLogs%"
       },
@@ -133,6 +137,24 @@
     "configuration": {
       "title": "DeepSeek Harness for Visual Studio Code",
       "properties": {
+        "deepseekHarness.systemNotifications.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "description": "%config.systemNotifications.enabled%"
+        },
+        "deepseekHarness.systemNotifications.sound": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "description": "%config.systemNotifications.sound%"
+        },
+        "deepseekHarness.systemNotifications.includeConversationTitle": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "description": "%config.systemNotifications.includeConversationTitle%"
+        },
         "deepseekHarness.model": {
           "type": "string",
           "enum": [

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0-dev (Unreleased)
+
+- Fix dismissal of the Skills/context panel after the composer-menu redesign: add an always-visible close button, Escape handling before turn cancellation, repeated-shortcut toggling and automatic dismissal after choosing a skill or switching sessions. Keep panel navigation separate from detail rendering and preserve live updates and drafts.
+
+- Simplify the composer footer: remove the permanent keyboard-hint row and render permissions/model/effort as borderless text controls. Preserve full-access warning colors, accessible focus and existing pickers; move image-rejection feedback into a shared transient component that occupies no space when idle.
+
+- Replace the composer Context text button with a compact plus menu for workspace file references, selected code, goals, Plan mode, session skills, DSH plugins and the existing context inspector. Preserve drafts and streamed menu state, add keyboard navigation/Escape isolation and viewport-clamped positioning, and localize the new controls in English and Chinese.
+
+- Add native Windows/macOS completion notifications for local desktop sessions, replacing the in-window completion popup. Separate completion tracking, notification policy and platform adapters; suppress duplicate idle events, child-agent alerts and local Stop actions. Include bilingual settings and a test command, optional sound/title disclosure, cancellable bounded subprocesses and documented OS-permission/remote-host limitations.
+
 ## 0.5.9
 
 - 修复 Windows CI 的历史会话迁移权限测试：按当前平台实际支持的文件权限验证复制结果，保留 POSIX 精确权限检查，并覆盖可写／只读文件；不改动运行时权限或会话迁移逻辑。

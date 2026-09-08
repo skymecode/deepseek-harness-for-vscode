@@ -65,6 +65,8 @@ import { PendingConfigurationQueue, type PendingConfigEntry } from './pending-qu
 import { PendingInteractions, type PendingInteraction } from './pending-interactions.js'
 import type { RemoteEventOutcome, RemoteWaterfallEvent } from './remote-event-protocol.js'
 import { SessionMetaStore } from './session-meta-store.js'
+import { TurnCompletionTracker } from './turn-completion-tracker.js'
+import type { CompletionNotice } from '../domain/turn-completion.js'
 
 /**
  * Application service for the native VS Code workbench. It owns Gateway
@@ -73,6 +75,8 @@ import { SessionMetaStore } from './session-meta-store.js'
  */
 export class HarnessGatewayService implements vscode.Disposable {
   private readonly changeEmitter = new vscode.EventEmitter<void>()
+  private readonly completionEmitter = new vscode.EventEmitter<CompletionNotice>()
+  private readonly completions = new TurnCompletionTracker()
   private readonly runtimeSubscription: vscode.Disposable
   private client: NodeGatewayClient | undefined
   private streamAbort: AbortController | undefined
@@ -94,8 +98,6 @@ export class HarnessGatewayService implements vscode.Disposable {
   private skills: readonly SkillEntry[] = []
   private jobs: readonly JobView[] = []
   private queue: readonly QueuedInboxItem[] = []
-  /** Latest `api-session/error` per session, consumed by the next `api-session/status(false)` for it. */
-  private readonly pendingSessionErrors = new Map<string, string>()
   private subagentCount = 0
   private subagents: readonly SubagentListEntry[] = []
   private subagentAddress: SubagentAddress | undefined
@@ -129,6 +131,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   private readonly creatingSessions = new Map<string, Promise<string>>()
 
   readonly onDidChange = this.changeEmitter.event
+  readonly onDidCompleteTurn = this.completionEmitter.event
 
   constructor(
     private readonly runtime: HarnessHostRuntime,
@@ -1021,10 +1024,16 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   async cancel(): Promise<void> {
     const sessionId = this.requireActiveSession()
-    if (this.subagentAddress === undefined) {
-      await this.requireClient().sessionCancel({ sessionId: sessionId as SessionId })
-    } else if (this.subagentAddress.mode === 'continuable') {
-      await this.requireClient().subagentInterrupt(this.subagentAddress.childSessionId, this.subagentAddress.parentSessionId)
+    const restore = this.completions.cancel(sessionId)
+    try {
+      if (this.subagentAddress === undefined) {
+        await this.requireClient().sessionCancel({ sessionId: sessionId as SessionId })
+      } else if (this.subagentAddress.mode === 'continuable') {
+        await this.requireClient().subagentInterrupt(this.subagentAddress.childSessionId, this.subagentAddress.parentSessionId)
+      }
+    } catch (cause) {
+      restore()
+      throw cause
     }
   }
 
@@ -1383,10 +1392,12 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.disconnect()
     this.runtimeSubscription.dispose()
     this.changeEmitter.dispose()
+    this.completionEmitter.dispose()
   }
 
   private startEventStreams(): void {
     this.streamAbort?.abort()
+    this.completions.clear()
     this.interactions.disconnect()
     this.fireChange()
     const abort = new AbortController()
@@ -1443,6 +1454,7 @@ export class HarnessGatewayService implements vscode.Disposable {
         // A host replays live requests after the next ready frame. Drop old
         // delivery/client IDs even if no cancellation arrived before the loss.
         if (generation !== undefined && this.interactions.disconnect(generation)) this.fireChange()
+        if (!signal.aborted) this.completions.clear()
       }
       if (!signal.aborted) await this.waitToReconnect(signal)
     }
@@ -1590,39 +1602,18 @@ export class HarnessGatewayService implements vscode.Disposable {
       this.pendingQueue.forget(removed)
       this.metaStore.removeSession(removed)
       this.interactions.removeSession(removed)
-      this.pendingSessionErrors.delete(removed)
+      this.completions.remove(removed)
     } else if (event === 'api-session/status') {
       const id = String(args[0] ?? '')
       const running = args[1] === true
       const summary = this.summaries.get(id)
       if (summary !== undefined) this.summaries.set(id, { ...summary, running, blank: running ? false : summary.blank })
-      if (running) {
-        // A turn starting discards any earlier error (e.g. a background session-activation
-        // failure unrelated to any turn) so it can never be misattributed to this turn's outcome.
-        this.pendingSessionErrors.delete(id)
-      } else {
-        this.pendingQueue.forget(id)
-        // Host-wide turn/end signal: fires for every session (not just the active one), unlike the
-        // session-scoped `turn/end` history event handled in handleFollowFrame().
-        if (id !== this.activeSessionId) {
-          const errorMsg = this.pendingSessionErrors.get(id)
-          this.pendingSessionErrors.delete(id)
-          const title = this.sessionTitle(id)
-          const actionLabel = vscode.l10n.t('Switch to conversation')
-          const message = errorMsg === undefined
-            ? vscode.l10n.t('Harness session "{0}" finished its turn.', title)
-            : vscode.l10n.t('Harness session "{0}" failed: {1}', title, errorMsg)
-          const notify = errorMsg === undefined ? vscode.window.showInformationMessage : vscode.window.showErrorMessage
-          void notify(message, actionLabel).then((action) => {
-            if (action === actionLabel) {
-              void this.openSession(id)
-                .then(() => vscode.commands.executeCommand('deepseekHarness.chatView.focus'))
-                .catch((err: unknown) => {
-                  this.output.appendLine(vscode.l10n.t('[gateway] Failed to switch session: {0}', errorMessage(err)))
-                })
-            }
-          })
-        }
+      if (!running) this.pendingQueue.forget(id)
+      const completion = this.completions.status(id, running)
+      // Host-wide live edges cover both foreground and background conversations.
+      // Child agents are part of their parent's work, not separate desktop alerts.
+      if (completion !== undefined && summary !== undefined && summary.parentSessionId === undefined && summary.origin !== 'subagent') {
+        this.completionEmitter.fire({ title: this.sessionTitle(id), failed: completion.failed })
       }
     } else if (event === 'api-session/activity') {
       const id = String(args[0] ?? '')
@@ -1632,7 +1623,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     } else if (event === 'api-session/error') {
       const id = String(args[0] ?? '')
       const message = String(args[1] ?? '')
-      this.pendingSessionErrors.set(id, message)
+      this.completions.fail(id)
       this.output.appendLine(`[agent ${id}] ${message}`)
     } else if (event === 'commands/change' || event === 'agent-preset/selected') {
       void this.refreshCommands()
@@ -1994,6 +1985,7 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   private disconnect(): void {
     this.selectionGeneration += 1
+    this.completions.clear()
     this.streamAbort?.abort()
     this.streamAbort = undefined
     this.interactions.disconnect()

@@ -1,4 +1,8 @@
 {
+  "command.testSystemNotification": "DeepSeek Harness: Test System Notification",
+  "config.systemNotifications.enabled": "Send native OS notifications when foreground or background work finishes (local Windows/macOS only). OS notification permissions and Focus settings apply.",
+  "config.systemNotifications.sound": "Request a sound with system notifications. The operating system controls playback.",
+  "config.systemNotifications.includeConversationTitle": "Include the conversation title in system notifications. Titles may be visible on the lock screen; reply content is never included.",
   "extension.description": "A native DeepSeek Harness coding agent for VS Code. Uses the local Harness Gateway without requiring a separate deployment.",
   "command.openChat": "DeepSeek Harness: Open Workbench",
   "command.openChatWindow": "DeepSeek Harness: Open Workbench in New Window",

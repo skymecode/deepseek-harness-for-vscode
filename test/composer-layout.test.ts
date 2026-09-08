@@ -20,7 +20,7 @@ beforeAll(async () => {
   const parsed = new browser.DOMParser().parseFromString(html, 'text/html')
   document.body.innerHTML = parsed.body.innerHTML
   const styles = document.createElement('style')
-  styles.textContent = (await Promise.all(['chat.css', 'chat-responsive.css'].map((name) =>
+  styles.textContent = (await Promise.all(['chat.css', 'composer-actions.css', 'chat-responsive.css'].map((name) =>
     readFile(resolve(import.meta.dirname, '../media', name), 'utf8')))).join('\n')
   document.head.append(styles)
 })
@@ -40,7 +40,7 @@ describe('composer and transcript layout boundaries', () => {
     const dock = document.querySelector('#composer-dock')!
     expect(transcript.contains(composer)).toBe(true)
     expect(dock.contains(composer)).toBe(true)
-    expect(dock.contains(document.querySelector('#composer-hint')!)).toBe(true)
+    expect(document.querySelector('#composer-hint')).toBeNull()
     expect(getComputedStyle(dock).position).toBe('sticky')
     expect(getComputedStyle(dock).bottom).toBe('0px')
     expect(getComputedStyle(dock).flexShrink).toBe('0')
@@ -61,6 +61,16 @@ describe('composer and transcript layout boundaries', () => {
     expect(getComputedStyle(document.querySelector('#composer-dock')!).borderTopStyle).not.toBe('solid')
   })
 
+  it('keeps a named context close button outside the horizontally scrollable tabs', () => {
+    const close = document.querySelector('#details-close')!
+    expect(close.closest('.detail-header')?.closest('#details')).not.toBeNull()
+    expect(close.closest('.detail-tabs')).toBeNull()
+    expect(close.querySelector('svg')).not.toBeNull()
+    expect(close.getAttribute('aria-label')).toBe('Close context panel')
+    expect(getComputedStyle(document.querySelector('.detail-header')!).gridTemplateColumns).toBe('minmax(0, 1fr) auto')
+    expect(getComputedStyle(close).width).toBe('28px')
+  })
+
   it('removes the redundant running row entirely while retaining the send/stop control', async () => {
     expect(document.querySelector('#activity-status, #activity-retry, .activity-star')).toBeNull()
     expect(document.querySelector('#send')?.closest('.composer-shell')).not.toBeNull()
@@ -70,9 +80,45 @@ describe('composer and transcript layout boundaries', () => {
   })
 
   it('retains the composer as the positioning context for its menus', () => {
-    for (const selector of ['#configuration-panel', '#command-menu', '#file-mention-menu', '#timeline-panel']) {
+    for (const selector of ['#configuration-panel', '#command-menu', '#file-mention-menu', '#timeline-panel', '#composer-add-menu']) {
       expect(document.querySelector(selector)?.parentElement?.classList.contains('composer-shell')).toBe(true)
     }
+  })
+
+  it('replaces the context text with a named SVG plus control and an unclipped menu', () => {
+    expect(document.querySelector('#details-toggle')).toBeNull()
+    const trigger = document.querySelector('#composer-add-toggle')!
+    expect(trigger.querySelector('svg')).not.toBeNull()
+    expect(trigger.getAttribute('aria-haspopup')).toBe('menu')
+    expect(trigger.getAttribute('aria-label')).toBe('Add context and tools')
+    expect(getComputedStyle(document.querySelector('#composer-add-menu')!).position).toBe('fixed')
+  })
+
+  it('keeps permission and model selectors borderless, including danger and pending states', () => {
+    const permission = document.querySelector('#permission-toggle')!
+    const model = document.querySelector('#configuration-toggle')!
+    for (const control of [permission, model]) {
+      for (const classes of ['', 'danger', 'pending']) {
+        control.classList.add(...classes.split(' ').filter(Boolean))
+        const style = getComputedStyle(control)
+        expect(style.borderTopWidth).toBe('0px')
+        expect(style.backgroundColor).toBe('transparent')
+        expect(style.borderRadius).not.toBe('999px')
+        control.classList.remove(...classes.split(' ').filter(Boolean))
+      }
+    }
+    expect(permission.querySelector('.permission-toggle-icon svg')).not.toBeNull()
+    expect(permission.querySelector('.permission-toggle-chevron')).toBeNull()
+    expect(model.querySelector('.configuration-toggle-chevron')).not.toBeNull()
+  })
+
+  it('has no permanent keyboard-hint footer while retaining a hidden input-error outlet', () => {
+    expect(document.querySelector('#composer-dock')!.textContent).not.toContain('Enter to send')
+    const feedback = document.querySelector('#composer-feedback')!
+    expect(feedback.closest('.composer-shell')).not.toBeNull()
+    expect(feedback.textContent).toBe('')
+    expect(feedback.getAttribute('role')).toBe('alert')
+    expect(getComputedStyle(feedback).display).toBe('none')
   })
 
   it('routes scrolling, stream following, and timeline navigation to the transcript viewport', async () => {

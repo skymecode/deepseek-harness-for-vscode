@@ -16,6 +16,7 @@ import { ConnectionSettingsService } from './services/connection-settings-servic
 import { ConnectionTestService } from './services/connection-test-service.js'
 import { SessionImportService } from './import/session-import-service.js'
 import { WorkbenchViewProvider } from './ui/workbench-view-provider.js'
+import { CompletionNotifications } from './notifications/completion-notifications.js'
 
 let activeRuntime: HarnessHostRuntime | undefined
 
@@ -40,6 +41,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const runtime = new HarnessHostRuntime(context, configuration, resolver, output)
   const worktrees = new WorktreeService(context.globalState)
   const gateway = new HarnessGatewayService(runtime, configuration, connectionSettings, output, context.globalState, worktrees)
+  const notifications = new CompletionNotifications(output)
   const connectionTest = new ConnectionTestService(() => gateway.providerControlClient())
   const pluginManager = new DshPluginManager(context, resolver, output)
   const pluginCatalog = new DshPluginCatalogService()
@@ -104,6 +106,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     configuration,
     runtime,
     gateway,
+    notifications,
+    gateway.onDidCompleteTurn((notice) => notifications.complete(notice)),
     worktrees,
     pluginCenter,
     editorSelection,
@@ -128,6 +132,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await credentials.clearApiKey()
     }),
     vscode.commands.registerCommand('deepseekHarness.showLogs', () => output.show(true)),
+    vscode.commands.registerCommand('deepseekHarness.testSystemNotification', () => notifications.test()),
     vscode.commands.registerCommand('deepseekHarness.importSession', () => sessionImport.runInteractive()),
   )
 

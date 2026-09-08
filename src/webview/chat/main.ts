@@ -16,7 +16,6 @@ import {
   payload,
   post,
   searchTimer,
-  setCurrentDetail,
   setMenuState,
   setOptimisticBubbles,
   setPayload,
@@ -25,7 +24,6 @@ import {
   setWorkspaceFolderOpen,
   vscode,
 } from './context.js'
-import { renderDetails } from './details.js'
 import { addPastedImages, clearPastedImages, closeImagePreview } from './images.js'
 import { applyReferenceValidation, setReferenceValidator } from '../markdown.js'
 import { closePermissionConfirm, closePermissionPopup, renderSessions, toggleArchivedHistory, toggleHistory, togglePermissionPopup } from './sessions.js'
@@ -138,10 +136,6 @@ elements.openSettings.addEventListener('click', () => components.connectionSetti
 elements.retry.addEventListener('click', () => post('retry'))
 elements.showLogs.addEventListener('click', () => post('showLogs'))
 elements.loadOlder.addEventListener('click', () => post('loadOlder'))
-elements.detailsToggle.addEventListener('click', () => {
-  elements.details.classList.toggle('hidden')
-  if (!elements.details.classList.contains('hidden')) renderDetails()
-})
 elements.send.addEventListener('click', () => {
   if (payload?.state.active?.running) post('cancel')
   else sendPrompt()
@@ -206,7 +200,7 @@ document.addEventListener('paste', (event) => {
 elements.imageLightboxClose.addEventListener('click', () => closeImagePreview())
 elements.imageLightbox.querySelector('.image-lightbox-backdrop')?.addEventListener('click', () => closeImagePreview())
 document.addEventListener('keydown', (event) => {
-  if (event.key !== 'Escape') return
+  if (event.key !== 'Escape' || event.defaultPrevented) return
   if (!elements.imageLightbox.classList.contains('hidden')) {
     event.preventDefault()
     closeImagePreview()
@@ -229,6 +223,7 @@ document.addEventListener('keydown', (event) => {
     return
   }
   if (!document.getElementById('settings-panel')!.classList.contains('hidden') || !document.getElementById('plugin-panel')!.classList.contains('hidden')) return
+  if (components.detailsPanel.handleEscape(event)) return
   if (payload?.state.active?.running) {
     event.preventDefault()
     post('cancel')
@@ -273,12 +268,5 @@ document.addEventListener('pointerdown', (event) => {
     closePermissionConfirm()
   }
 })
-for (const tab of Array.from(document.querySelectorAll<HTMLElement>('[data-detail]'))) {
-  tab.addEventListener('click', () => {
-    setCurrentDetail(tab.dataset.detail ?? 'todos')
-    renderDetails()
-  })
-}
-
 // The webview is fully initialized; ask the host for the first state snapshot.
 vscode.postMessage({ type: 'ready' })

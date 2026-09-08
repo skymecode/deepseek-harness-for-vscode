@@ -1,0 +1,71 @@
+/* Composer-only shortcuts; fixed placement avoids the narrow toolbar's clipping. */
+.composer-add-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  color: var(--vscode-descriptionForeground);
+  background: transparent;
+  cursor: pointer;
+}
+.composer-add-toggle:hover,
+.composer-add-toggle[aria-expanded="true"] {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+.composer-add-menu {
+  position: fixed;
+  z-index: 26;
+  width: min(340px, calc(100vw - 16px));
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-radius: 12px;
+  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  box-shadow: 0 6px 20px var(--vscode-widget-shadow);
+  font-size: var(--vscode-font-size);
+}
+.composer-action-heading {
+  padding: 6px 8px;
+  font-size: .9em;
+  color: var(--vscode-descriptionForeground);
+}
+.composer-action-heading:not(:first-child) { margin-top: 4px; }
+.composer-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 7px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.composer-action > span:first-child { display: flex; flex: none; }
+.composer-action-copy { display: flex; align-items: baseline; flex: 1; min-width: 0; gap: 8px; }
+.composer-action-label { flex: none; }
+.composer-action-description {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: .9em;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.4;
+}
+.composer-action-check { display: flex; flex: none; color: var(--vscode-textLink-foreground); }
+.composer-action:hover:not(:disabled), .composer-action:focus-visible { background: var(--vscode-list-hoverBackground); }
+.composer-action:disabled { opacity: .45; cursor: default; }
+.composer-add-toggle:focus-visible, .composer-action:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }

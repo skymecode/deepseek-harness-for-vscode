@@ -14,9 +14,10 @@ export type IconName =
   | 'pin' | 'unpin' | 'archive' | 'restore' | 'sendNow' | 'warning'
   | 'terminal' | 'edit' | 'read' | 'search' | 'web' | 'workflow'
   | 'subagent' | 'tool' | 'check' | 'cancel' | 'chevron' | 'checkSquare'
-  | 'star' | 'sparkle' | 'question' | 'image' | 'atom' | 'bulb' | 'doc' | 'skillDoc' | 'spinner' | 'whale'
+  | 'star' | 'sparkle' | 'question' | 'image' | 'atom' | 'bulb' | 'doc' | 'skillDoc' | 'spinner' | 'whale' | 'shield'
 
 const PATHS: Record<IconName, string> = {
+  shield: '<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="M12 8v5M12 16h.01"/>',
   more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
   menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',

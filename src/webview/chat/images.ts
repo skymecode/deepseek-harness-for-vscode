@@ -17,26 +17,12 @@ export async function addPastedImages(files: readonly File[]): Promise<void> {
   // Refuse early when the staged model is known to reject images, so a user
   // pasting a screenshot is told before the turn is spent on a doomed prompt.
   if (components.composerConfiguration.supportsImageInput() === false) {
-    rejectImageAttachments()
+    components.composerFeedback.show(t('modelRejectsImages'))
     return
   }
   setPastedImages([...pastedImages, ...accepted])
   renderImagePreviews()
   resizePrompt()
-}
-
-/** Flags the rejection once: the hint flashes and clears after a beat. */
-function rejectImageAttachments(): void {
-  const hint = elements.composerHint
-  hint.textContent = t('modelRejectsImages')
-  hint.classList.remove('image-rejected')
-  // Restart the flash by forcing a reflow between class removals.
-  void hint.offsetWidth
-  hint.classList.add('image-rejected')
-  window.setTimeout(() => {
-    hint.textContent = t('composerHint')
-    hint.classList.remove('image-rejected')
-  }, 2600)
 }
 
 function fileToImageAttachment(file: File): Promise<PastedImage> {

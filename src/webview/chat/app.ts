@@ -24,6 +24,7 @@ import { closeTimeline, renderTimelinePanel } from './timeline.js'
 import { scrollConversationToBottom } from './utils.js'
 import { conversationScroll } from './scroll.js'
 import { workbenchHeader } from './header.js'
+import { renderComposerActions } from './composer-actions.js'
 
 export function render(): void {
   if (!payload) return
@@ -41,8 +42,10 @@ export function render(): void {
   elements.loadOlder.classList.toggle('hidden', !active?.hasMore)
   renderMessages(active)
   renderInteractions(active)
+  components.detailsPanel.updateSession(active?.id)
   if (!elements.details.classList.contains('hidden')) renderDetails()
   renderComposer(active)
+  renderComposerActions()
   renderQueued(active)
   updateCommandMenu()
   components.connectionSettings.update(
@@ -83,7 +86,7 @@ export function sendPrompt(): void {
   // known to reject images, but the selection can change (or resolve from
   // Auto) after the paste, so a doomed send is still caught here.
   if (pastedImages.length > 0 && components.composerConfiguration.supportsImageInput() === false) {
-    rejectImagePrompt()
+    components.composerFeedback.show(t('modelRejectsImages'))
     return
   }
   const configuration = components.composerConfiguration.selection()
@@ -132,17 +135,4 @@ export function sendPrompt(): void {
     // bottom even when the reader was looking at an earlier message.
     scrollConversationToBottom()
   }
-}
-
-/** Backstop rejection when an image prompt cannot be served by the model. */
-function rejectImagePrompt(): void {
-  const hint = elements.composerHint
-  hint.textContent = t('modelRejectsImages')
-  hint.classList.remove('image-rejected')
-  void hint.offsetWidth
-  hint.classList.add('image-rejected')
-  window.setTimeout(() => {
-    hint.textContent = t('composerHint')
-    hint.classList.remove('image-rejected')
-  }, 2600)
 }

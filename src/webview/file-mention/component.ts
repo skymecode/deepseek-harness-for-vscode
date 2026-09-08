@@ -11,6 +11,7 @@ interface FileMentionOptions {
 }
 
 export interface FileMentionComponent {
+  readonly open: () => void
   readonly acceptSuggestions: (requestId: number | undefined, query: string, files: readonly WorkspaceFileView[]) => void
   readonly close: () => void
 }
@@ -130,6 +131,21 @@ export function createFileMentionComponent(options: FileMentionOptions): FileMen
   }, { capture: true })
 
   return {
+    open: () => {
+      if (options.prompt.disabled) return
+      // Reuse @ completion and host-issued file IDs; never replace an existing draft.
+      const mention = activeMention(options.prompt)
+      const start = options.prompt.selectionEnd
+      options.prompt.focus()
+      if (mention === undefined) {
+        const prefix = start > 0 && !/\s/u.test(options.prompt.value[start - 1] ?? '') ? ' ' : ''
+        options.prompt.setRangeText(`${prefix}@`, start, start, 'end')
+        options.prompt.setSelectionRange(start + prefix.length + 1, start + prefix.length + 1)
+      } else {
+        options.prompt.setSelectionRange(mention.end, mention.end)
+      }
+      options.prompt.dispatchEvent(new Event('input', { bubbles: true }))
+    },
     close,
     acceptSuggestions: (incomingRequestId, query, files) => {
       if (active === undefined || incomingRequestId === undefined || incomingRequestId < acceptedRequestId) return

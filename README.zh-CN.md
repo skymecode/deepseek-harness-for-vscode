@@ -118,6 +118,24 @@
 | `DeepSeek Harness: 显示日志` | 打开诊断日志 |
 | `DeepSeek Harness: 导入会话` | 导入 DSH ZIP、ChatGPT ZIP 或其他 Agent 会话 |
 
+## 系统通知
+
+当前和后台会话工作结束后使用 **Windows/macOS 原生系统通知**，不再使用 VS Code 窗口内的完成弹窗。重复空闲事件、子 Agent 完成，以及在本扩展中主动停止都不会额外提醒。排队追问在队列处理结束、Agent 空闲时提醒一次；打开历史不会补发通知。审批和提问提示保持原样。
+
+用户设置（立即生效，无需重启 Harness）：
+
+```json
+"deepseekHarness.systemNotifications.enabled": true,
+"deepseekHarness.systemNotifications.sound": false,
+"deepseekHarness.systemNotifications.includeConversationTitle": false
+```
+
+在命令面板运行 **DeepSeek Harness：测试系统通知**，无需调用模型即可测试。失败信息写入 **DeepSeek Harness：显示日志**，不会回退到窗口内弹窗。通知不会包含回复正文或详细错误；开启会话标题后，标题可能显示在锁屏上。
+
+- **macOS：** 使用系统 AppleScript 通知服务。在“系统设置 → 通知”中允许对应发送者的通知和横幅（可能显示为 Script Editor／脚本编辑器／osascript，不是单独的 Harness 应用）。
+- **Windows：** 使用系统 Windows PowerShell 调用 Windows Toast，读取当前 VS Code 的 AppUserModelID，兼容 Insiders。需要已安装、已注册开始菜单快捷方式的 VS Code；便携版或缺少通知身份的自定义构建可能无法显示。不会修改注册表，无需管理员权限或额外安装通知包。
+- 系统权限、专注／勿扰模式、企业策略可能阻止横幅，即使系统提交已经成功。当前仅支持**本地桌面扩展宿主**，暂不支持 Linux、Remote SSH、WSL、容器和浏览器版 VS Code；断线期间结束的工作不会在重连后补发。
+
 ## 语言
 
 扩展默认语言为英文，并提供简体中文语言包。命令、设置说明、宿主弹窗和对话工作台都会跟随 VS Code 的显示语言。修改显示语言后执行 **Developer: Reload Window** 即可生效。

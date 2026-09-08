@@ -1,4 +1,6 @@
 import { createComposerConfigurationComponent } from '../composer-configuration/component.js'
+import { ComposerFeedback } from '../composer-feedback/component.js'
+import { DetailsPanel } from '../details-panel/component.js'
 import { createConnectionSettingsComponent } from '../connection-settings/component.js'
 import { createContextMeterComponent } from '../context-meter/component.js'
 import { createEditorContextComponent } from '../editor-context/component.js'
@@ -11,13 +13,25 @@ import { createWorkDurationComponent } from '../work-duration/component.js'
 import { formatWorkDuration } from '../work-duration/format.js'
 import { renderComposer } from './composer-core.js'
 import { closeCommandMenu } from './command-menu.js'
-import { components, elements, followStream, interactionArmed, payload, post, t } from './context.js'
+import { components, elements, followStream, interactionArmed, payload, post, setCurrentDetail, t } from './context.js'
+import { renderDetails } from './details.js'
 import { markdownActions } from './markdown-actions.js'
 import { toggleHistory } from './sessions.js'
 import { formatTokenCount, pinConversationToBottom } from './utils.js'
 
 const connectionTranslate = (key: string, values?: Record<string, string | number>): string =>
   t(key as Parameters<typeof t>[0], values)
+
+components.detailsPanel = new DetailsPanel({
+  panel: elements.details,
+  closeButton: elements.detailsClose,
+  returnFocus: elements.composerAdd,
+  onSelect: (tab) => { setCurrentDetail(tab); renderDetails() },
+})
+window.addEventListener('pagehide', () => components.detailsPanel.dispose(), { once: true })
+
+components.composerFeedback = new ComposerFeedback(elements.composerFeedback)
+window.addEventListener('pagehide', () => components.composerFeedback.dispose(), { once: true })
 
 components.composerConfiguration = createComposerConfigurationComponent({
   document,

@@ -57,7 +57,9 @@ export const elements: ChatElements = {
   empty: byId<HTMLElement>('empty'),
   messages: byId<HTMLElement>('messages'),
   details: byId<HTMLElement>('details'),
-  detailsToggle: byId<HTMLElement>('details-toggle'),
+  detailsClose: byId<HTMLButtonElement>('details-close'),
+  composerAdd: byId<HTMLButtonElement>('composer-add-toggle'),
+  composerAddMenu: byId<HTMLElement>('composer-add-menu'),
   detailContent: byId<HTMLElement>('detail-content'),
   todoCount: byId<HTMLElement>('todo-count'),
   skillCount: byId<HTMLElement>('skill-count'),
@@ -76,7 +78,7 @@ export const elements: ChatElements = {
   attachSelection: byId<HTMLElement>('attach-selection'),
   send: byId<HTMLButtonElement>('send'),
   composerStatus: byId<HTMLElement>('composer-status'),
-  composerHint: byId<HTMLElement>('composer-hint'),
+  composerFeedback: byId<HTMLElement>('composer-feedback'),
   queuedPanel: byId<HTMLElement>('queued-panel'),
 }
 

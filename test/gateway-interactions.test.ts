@@ -11,7 +11,15 @@ import { RemoteEventQueue } from './helpers/remote-event-queue.js'
 import { approvalFrame, questionFrame } from './helpers/interaction-frames.js'
 
 vi.mock('vscode', () => ({
-  EventEmitter: class { fire(): void {} dispose(): void {} event = () => ({ dispose(): void {} }) },
+  EventEmitter: class<T> {
+    private listeners = new Set<(event: T) => void>()
+    fire(event: T): void { for (const listener of this.listeners) listener(event) }
+    dispose(): void { this.listeners.clear() }
+    event = (listener: (event: T) => void) => {
+      this.listeners.add(listener)
+      return { dispose: () => { this.listeners.delete(listener) } }
+    }
+  },
   workspace: { workspaceFolders: undefined },
   l10n: { t: (message: string, ...args: unknown[]): string => message.replace(/\{(\d+)\}/g, (_, index: string) => String(args[Number(index)])) },
   window: { showWarningMessage: vi.fn(), showInformationMessage: vi.fn() },
@@ -58,7 +66,7 @@ function fixture() {
   const queues: RemoteEventQueue[] = []
   const running: { abort: AbortController; task: Promise<void> }[] = []
   let currentQueue = new RemoteEventQueue()
-  const client = { remoteEvents: vi.fn(() => currentQueue.read()), resolveRemoteEvent: vi.fn().mockResolvedValue(undefined) }
+  const client = { remoteEvents: vi.fn(() => currentQueue.read()), resolveRemoteEvent: vi.fn().mockResolvedValue(undefined), sessionCancel: vi.fn().mockResolvedValue(undefined) }
   state.client = client as unknown as NodeGatewayClient
   state.activeSessionId = 'foreground'
   for (const id of ['foreground', 'background', 'child-session']) {
@@ -87,6 +95,56 @@ function fixture() {
   })
   return { service, state, client, fireChange, wait, start, nextQueue }
 }
+
+describe('host-wide completion event integration', () => {
+  it('notifies both selected and background conversations exactly once, without VS Code popups', () => {
+    const { service, state } = fixture()
+    const listener = vi.fn()
+    service.onDidCompleteTurn(listener)
+    for (const id of ['foreground', 'background']) {
+      state.handleRemoteEvent('api-session/status', [id, false])
+      state.handleRemoteEvent('api-session/status', [id, true])
+      state.handleRemoteEvent('api-session/status', [id, false])
+      state.handleRemoteEvent('api-session/status', [id, false])
+    }
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(listener.mock.calls.map(([notice]) => notice.failed)).toEqual([false, false])
+    expect(vscode.window.showInformationMessage).not.toHaveBeenCalled()
+  })
+
+  it('filters child sessions, idle errors and disconnected runs', () => {
+    const { service, state } = fixture()
+    const listener = vi.fn()
+    service.onDidCompleteTurn(listener)
+    const child = state.summaries.get('child-session')!
+    state.summaries.set('child-session', { ...child, origin: 'subagent' })
+    state.handleRemoteEvent('api-session/status', ['child-session', true])
+    state.handleRemoteEvent('api-session/status', ['child-session', false])
+    state.handleRemoteEvent('api-session/error', ['foreground', 'stale failure'])
+    state.handleRemoteEvent('api-session/status', ['foreground', true])
+    state.handleRemoteEvent('api-session/status', ['foreground', false])
+    expect(listener).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ failed: false }))
+    state.handleRemoteEvent('api-session/status', ['foreground', true])
+    state.disconnect()
+    state.handleRemoteEvent('api-session/status', ['foreground', false])
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('suppresses stop and emits failures without exposing error details', async () => {
+    const { service, state } = fixture()
+    const listener = vi.fn()
+    service.onDidCompleteTurn(listener)
+    state.handleRemoteEvent('api-session/status', ['foreground', true])
+    await service.cancel()
+    state.handleRemoteEvent('api-session/status', ['foreground', false])
+    expect(listener).not.toHaveBeenCalled()
+    state.handleRemoteEvent('api-session/status', ['foreground', true])
+    state.handleRemoteEvent('api-session/error', ['foreground', 'sensitive error'])
+    state.handleRemoteEvent('api-session/status', ['foreground', false])
+    expect(listener).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ failed: true }))
+    expect(JSON.stringify(listener.mock.calls)).not.toContain('sensitive error')
+  })
+})
 
 describe('Gateway interaction integration', () => {
   it('receives official requests, routes them by agentId and publishes only the selected session', async () => {

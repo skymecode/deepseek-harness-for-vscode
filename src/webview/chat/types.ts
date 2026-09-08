@@ -6,6 +6,8 @@ import type {
   HarnessWorkbenchState,
 } from '../../domain/workbench-state.js'
 import type { ComposerConfigurationComponent } from '../composer-configuration/component.js'
+import type { ComposerFeedback } from '../composer-feedback/component.js'
+import type { DetailsPanel } from '../details-panel/component.js'
 import type { ConnectionSettingsComponent } from '../connection-settings/component.js'
 import type { ContextMeterComponent } from '../context-meter/component.js'
 import type { EditorContextComponent } from '../editor-context/component.js'
@@ -87,7 +89,9 @@ export interface ChatElements {
   readonly empty: HTMLElement
   readonly messages: HTMLElement
   readonly details: HTMLElement
-  readonly detailsToggle: HTMLElement
+  readonly detailsClose: HTMLButtonElement
+  readonly composerAdd: HTMLButtonElement
+  readonly composerAddMenu: HTMLElement
   readonly detailContent: HTMLElement
   readonly todoCount: HTMLElement
   readonly skillCount: HTMLElement
@@ -106,12 +110,14 @@ export interface ChatElements {
   readonly attachSelection: HTMLElement
   readonly send: HTMLButtonElement
   readonly composerStatus: HTMLElement
-  readonly composerHint: HTMLElement
+  readonly composerFeedback: HTMLElement
   readonly queuedPanel: HTMLElement
 }
 
 /** Component instances shared across the chat modules. */
 export interface ChatComponents {
+  detailsPanel: DetailsPanel
+  composerFeedback: ComposerFeedback
   composerConfiguration: ComposerConfigurationComponent
   connectionSettings: ConnectionSettingsComponent
   contextMeter: ContextMeterComponent

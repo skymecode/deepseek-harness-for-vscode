@@ -35,6 +35,7 @@ describe('extension localization', () => {
   it('provides Simplified Chinese translations for host and fallback catalog messages', () => {
     const sourceFiles = [
       'src/extension.ts',
+      'src/notifications/completion-notifications.ts',
       'src/gateway/harness-gateway-service.ts',
       'src/plugins/plugin-manager.ts',
       'src/plugins/plugin-center-controller.ts',

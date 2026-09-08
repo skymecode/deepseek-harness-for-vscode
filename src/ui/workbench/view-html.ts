@@ -13,6 +13,7 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
     const nonce = randomBytes(18).toString('base64')
     const script = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'chat.js'))
     const style = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'chat.css'))
+    const composerActionsStyle = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'composer-actions.css'))
     const responsiveStyle = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'chat-responsive.css'))
     const logo = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'deepseek-harness.png'))
     const messages = localizeWebviewMessages((message) => vscode.l10n.t(message))
@@ -54,6 +55,7 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
     }
   </style>
   <link rel="stylesheet" href="${style}">
+  <link rel="stylesheet" href="${composerActionsStyle}">
   <link rel="stylesheet" href="${responsiveStyle}">
   <title>DeepSeek Harness</title>
 </head>
@@ -136,15 +138,18 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
         <div id="messages" class="messages" aria-live="polite"></div>
       </div>
 
-      <section id="details" class="details hidden">
-        <div class="detail-tabs">
-          <button data-detail="todos" class="active">${text('plan')} <span id="todo-count">0</span></button>
-          <button data-detail="goal">Goal</button>
-          <button data-detail="skills">${text('skills')} <span id="skill-count">0</span></button>
-          <button data-detail="agents">${text('agents')} <span id="agent-count">0</span></button>
-          <button data-detail="jobs">${text('jobs')} <span id="job-count">0</span></button>
-          <button data-detail="timeline">${text('timeline')}</button>
-          <button data-detail="runtime">${text('runtimeContext')}</button>
+      <section id="details" class="details hidden" role="region" aria-label="${text('context')}">
+        <div class="detail-header">
+          <div class="detail-tabs">
+            <button data-detail="todos" class="active">${text('plan')} <span id="todo-count">0</span></button>
+            <button data-detail="goal">${text('viewGoal')}</button>
+            <button data-detail="skills">${text('skills')} <span id="skill-count">0</span></button>
+            <button data-detail="agents">${text('agents')} <span id="agent-count">0</span></button>
+            <button data-detail="jobs">${text('jobs')} <span id="job-count">0</span></button>
+            <button data-detail="timeline">${text('timeline')}</button>
+            <button data-detail="runtime">${text('runtimeContext')}</button>
+          </div>
+          <button id="details-close" class="icon-button compact detail-close" type="button" title="${text('closeContext')}" aria-label="${text('closeContext')}">${icon('close', 16)}</button>
         </div>
         <div id="detail-content" class="detail-content"></div>
       </section>
@@ -220,18 +225,19 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
         <div id="timeline-panel" class="timeline-panel hidden" role="listbox" aria-label="${text('timeline')}"></div>
         <div id="file-mention-menu" class="file-mention-menu hidden" role="listbox" aria-label="${text('workspaceFiles')}"></div>
         <div id="command-menu" class="command-menu hidden" role="listbox" aria-label="${text('slashCommands')}"></div>
+        <div id="composer-add-menu" class="composer-add-menu hidden" role="menu" aria-label="${text('composerAdd')}"></div>
         <div id="queued-panel" class="queued-panel hidden" aria-label="${text('queuedMessages')}"></div>
+        <div id="composer-feedback" class="composer-feedback hidden" role="alert" aria-atomic="true"></div>
         <textarea id="prompt" rows="1" placeholder="${text('promptPlaceholder')}" aria-label="${text('message')}"></textarea>
         <div class="composer-bar">
           <div class="composer-tools">
             <button id="attach-selection" class="text-button hidden" title="${text('attachSelection')}">${icon('attach', 12)} ${text('selection')}</button>
             <button id="timeline-toggle" class="text-button hidden" title="${text('timeline')}">${icon('timeline', 12)} ${text('timeline')}</button>
-            <button id="details-toggle" class="text-button" title="${text('contextDescription')}">${text('context')}</button>
+            <button id="composer-add-toggle" class="composer-add-toggle" type="button" title="${text('composerAdd')}" aria-label="${text('composerAdd')}" aria-haspopup="menu" aria-expanded="false" aria-controls="composer-add-menu">${icon('plus', 22)}</button>
             <div id="permission" class="permission-picker hidden">
               <button id="permission-toggle" class="permission-toggle" type="button" title="${text('permissionDescription')}" aria-label="${text('permissionDescription')}" aria-haspopup="listbox" aria-expanded="false">
-                <span class="permission-toggle-icon">◆</span>
+                <span class="permission-toggle-icon" aria-hidden="true">${icon('shield', 16)}</span>
                 <span id="permission-toggle-label" class="permission-toggle-label"></span>
-                <span class="permission-toggle-chevron">⌄</span>
               </button>
               <div id="permission-popup" class="permission-popup hidden" role="listbox" aria-label="${text('permissionDescription')}">
                 <div class="permission-popup-title">${text('permissionLabel')}</div>
@@ -264,7 +270,6 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
           </div>
         </div>
       </section>
-      <p id="composer-hint" class="composer-hint">${text('composerHint')}</p>
       </div>
       </div>
     </section>
