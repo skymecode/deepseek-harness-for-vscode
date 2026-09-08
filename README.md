@@ -13,9 +13,10 @@ A native VS Code coding-agent extension powered by [DeepSeek Harness](https://gi
 - **Complete session workflow** — persistent history, create, switch, rename, fork, resume, archive/restore, export, and import sessions (official DSH ZIP, ChatGPT export ZIP, and other agent transcripts via `dsh-chat-import`); changing the DSH mode opens a fresh session in the new mode and carries the previous context as a hidden digest attached to your next message.
 - **Streaming Markdown** — headings, lists, tables, code blocks, copy controls, safe external links, and clickable workspace file references.
 - **Stable incremental rendering** — streamed updates preserve disclosure state and the reader's scroll position.
-- **Conversation step timeline** — while a turn is in flight, a timeline spine runs down the left corridor of the transcript with a dot on every thinking, tool, and notice step; the rail disappears once the conversation ends.
+- **Progressive reasoning timeline** — nodes appear as thinking steps arrive, connecting only existing steps within the same turn. Completed turns retain their timeline inside the expandable process section.
 - **Session auto-naming** — new conversations get a concise single-line title derived from the first message; manual renames are never overwritten.
-- **Session changes bar** — a compact summary of the file edits from the latest finished turn appears after each conclusion and hides while the next turn is running.
+- **Per-turn file changes** — edited-file cards stay with their own conclusions, including restored history and follow-up conversations.
+- **Compact completed turns** — reasoning, tool calls and interim updates fold into a duration row; the final answer and file changes remain visible.
 - **Reader-friendly streaming** — while a turn streams you can scroll up through earlier messages freely; auto-follow yields to your scroll and only resumes at the very bottom. The finished conclusion is set off by a divider between the thinking and the final answer (or above the message when there is no thinking).
 - **DeepSeek Harness-native reasoning** — thinking is presented in a native reasoning block that opens as deltas stream, follows the newest content, and collapses to a summary row once the block completes.
 - **Editor context** — selected code appears as a removable context card; type `@` to fuzzy-search and attach workspace files without leaving the composer.
@@ -31,24 +32,24 @@ Open the workbench with `Ctrl+Alt+H` on Windows/Linux or `Cmd+Alt+H` on macOS.
 
 ## Interface preview
 
-The workbench follows the VS Code display language. The screenshots below use Simplified Chinese; select either image to view it at full resolution.
+Screenshots use the **0.5.9** workbench UI with a demonstration conversation and no private account data. This README shows the English interface; the [Chinese README](README.zh-CN.md#界面预览) shows the localized interface. Select an image to view it at full resolution.
 
 <table>
   <tr>
     <td align="center" width="58%">
       <a href="docs/images/workbench-preview.png">
-        <img src="docs/images/workbench-preview.png" alt="DeepSeek Harness native VS Code workbench" width="460">
+        <img src="docs/images/workbench-preview.png" alt="DeepSeek Harness 0.5.9: single-row header, collapsed turn process, final answer and edited files" width="460">
       </a>
     </td>
     <td align="center" width="42%">
       <a href="docs/images/model-and-effort.png">
-        <img src="docs/images/model-and-effort.png" alt="Model, DSH mode, and reasoning effort controls" width="300">
+        <img src="docs/images/model-and-effort.png" alt="DeepSeek Harness 0.5.9: Flash and Pro model selection, four DSH modes and reasoning effort slider" width="300">
       </a>
     </td>
   </tr>
   <tr>
-    <td align="center"><sub>Native conversation workbench — streaming replies, tool calls, composer pinned to the bottom</sub></td>
-    <td align="center"><sub>Model, DSH mode, and reasoning effort</sub></td>
+    <td align="center"><sub>0.5.9 workbench — compact turn process, final answer and per-turn file changes</sub></td>
+    <td align="center"><sub>Flash / Pro, four DSH modes and the effort slider</sub></td>
   </tr>
 </table>
 
@@ -76,10 +77,10 @@ Open the **⊞ Plugins** button in the workbench header to browse repositories r
 
 <p align="center">
   <a href="docs/images/plugin-marketplace.png">
-    <img src="docs/images/plugin-marketplace.png" alt="Native DSH plugin marketplace" width="500">
+    <img src="docs/images/plugin-marketplace.png" alt="DeepSeek Harness 0.5.9 plugin center with built-in catalog entries and compatibility labels" width="500">
   </a>
   <br>
-  <sub>Native plugin discovery, compatibility labels, and managed installation</sub>
+  <sub>0.5.9 plugin center — built-in catalog example, not the complete live GitHub marketplace</sub>
 </p>
 
 The extension uses the official `dsh plugin --profile web add/remove` workflow. Plugin profile files live under the extension's `globalStorageUri/harness-home/profiles/web`; Harness is stopped while pnpm changes that profile and is then restarted automatically. The bundled pnpm means no system package manager is required.

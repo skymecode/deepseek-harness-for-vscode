@@ -13,9 +13,10 @@
 - **完整会话管理**：持久化历史、新建、切换、重命名、分支、归档/恢复、导出，以及导入官方 DSH 会话 ZIP、ChatGPT 导出 ZIP 和其他 Agent 会话（通过 `dsh-chat-import`）；切换 DSH 模式时以新模式开启新会话，上一段上下文压缩为隐藏摘要随下一条消息携带。
 - **Markdown 流式回复**：支持标题、列表、表格、代码块、一键复制、安全外链及可点击跳转的工作区文件引用。
 - **稳定增量渲染**：流式更新保留推理/工具卡展开状态和用户滚动位置。
-- **对话步骤时间轴**：对话进行中在转录左侧贯穿一条时间轴脊柱，思考、工具、通知每个步骤落一个蓝点；对话结束后整条时间轴自动消失。
+- **渐进式推理时间线**：推理步骤出现时才创建节点，只连接同一轮已出现的推理步骤；结束后的时间线保留在可展开的过程区内。
 - **会话自动命名**：新会话根据首条用户消息自动生成单行标题（去 Markdown 符号、超长截断），手动重命名后不再覆盖。
-- **会话更改条**：每轮对话出结论后，在顶部显示该轮最新完成的文件更改摘要；新一轮对话开始即隐藏。
+- **逐轮文件更改**：已编辑卡片跟随各自的结论，恢复历史和继续对话时仍保留正确位置。
+- **简洁的已完成轮次**：思考、工具调用和中间说明收进“用时”折叠行，最终结论与文件更改保持可见。
 - **阅读友好的流式输出**：对话流式推进时仍可自由上滑查看历史内容——自动跟随会让位于你的滚动，仅在回到最底部后恢复。最终结论通过分隔线与思考块（无思考时位于消息顶部）清晰隔开。
 - **DeepSeek Harness 原生推理**：推理以原生 reasoning 块呈现——分片到达时自动展开并跟随最新内容，块完成后自动收起为摘要行。
 - **编辑器上下文**：选中代码会显示为可移除的上下文卡片；在输入框键入 `@` 可模糊检索并附加工作区文件。
@@ -31,24 +32,24 @@
 
 ## 界面预览
 
-界面会自动跟随 VS Code 显示语言。点击缩略图可查看原始分辨率截图。
+以下截图使用 **0.5.9** 工作台界面和示例会话，不包含私人账户数据。此页展示中文界面，[英文 README](README.md#interface-preview) 展示对应英文界面。点击缩略图可查看原始分辨率截图。
 
 <table>
   <tr>
     <td align="center" width="58%">
-      <a href="docs/images/workbench-preview.png">
-        <img src="docs/images/workbench-preview.png" alt="DeepSeek Harness 原生 VS Code 工作台" width="460">
+      <a href="docs/images/workbench-preview.zh-CN.png">
+        <img src="docs/images/workbench-preview.zh-CN.png" alt="DeepSeek Harness 0.5.9：单行顶栏、已折叠的对话过程、最终结论和文件更改" width="460">
       </a>
     </td>
     <td align="center" width="42%">
-      <a href="docs/images/model-and-effort.png">
-        <img src="docs/images/model-and-effort.png" alt="模型、DSH 模式与推理等级设置" width="300">
+      <a href="docs/images/model-and-effort.zh-CN.png">
+        <img src="docs/images/model-and-effort.zh-CN.png" alt="DeepSeek Harness 0.5.9：Flash／Pro 模型、四种 DSH 模式和推理等级滑杆" width="300">
       </a>
     </td>
   </tr>
   <tr>
-    <td align="center"><sub>原生对话工作台 —— 流式回复、工具调用，输入框固定在底部</sub></td>
-    <td align="center"><sub>模型、DSH 模式与推理等级</sub></td>
+    <td align="center"><sub>0.5.9 工作台 —— 折叠过程、最终结论与逐轮文件更改</sub></td>
+    <td align="center"><sub>Flash／Pro、四种 DSH 模式与推理等级滑杆</sub></td>
   </tr>
 </table>
 
@@ -75,11 +76,11 @@
 点击工作台标题栏的 **⊞ 插件**，可以直接浏览 [`dsh-plugin` GitHub Topic](https://github.com/topics/dsh-plugin) 中的仓库。市场结果还会合并 [Awesome DSH Plugin](https://awesome-dsh-plugin.com/) 的精选分类、中文介绍和 npm 安装参数。在“已安装”页可直接输入 npm 包、`github:owner/repository`、不含 shell 元字符的本地路径或 tarball URL。
 
 <p align="center">
-  <a href="docs/images/plugin-marketplace.png">
-    <img src="docs/images/plugin-marketplace.png" alt="原生 DSH 插件市场" width="500">
+  <a href="docs/images/plugin-marketplace.zh-CN.png">
+    <img src="docs/images/plugin-marketplace.zh-CN.png" alt="DeepSeek Harness 0.5.9 插件中心：内置目录条目与兼容性标识" width="500">
   </a>
   <br>
-  <sub>插件发现、兼容性标识与受控安装</sub>
+  <sub>0.5.9 插件中心 —— 展示内置目录示例，并非完整的实时 GitHub 市场</sub>
 </p>
 
 扩展严格使用官方 `dsh plugin --profile web add/remove` 流程。插件配置保存在扩展的 `globalStorageUri/harness-home/profiles/web`；pnpm 修改配置期间 Harness 会安全停止，完成后自动重启。pnpm 已随 VSIX 内置，无需安装系统包管理器。
