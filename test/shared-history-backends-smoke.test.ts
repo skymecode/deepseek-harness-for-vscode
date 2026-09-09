@@ -10,6 +10,26 @@ import type { HistoryEntry, SessionId } from '../src/gateway/gateway-wire.js'
 import type { SessionPromptRequest } from '../src/gateway/domain-api.js'
 import { projectConversation } from '../src/domain/workbench-state.js'
 import { bootSmokeRuntime } from './helpers/runtime-smoke.js'
+import { openHistoryStore } from '../src/runtime/shared-history/storage.js'
+
+/** A live turn/end precedes the runtime's batched disk flush. Cross-process
+ * readers must wait for the committed transcript, not assume the event is a
+ * durability barrier. Read the real store; never mask failed model turns. */
+async function savedHistory(home: string, id: SessionId, answer: string): Promise<void> {
+  const store = await openHistoryStore(home)
+  const handle = await store.context.sessionPersistence.open(id, 'read')
+  try {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
+      const events = (await handle.read()).events
+      const end = events.findLast((event) => event.type === 'turn/end')
+      if (end?.type === 'turn/end' && end.data.reason.kind === 'completed'
+        && events.some((event) => event.type === 'assistant/message' && event.data.message.content.some((block) => block.type === 'text' && block.text === answer))) return
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    throw new Error('Completed model output did not become durable in the shared store.')
+  } finally { await handle.close(); await store.fiber.dispose() }
+}
 
 async function prompt(client: NodeGatewayClient, id: SessionId, text: string, signal: AbortSignal): Promise<void> {
   const failures: unknown[] = []
@@ -61,6 +81,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('independent backends shar
       native = await bootSmokeRuntime(url, { historyHome: sharedHome })
       const a = await native.client.sessionCreate({ cwd, agentPreset: 'minimal' })
       await prompt(native.client, a.sessionId, 'from-vscode', abort.signal)
+      await savedHistory(sharedHome, a.sessionId, 'VS Code answer.')
       official = await bootSmokeRuntime(url, { home: sharedHome, officialUi: true })
       expect(new URL(native.url).port).not.toBe(new URL(official.url).port)
       expect(native.home).not.toBe(official.home)
@@ -69,6 +90,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('independent backends shar
 
       const b = await official.client.sessionCreate({ cwd, agentPreset: 'minimal' })
       await prompt(official.client, b.sessionId, 'from-official-web', abort.signal)
+      await savedHistory(sharedHome, b.sessionId, 'Official web answer.')
       expect((await native.client.sessionList()).some((row) => row.sessionId === b.sessionId)).toBe(true)
       expect(await history(native.client, b.sessionId, abort.signal)).toContain('Official web answer.')
 
