@@ -4,11 +4,16 @@
 
 A native VS Code coding-agent extension powered by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Install the platform-specific VSIX and start working—there is no upstream repository to clone, no Node/npm setup, and no local Harness deployment to manage.
 
-> This is the community-maintained `0.5.9` release. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.1.3-alpha.2` package (Typert Remote protocol).
+> This is the community-maintained `0.6.0` release. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.1.5-alpha.1` package (Typert Remote protocol).
+
+> **Runtime upgrade:** Harness now uses session format V3. Supported older logs are migrated on resume into a new generation while their original files are preserved. Old runtimes cannot read the new V3 generation; back up `~/.dsh/vscode/harness-home` before upgrading, and do not downgrade an active profile. Third-party plugins using the removed `ctx.agent` or runtime `Inbox` APIs need their own compatibility updates. The extension keeps its native VS Code interface rather than embedding the official Web UI.
+
+Older installations can leave ordinary package directories where Harness expects managed links. Startup and plugin installation now recover these shared `profiles/node_modules` conflicts automatically: incompatible entries move into `module-fallback-backup-*` inside the Harness home, then Harness rebuilds its links. Backup paths appear in the output log. Existing links/proxies, `profiles/web` plugins, conversation history and credentials are preserved; no terminal cleanup is required for this conflict. Permission or sharing errors stop recovery without deleting the original data.
 
 ## Features
 
 - **Native VS Code workbench** — all interaction happens in the sidebar; the local Harness Gateway exposes only the loopback API transport, while the official WebUI is neither served nor embedded.
+- **Shared local history** — the bundled runtime and an independently installed official DSH can read the same saved conversations. Installing the official CLI is optional; credentials and plugin profiles stay separate.
 - **Detachable workbench** — open the same synchronized conversation UI in an editor-area panel and move it to another VS Code window when more space is needed.
 - **Complete session workflow** — persistent history, create, switch, rename, fork, resume, archive/restore, export, and import sessions (official DSH ZIP, ChatGPT export ZIP, and other agent transcripts via `dsh-chat-import`); changing the DSH mode opens a fresh session in the new mode and carries the previous context as a hidden digest attached to your next message.
 - **Streaming Markdown** — headings, lists, tables, code blocks, copy controls, safe external links, and clickable workspace file references.
@@ -71,6 +76,24 @@ For example, an Apple Silicon Mac requires the `darwin-arm64` package.
 
 No Harness install or start command is required.
 
+## Shared history with official DSH
+
+The extension still ships and starts its own tested Harness/Node runtime. A separately installed CLI is **not required** and is not substituted automatically. On the same machine and OS user account, both backends use the official history location by default:
+
+| Platform | Shared history home |
+| --- | --- |
+| Windows | `%USERPROFILE%\.dsh` |
+| macOS | `~/.dsh` |
+| Linux | `~/.dsh` |
+
+An inherited `DSH_HOME` takes precedence. If official DSH uses another home, set the application-level `deepseekHarness.historyHome` to that same absolute path. Only `sessions/` and `attachments/` are shared. The extension's credentials, plugin profile and caches remain under `~/.dsh/vscode/harness-home`; archive/pin state and UI filters remain separate. VS Code uninstall does not remove the shared history.
+
+Old private/globalStorage histories are migrated through the official session codecs, with the original logs retained. Equal records are not duplicated; a strictly newer compatible prefix is appended only with write ownership. Diverged histories, or newer copies whose destination is busy, become separately named “VS Code history” forks. Completed imports are journaled, so reopening the extension does not keep duplicating them. In-use old sources are deferred; if migration fails, the extension keeps its previous private history for that launch and shows a warning instead of silently starting with an empty migrated store.
+
+Open the VS Code history panel to refresh its list; refresh the official Web UI page to discover externally created history. VS Code filters by the current project, while official DSH may show worktree sessions under their own workspace or as ungrouped sessions. This shares **saved history**, not another process's transient token stream. Kernel locks prevent simultaneous writes to one session: close the owning backend before continuing on the other side, or create a fork. Model credentials and installed plugins are configured independently.
+
+Both runtimes must support the same log format (this build uses **V3, DSH 0.1.5-alpha.1**). An older official CLI cannot read new V3 logs and must be updated to use this sharing feature; original V2 files are retained, but are not a downgrade-sync mechanism. This is not cloud, cross-device, or Windows/WSL cross-kernel synchronization; do not run live shared stores through a network/sync drive. Back up both the shared home and the old private home before a major runtime upgrade.
+
 ## DSH plugins
 
 Open the **⊞ Plugins** button in the workbench header to browse repositories read directly from the [`dsh-plugin` GitHub topic](https://github.com/topics/dsh-plugin). Results are merged with [Awesome DSH Plugin](https://awesome-dsh-plugin.com/) metadata for curated categories, localized descriptions, and npm install specs. The **Installed** tab also accepts one package spec directly, including an npm package, `github:owner/repository`, a local path without shell metacharacters, or a tarball URL.
@@ -83,7 +106,7 @@ Open the **⊞ Plugins** button in the workbench header to browse repositories r
   <sub>0.5.9 plugin center — built-in catalog example, not the complete live GitHub marketplace</sub>
 </p>
 
-The extension uses the official `dsh plugin --profile web add/remove` workflow. Plugin profile files live under the extension's `globalStorageUri/harness-home/profiles/web`; Harness is stopped while pnpm changes that profile and is then restarted automatically. The bundled pnpm means no system package manager is required.
+The extension uses the official `dsh plugin --profile web add/remove` workflow. Plugin profile files live under `~/.dsh/vscode/harness-home/profiles/web`; Harness is stopped while pnpm changes that profile and is then restarted automatically. The bundled pnpm means no system package manager is required.
 
 Host tools, policies, and runtime services contributed by a plugin work in this extension. A plugin may also contain client UI designed specifically for the upstream DSH browser application; those UI contributions cannot be rendered generically by this native VS Code workbench and are marked **Official Web UI**.
 

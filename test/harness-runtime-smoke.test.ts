@@ -10,7 +10,7 @@ import { bootSmokeRuntime } from './helpers/runtime-smoke.js'
 
 // Opt-in: starts the bundled native runtime, never an installed user profile.
 describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('bundled Harness end-to-end', () => {
-  it('authenticates, streams reasoning, settles and reloads V2 history through the headless Gateway', async () => {
+  it('authenticates, streams reasoning, settles and reloads V3 history through the headless Gateway', async () => {
     const requests: string[] = []
     const server = createServer((request, response) => {
       requests.push(request.url ?? '')

@@ -5,8 +5,8 @@ import type * as vscode from 'vscode'
 
 const MIGRATED = new Set<string>()
 
-/** Physical artifacts that make a directory a DSH session log. */
-const SESSION_ARTIFACT_NAMES = ['session.jsonl.zstd', 'session.jsonl']
+/** Recognize immutable V2/V3 generations as well as pre-versioned logs. */
+const SESSION_ARTIFACT_NAME = /^session(?:\.v\d+)?\.jsonl(?:\.zstd)?$/u
 
 export interface LegacySessionMigrationResult {
   copied: number
@@ -42,7 +42,11 @@ export function migrateLegacySessions(
     }
     for (const sessionName of sessionNames) {
       const source = path.join(sourceProject, sessionName)
-      if (!SESSION_ARTIFACT_NAMES.some((name) => existsSync(path.join(source, name)))) continue
+      // Copy whole session directories, including earlier immutable generations.
+      // Never rewrite a log ourselves or assume only the unversioned name exists.
+      try {
+        if (!readdirSync(source, { withFileTypes: true }).some((entry) => entry.isFile() && SESSION_ARTIFACT_NAME.test(entry.name))) continue
+      } catch { continue }
       const target = path.join(targetSessionsRoot, project.name, sessionName)
       if (existsSync(target)) {
         skipped++
@@ -101,17 +105,14 @@ export function legacySessionsRoots(stableHome: string): string[] {
  * configuration. A stable per-user directory (~/.dsh/vscode/harness-home)
  * survives extension reinstall, uninstall, and state resets.
  *
- * Legacy homes are migrated once so an existing install keeps its data on
- * upgrade: the previous extension home under globalStorage, and every legacy
- * DSH harness-home sessions root (explicit DSH_HOME, then ~/.dsh/sessions).
+ * Legacy private globalStorage data is retained here. Session migration into
+ * the shared official store is handled by shared-history's locked worker;
+ * never copy official histories into a second, independently writable store.
  */
 export function harnessHomePath(context: vscode.ExtensionContext): string {
   const stable = path.join(os.homedir(), '.dsh', 'vscode', 'harness-home')
   const legacy = path.join(context.globalStorageUri.fsPath, 'harness-home')
   migrateOnce(legacy, stable)
-  for (const root of legacySessionsRoots(stable)) {
-    migrateLegacySessions(root, path.join(stable, 'sessions'))
-  }
   return stable
 }
 

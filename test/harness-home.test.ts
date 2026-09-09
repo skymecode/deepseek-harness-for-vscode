@@ -24,6 +24,19 @@ afterEach(() => {
 })
 
 describe('migrateLegacySessions', () => {
+  it.each(['session.v2.jsonl', 'session.v2.jsonl.zstd', 'session.v3.jsonl', 'session.v3.jsonl.zstd'])('preserves versioned generation %s when copying a legacy home', (filename) => {
+    const root = makeTmp()
+    const legacy = path.join(root, 'legacy')
+    const target = path.join(root, 'target')
+    const source = path.join(legacy, '--proj--', 'session-versioned')
+    mkdirSync(source, { recursive: true })
+    writeFileSync(path.join(source, filename), 'immutable generation')
+    expect(migrateLegacySessions(legacy, target)).toEqual({ copied: 1, skipped: 0 })
+    expect(migrateLegacySessions(legacy, target)).toEqual({ copied: 0, skipped: 1 })
+    expect(readFileSync(path.join(source, filename), 'utf8')).toBe('immutable generation')
+    expect(readFileSync(path.join(target, '--proj--', 'session-versioned', filename), 'utf8')).toBe('immutable generation')
+  })
+
   it('copies session dirs from the legacy root into the target root', () => {
     const root = makeTmp()
     const legacy = path.join(root, 'legacy-sessions')

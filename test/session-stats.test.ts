@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { SessionSeq } from '@deepseek-ai/dsh-session/types'
+import { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { HistoryEntry } from '../src/gateway/gateway-wire.js'
 import { projectSessionStats, projectionSessionStats } from '../src/domain/session-stats.js'
 
@@ -37,7 +39,7 @@ describe('projectSessionStats', () => {
   })
 
   it('ignores non-turn events and is stable for completed-only histories', () => {
-    const unrelated = { type: 'user/message', data: { source: { kind: 'user' }, content: [] }, time: 2_000 } as HistoryEntry['event']
+    const unrelated: HistoryEntry['event'] = { type: 'user/message', seq: SessionSeq(2), surfaceOp: 'append', data: { id: MessageId('user-test'), role: 'user', source: { kind: 'user' }, content: [] }, time: 2_000 }
     const entries = [
       entry(1, 1_000, turnStart(30, 1_000)),
       entry(2, 2_000, unrelated),

@@ -243,6 +243,7 @@ export function toggleHistory(open: boolean): void {
   if (open) components.pluginCenter.close()
   elements.historyPanel.classList.toggle('hidden', !open)
   if (open) {
+    post('refreshSessions')
     renderSessions()
     elements.historySearch.focus()
   }

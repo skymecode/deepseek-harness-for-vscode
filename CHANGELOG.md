@@ -1,12 +1,20 @@
 # Changelog
 
-## 0.6.0-dev (Unreleased)
+## 0.6.0
+
+> Upgrade notice: this release bundles Harness `0.1.5-alpha.1` and uses V3 session logs. Independently installed official DSH must also support V3 to share history. Original legacy logs are retained; back up the shared and private history homes before upgrading. Two backends may read saved history, but only one may own a session for writing at a time.
 
 - Keep conversation history buttons mounted during streaming updates so clicking another session reliably switches conversations. Preserve keyboard focus and update titles, running indicators, tags and archive actions in place.
 
 - Anchor reasoning-card expansion and collapse to the activated header, and exclude folded or clipped historical content from reading anchors to prevent scroll jumps.
 
 - Fix every Host slash command (`/permission`, `/model`, `/compact`, …) failing with `RPC commands/execute failed: gateway/arguments-invalid: … missing "submittedAttachments"; unexpected "images"` after the bundled runtime moved to `dsh@0.1.3-alpha.2`: upstream renamed the third `commands/execute` parameter from `images` to `submittedAttachments` (encoded images plus staged file receipts) and the typert descriptor validates args strictly, so the legacy field name rejects the whole call. The client now sends an explicit empty list under the new name.
+
+- Share persisted conversation history with independently launched official DSH backends while retaining the extension's bundled runtime, private credentials, plugin profile and native UI. Default to `DSH_HOME` or `~/.dsh` for sessions and attachments, with an application-scoped custom history-home setting. Migrate old extension/globalStorage logs through official codecs and kernel locks: preserve originals, fast-forward compatible prefixes, keep diverged/occupied destinations as deterministic history forks, and journal completed imports. Respect plaintext and Zstandard stores, retain the private-history fallback on migration failure, refresh the list when opening history, and show a clear ownership message instead of taking over another process. Add real independent-backend and legacy-migration regression coverage; cross-device synchronization and concurrent writing of one session are not supported.
+
+- Automatically recover shared Harness module-fallback directory conflicts before Gateway startup and community-plugin installation. Resolve the bundled dependency closure, quarantine only incompatible ordinary entries under `profiles/node_modules`, and let upstream rebuild its links. Preserve symlinks/junctions, managed proxies, profile-local plugins, credentials and session logs; coordinate with upstream's writer lock, log recoverable backup paths, fail safely on I/O errors and bound Gateway recovery retries. Add cross-platform filesystem/entry-point tests and a real-runtime conflict-recovery smoke test.
+
+- Upgrade the bundled Harness to `0.1.5-alpha.1` with a pinned lockfile. Revalidate the guarded pi-ai relay/probe patches and the upstream-fixed projection-cache schema. Recognize versioned V2/V3 logs during legacy-home copying, preserve all original generations, and expose V3 system-message snapshots only in the runtime-context inspector. Add isolated real-runtime coverage for V2 migration/resume and bundled community tools alongside streaming and approval/question transport; document the V3 downgrade and third-party Agent/Inbox API limitations.
 
 - Fix dismissal of the Skills/context panel after the composer-menu redesign: add an always-visible close button, Escape handling before turn cancellation, repeated-shortcut toggling and automatic dismissal after choosing a skill or switching sessions. Keep panel navigation separate from detail rendering and preserve live updates and drafts.
 

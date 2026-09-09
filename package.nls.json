@@ -1,4 +1,5 @@
 {
+  "config.historyHome": "Shared history home used by official DSH. Empty uses DSH_HOME, then ~/.dsh. Only sessions and attachments are shared; the extension keeps its own runtime, credentials and plugin profile. Use an absolute path when official DSH has a custom home.",
   "command.testSystemNotification": "DeepSeek Harness: Test System Notification",
   "config.systemNotifications.enabled": "Send native OS notifications when foreground or background work finishes (local Windows/macOS only). OS notification permissions and Focus settings apply.",
   "config.systemNotifications.sound": "Request a sound with system notifications. The operating system controls playback.",

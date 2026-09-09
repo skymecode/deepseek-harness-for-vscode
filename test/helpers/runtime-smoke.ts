@@ -5,30 +5,43 @@ import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
 import { renderOverlay } from '../../src/runtime/runtime-overlay.js'
 import { NodeGatewayClient } from '../../src/gateway/node-gateway-client.js'
+import { recoverModuleFallback } from '../../src/runtime/module-fallback-recovery.js'
+
+interface SmokeOptions {
+  readonly home?: string
+  readonly historyHome?: string
+  readonly officialUi?: boolean
+  /** Seed only this test's temporary home; return extra trusted profile rows if needed. */
+  readonly prepare?: (home: string, extensionRoot: string) => Promise<string | void>
+}
 
 /** Isolated real Harness, with a loopback-only fake model and no user keys. */
-export async function bootSmokeRuntime(modelBaseUrl: string) {
-  const home = await mkdtemp(join(tmpdir(), 'dsh-vscode-smoke-'))
+export async function bootSmokeRuntime(modelBaseUrl: string, options: SmokeOptions = {}) {
+  const home = options.home ?? await mkdtemp(join(tmpdir(), 'dsh-vscode-smoke-'))
   const extensionRoot = resolve(process.env.DSH_SMOKE_EXTENSION_ROOT ?? '.')
   const gatewayPlugin = process.env.DSH_SMOKE_EXTENSION_ROOT === undefined
     ? join(home, 'gateway-runtime.mjs') : join(extensionRoot, 'dist/runtime/gateway-runtime.mjs')
   if (process.env.DSH_SMOKE_EXTENSION_ROOT === undefined) {
     await build({ entryPoints: ['src/runtime/gateway-runtime-plugin.ts'], outfile: gatewayPlugin, bundle: true, format: 'esm', platform: 'node', target: 'node22', logLevel: 'silent' })
   }
-  const overlay = renderOverlay({
+  let extraOverlay: string | void
+  try { extraOverlay = await options.prepare?.(home, extensionRoot) }
+  catch (error) { if (options.home === undefined) await rm(home, { recursive: true, force: true }); throw error }
+  const overlay = options.officialUi === true ? `- id: llm-deepseek\n  config:\n    reasoningEffort: high\n    apiKeyEnv: DSH_SMOKE_API_KEY\n    baseURL: ${JSON.stringify(modelBaseUrl)}\n` : renderOverlay({
     model: 'deepseek-v4-flash', provider: 'deepseek-official', reasoningEffort: 'high',
     agentPreset: 'minimal', permissionMode: 'read-only', webSearch: false,
     autoAttachSelection: false, experimentalAutoEffort: false, worktreeAutoMerge: 'never',
-  }, gatewayPlugin).replace('reasoningEffort: high', `reasoningEffort: high\n    apiKeyEnv: DSH_SMOKE_API_KEY\n    baseURL: ${JSON.stringify(modelBaseUrl)}`)
+  }, gatewayPlugin, options.historyHome).replace('reasoningEffort: high', `reasoningEffort: high\n    apiKeyEnv: DSH_SMOKE_API_KEY\n    baseURL: ${JSON.stringify(modelBaseUrl)}`)
   const patch = join(home, 'vscode.patch.yml')
-  await writeFile(patch, overlay)
+  await writeFile(patch, overlay + (extraOverlay ?? ''))
+  const moduleBackups = await recoverModuleFallback(home, join(extensionRoot, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'))
   // Do not inherit any provider secrets or user DSH profile overrides.
   const env: NodeJS.ProcessEnv = { DSH_HOME: home, DSH_CWD: home, DSH_TELEMETRY_DISABLED: '1', DSH_SMOKE_API_KEY: 'smoke-only' }
   for (const key of ['PATH', 'HOME', 'USERPROFILE', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR']) {
     if (process.env[key] !== undefined) env[key] = process.env[key]
   }
   const child = spawn(join(extensionRoot, 'node_modules/node/bin', process.platform === 'win32' ? 'node.exe' : 'node'), [
-    join(extensionRoot, 'node_modules/@deepseek-ai/dsh/lib/bin.js'), 'web', '--patch', patch, '--host', '127.0.0.1', '--port', '0',
+    join(extensionRoot, 'node_modules/@deepseek-ai/dsh/lib/bin.js'), 'web', '--patch', patch, '--host', '127.0.0.1', '--port', '0', ...(options.officialUi === true ? ['--no-open'] : []),
   ], { cwd: home, env, stdio: ['ignore', 'pipe', 'pipe'] })
   let diagnostics = ''
   let closed = false
@@ -41,14 +54,14 @@ export async function bootSmokeRuntime(modelBaseUrl: string) {
       clearTimeout(deadline)
     }
     // Only this test's mkdtemp directory is removed; real Harness homes are untouched.
-    await rm(home, { recursive: true, force: true })
+    if (options.home === undefined) await rm(home, { recursive: true, force: true })
   }
   try {
     const url = await new Promise<string>((resolveUrl, reject) => {
       const timer = setTimeout(() => reject(new Error(`Gateway startup timed out: ${diagnostics}`)), 30_000)
       const receive = (data: Buffer): void => {
         diagnostics += data.toString()
-        const match = /dsh gateway: (http:\/\/127\.0\.0\.1:\d+\/\?token=\S+)/u.exec(diagnostics)
+        const match = /dsh (?:gateway|web): (http:\/\/127\.0\.0\.1:\d+\/\?token=\S+)/u.exec(diagnostics)
         if (match?.[1] !== undefined) { clearTimeout(timer); resolveUrl(match[1]) }
       }
       child.stdout.on('data', receive)
@@ -56,7 +69,7 @@ export async function bootSmokeRuntime(modelBaseUrl: string) {
       child.once('error', (error) => { clearTimeout(timer); reject(error) })
       child.once('exit', (code) => { clearTimeout(timer); reject(new Error(`Gateway exited (${code}): ${diagnostics}`)) })
     })
-    return { client: new NodeGatewayClient(url), home, url, close }
+    return { client: new NodeGatewayClient(url), home, url, close, moduleBackups }
   } catch (error) {
     await close()
     throw error

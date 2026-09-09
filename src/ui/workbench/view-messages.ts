@@ -102,6 +102,10 @@ export interface WorkbenchViewActions {
     case 'showLogs':
       ctx.actions.showLogs()
       break
+    case 'refreshSessions':
+      await ctx.gateway.ensureStarted()
+      await ctx.gateway.reloadSessions()
+      break
     case 'newSession':
       try {
         await ctx.gateway.createSession()

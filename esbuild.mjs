@@ -14,6 +14,17 @@ if (production) {
 
 const contexts = await Promise.all([
   esbuild.context({
+    entryPoints: ['src/runtime/shared-history/worker.ts'],
+    bundle: true,
+    packages: 'external',
+    format: 'esm',
+    platform: 'node',
+    target: 'node22',
+    outfile: 'dist/runtime/shared-history-worker.mjs',
+    minify: production,
+    logLevel: 'info',
+  }),
+  esbuild.context({
     entryPoints: ['src/extension.ts'],
     bundle: true,
     format: 'cjs',

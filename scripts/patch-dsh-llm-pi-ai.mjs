@@ -7,7 +7,7 @@ const packageJsonPath = require.resolve('@deepseek-ai/dsh-llm-pi-ai/package.json
 const packageRoot = dirname(packageJsonPath)
 const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
 
-const SUPPORTED_VERSIONS = ['0.1.1-rc.1', '0.1.1-rc.2', '0.1.2-alpha.4', '0.1.2-rc.1', '0.1.3-alpha.2']
+const SUPPORTED_VERSIONS = ['0.1.1-rc.1', '0.1.1-rc.2', '0.1.2-alpha.4', '0.1.2-rc.1', '0.1.3-alpha.2', '0.1.5-alpha.1']
 
 if (!SUPPORTED_VERSIONS.includes(packageJson.version)) {
   throw new Error(
@@ -66,7 +66,8 @@ const toolReplayNormalization = `
 // the watchdog signal and passes the route's image policy; 0.1.2-alpha.4
 // moved the image payload into a second options object keyed with
 // attachments/resolveImageAccess/maxRequestImageBytes/requestImagePolicy.
-// 0.1.3-alpha.2 retains the alpha.4 call shape and still needs both patches.
+// 0.1.3-alpha.2 and 0.1.5-alpha.1 retain the alpha.4 call shape and still
+// need both patches (verified against their published npm bundles).
 const RC1_CONTEXT_CALL = 'attachments === void 0 ? toPiContext(options, void 0, onReplayDegrade) : await toPiContext(options, attachments, onReplayDegrade, profile.maxRequestImageBytes);'
 const RC2_CONTEXT_CALL = `attachments === void 0 ? toPiContext(options, void 0, onReplayDegrade) : await toPiContext({
 \t\t\t\t\t...options,

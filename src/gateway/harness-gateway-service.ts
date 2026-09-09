@@ -67,6 +67,7 @@ import type { RemoteEventOutcome, RemoteWaterfallEvent } from './remote-event-pr
 import { SessionMetaStore } from './session-meta-store.js'
 import { TurnCompletionTracker } from './turn-completion-tracker.js'
 import type { CompletionNotice } from '../domain/turn-completion.js'
+import { LAST_SESSION_STATE_KEY } from '../domain/session-selection.js'
 
 /**
  * Application service for the native VS Code workbench. It owns Gateway
@@ -314,7 +315,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     // state only risks the leave-archived-selection cascade.
     const hasRealHistory = [...this.summaries.values()].some((summary) => !summary.blank
       && this.inCurrentWorkspace(summary))
-    if (hasRealHistory) {
+    if (hasRealHistory && !this.runtime.sharedHistory) {
       for (const summary of [...this.summaries.values()]) {
         if (!summary.blank) continue
         if (String(summary.sessionId) === this.activeSessionId) continue
@@ -2025,7 +2026,6 @@ function newPromptRequestId(): import('@deepseek-ai/dsh-api-session-controller/t
 
 const START_BASELINE_TIMEOUT_S = 45
 /** Remembers the last session the user had open so a reload resumes it. */
-const LAST_SESSION_STATE_KEY = 'deepseekHarness.lastSessionId'
 const DEFAULT_REASONING_OPTIONS: readonly { readonly id: string }[] = [
   { id: 'off' }, { id: 'low' }, { id: 'high' }, { id: 'max' },
 ]

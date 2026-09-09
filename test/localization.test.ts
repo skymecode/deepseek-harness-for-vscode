@@ -41,6 +41,7 @@ describe('extension localization', () => {
       'src/plugins/plugin-center-controller.ts',
       'src/runtime/bundled-runtime.ts',
       'src/runtime/web-runtime.ts',
+      'src/runtime/prepare-module-fallback.ts',
       'src/ui/workbench-view-provider.ts',
       'src/import/session-import-service.ts',
     ]

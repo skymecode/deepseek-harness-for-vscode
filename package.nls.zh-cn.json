@@ -1,4 +1,5 @@
 {
+  "config.historyHome": "与官方 DSH 共用的历史数据根目录。留空依次使用 DSH_HOME、~/.dsh。仅共享会话和附件，扩展仍保留自己的运行时、密钥和插件配置。官方 DSH 使用自定义目录时，请填写同一个绝对路径。",
   "command.testSystemNotification": "DeepSeek Harness：测试系统通知",
   "config.systemNotifications.enabled": "当前或后台工作结束时发送原生系统通知（仅限本地 Windows/macOS）。显示受系统通知权限和专注模式控制。",
   "config.systemNotifications.sound": "请求在系统通知时播放声音，是否播放由操作系统决定。",

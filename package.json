@@ -2,7 +2,7 @@
   "name": "deepseek-harness-for-vscode",
   "displayName": "DeepSeek Harness for Visual Studio Code",
   "description": "%extension.description%",
-  "version": "0.6.0-dev",
+  "version": "0.6.0",
   "type": "module",
   "publisher": "skymecode",
   "license": "MIT",
@@ -42,7 +42,7 @@
     "test": "vitest run",
     "pretest:watch": "npm run patch:dsh",
     "test:watch": "vitest",
-    "package": "npm run check-types && npm run test && node esbuild.mjs --production && node scripts/package-vsix.mjs",
+    "package": "npm run check-types && node esbuild.mjs --production && npm run test && node scripts/package-vsix.mjs",
     "vscode:prepublish": "npm run check-types && node esbuild.mjs --production"
   },
   "contributes": {
@@ -137,6 +137,13 @@
     "configuration": {
       "title": "DeepSeek Harness for Visual Studio Code",
       "properties": {
+        "deepseekHarness.historyHome": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "restricted": true,
+          "description": "%config.historyHome%"
+        },
         "deepseekHarness.systemNotifications.enabled": {
           "type": "boolean",
           "default": true,
@@ -261,13 +268,14 @@
     "@vscode/vsce": "^3.6.0",
     "esbuild": "^0.25.9",
     "eslint": "^9.33.0",
+    "fzstd": "0.1.1",
     "happy-dom": "20.14.0",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.39.1",
     "vitest": "^4.0.0"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh": "0.1.5-alpha.1",
     "dompurify": "3.4.13",
     "highlight.js": "^11.12.0",
     "markdown-it": "15.0.0",
@@ -283,8 +291,7 @@
     "koffi@3.2.1": true,
     "keytar@7.9.0": true,
     "protobufjs@7.6.6": true,
-    "@deepseek-ai/dsh-subprocess-local@0.1.3-alpha.2": true,
-    "fs-ext@2.1.1": true,
+    "@deepseek-ai/dsh-subprocess-local@0.1.5-alpha.1": true,
     "@vscode/vsce-sign@2.0.9": true,
     "@google/genai@1.52.0": true
   }

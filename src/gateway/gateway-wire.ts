@@ -1,5 +1,5 @@
 /**
- * Gateway wire-type mapping for the dsh 0.1.3 Typert Remote protocol.
+ * Gateway wire-type mapping for the dsh 0.1.5 Typert Remote protocol.
  *
  * dsh 0.1.2 replaced the host-apiproxy / client-connection domain clients
  * with the Typert Remote wire (unary `POST /api/<ns>/<method>` + the
@@ -73,7 +73,7 @@ export type SessionModels = {
   readonly routableProviders: readonly string[]
 }
 
-/** V2 history embeds compact timed streams in durable assistant events. */
+/** V2/V3 history embeds compact timed streams in durable assistant events. */
 export type SessionHistoryRecord = SessionEventEntry
 
 /** One session event stream frame (snapshot + delta) from `session/follow`. */

@@ -1,4 +1,11 @@
 {
+  "VS Code history": "VS Code 历史副本",
+  "This conversation is open in another Harness process. You can read its saved history here; close the owning process before continuing, or fork a new conversation.": "此会话正由另一个 Harness 进程持有，你仍可在这里查看已保存的历史。继续对话前请关闭持有它的进程，或创建新分支继续。",
+  "Some old sessions are still in use. Their originals are preserved; migration will retry on the next Harness start.": "部分旧会话仍被占用，原始记录已保留；下次启动 Harness 时会继续迁移。",
+  "History sharing could not finish safely. This launch keeps your previous extension history; no original logs were removed. See the output logs.": "历史共享迁移未能安全完成，本次继续使用之前的扩展历史，未删除原始日志。请查看输出日志。",
+  "[host] Retrying Harness startup after a module fallback conflict.": "[host] 检测到运行时模块目录冲突，正在自动重试 Harness 启动。",
+  "[runtime] Backed up incompatible module {0} to {1}; Harness will rebuild its link.": "[runtime] 已将冲突模块 {0} 备份到 {1}；Harness 将自动重建链接。",
+  "Harness could not prepare its runtime module links. Existing files were preserved. See the output logs for details.": "Harness 无法准备运行时模块链接，现有文件已保留。请查看输出日志中的具体原因。",
   "Add": "添加",
   "Add context and tools": "添加上下文与工具",
   "Tools": "工具",

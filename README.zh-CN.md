@@ -4,11 +4,16 @@
 
 在 VS Code 中原生运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 AI 编码助手扩展。无需克隆上游仓库、安装 Node/npm 或手动部署 Harness；安装匹配平台的 VSIX 即可使用。
 
-> 当前为社区维护版本 `0.5.9`。DeepSeek Harness 仍处于 Developer Preview，本扩展固定使用官方 npm 包 `@deepseek-ai/dsh@0.1.3-alpha.2`（Typert Remote 协议）。
+> 当前为社区维护版本 `0.6.0`。DeepSeek Harness 仍处于 Developer Preview，本扩展固定使用官方 npm 包 `@deepseek-ai/dsh@0.1.5-alpha.1`（Typert Remote 协议）。
+
+> **运行时升级提示：** Harness 已采用 V3 会话格式。恢复受支持的旧日志时会生成新一代文件，原文件仍保留；旧运行时无法读取新增的 V3 日志。建议升级前备份 `~/.dsh/vscode/harness-home`，不要对正在使用的配置目录直接降级。依赖已移除的 `ctx.agent` 或运行时 `Inbox` API 的第三方插件需要自行适配。本扩展继续使用原生 VS Code 界面，不嵌套官方 Web UI。
+
+旧安装可能在 Harness 需要托管链接的位置留下普通包目录。启动或安装插件时，扩展现在会自动修复共享 `profiles/node_modules` 中的这类冲突：先将冲突项移入 Harness 数据目录内的 `module-fallback-backup-*`，再由 Harness 重建链接。备份路径记录在输出日志中，正常链接／代理、`profiles/web` 下的插件、会话历史及密钥都会保留，不需要用户执行终端清理命令。如果系统拒绝访问或文件被占用，恢复会安全停止，不删除原数据。
 
 ## 功能
 
 - **原生 VS Code 工作台**：全部交互都在侧边栏完成；本地 Harness Gateway 只开放回环 API 传输，不再提供或嵌入官方 WebUI。
+- **共享本机历史**：扩展自带的运行时与独立安装的官方 DSH 可读取同一份已保存会话。无需额外安装官方 CLI；密钥和插件配置仍然隔离。
 - **可分离工作台**：可在编辑器区打开同步的对话面板，需要更大空间时可将其移到另一个 VS Code 窗口。
 - **完整会话管理**：持久化历史、新建、切换、重命名、分支、归档/恢复、导出，以及导入官方 DSH 会话 ZIP、ChatGPT 导出 ZIP 和其他 Agent 会话（通过 `dsh-chat-import`）；切换 DSH 模式时以新模式开启新会话，上一段上下文压缩为隐藏摘要随下一条消息携带。
 - **Markdown 流式回复**：支持标题、列表、表格、代码块、一键复制、安全外链及可点击跳转的工作区文件引用。
@@ -71,6 +76,24 @@
 
 无需执行任何 Harness 安装或启动命令。
 
+## 与官方 DSH 共享历史
+
+扩展仍自带并启动经过测试的 Harness／Node 运行时，**不要求单独安装官方 CLI**，也不会自动替换成 PATH 中的任意版本。同一台机器、同一系统用户下，两个独立后端默认使用官方历史位置：
+
+| 系统 | 共享历史根目录 |
+| --- | --- |
+| Windows | `%USERPROFILE%\.dsh` |
+| macOS | `~/.dsh` |
+| Linux | `~/.dsh` |
+
+继承的 `DSH_HOME` 优先。官方 DSH 使用其他目录时，可在应用级设置 `deepseekHarness.historyHome` 中填写同一个绝对路径。仅共享 `sessions/` 和 `attachments/`；扩展密钥、插件配置与缓存仍保存在 `~/.dsh/vscode/harness-home`，归档、置顶和界面筛选各自独立。卸载 VS Code 扩展不会移除共享历史。
+
+升级时通过官方日志编解码迁移旧私有目录／globalStorage 中的会话，原日志保留：相同记录不重复导入；单边追加的兼容历史仅在获得写权限后补齐；已分叉的历史，或目标正被占用的新副本，会另存为带“VS Code 历史副本”标记的分支。迁移记录避免反复导入。旧来源仍被占用时延后处理；迁移失败时，本次继续显示原私有历史并提示原因，不会静默切换成空历史。
+
+打开 VS Code 的历史面板会刷新列表；官方 Web UI 可刷新页面发现另一端新建的会话。VS Code 默认按当前项目过滤，官方界面可能将 worktree 会话列在独立工作区或未分组列表中。共享的是**已保存的历史**，不是跨进程转发实时 token。同一会话仍受系统写锁保护：关闭持有它的后端后再从另一端继续，或新建分支；两边的模型密钥和插件分别配置。
+
+两个运行时必须支持相同日志格式：本版使用 **V3／DSH 0.1.5-alpha.1**。旧官方 CLI 无法读取新增的 V3 日志，需升级后使用共享功能；保留 V2 原文件不代表支持降级双向同步。这不是云端、跨设备或 Windows／WSL 跨内核同步，请勿通过网络盘／同步盘同时运行共享日志。大版本升级前建议备份共享目录和原私有目录。
+
 ## DSH 插件
 
 点击工作台标题栏的 **⊞ 插件**，可以直接浏览 [`dsh-plugin` GitHub Topic](https://github.com/topics/dsh-plugin) 中的仓库。市场结果还会合并 [Awesome DSH Plugin](https://awesome-dsh-plugin.com/) 的精选分类、中文介绍和 npm 安装参数。在“已安装”页可直接输入 npm 包、`github:owner/repository`、不含 shell 元字符的本地路径或 tarball URL。
@@ -83,7 +106,7 @@
   <sub>0.5.9 插件中心 —— 展示内置目录示例，并非完整的实时 GitHub 市场</sub>
 </p>
 
-扩展严格使用官方 `dsh plugin --profile web add/remove` 流程。插件配置保存在扩展的 `globalStorageUri/harness-home/profiles/web`；pnpm 修改配置期间 Harness 会安全停止，完成后自动重启。pnpm 已随 VSIX 内置，无需安装系统包管理器。
+扩展严格使用官方 `dsh plugin --profile web add/remove` 流程。插件配置保存在 `~/.dsh/vscode/harness-home/profiles/web`；pnpm 修改配置期间 Harness 会安全停止，完成后自动重启。pnpm 已随 VSIX 内置，无需安装系统包管理器。
 
 插件提供的宿主工具、策略和运行时服务可以在本扩展中工作。部分插件还包含专门面向上游 DSH 浏览器应用的客户端 UI，这些界面无法由原生 VS Code 工作台通用渲染，因此会标记为 **官方 Web UI**。
 

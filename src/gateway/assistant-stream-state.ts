@@ -12,7 +12,7 @@ interface Attempt {
 }
 
 /**
- * Process-local V2 stream state. Durable seqs and stream revisions are separate
+ * Process-local V2/V3 stream state. Durable seqs and stream revisions are separate
  * clocks: mixing them corrupts pagination and drops deltas after reconnects.
  */
 export class AssistantStreamState {

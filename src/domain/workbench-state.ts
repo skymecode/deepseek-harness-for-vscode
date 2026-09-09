@@ -509,6 +509,21 @@ export function projectConversation(entries: readonly HistoryEntry[], labels = E
 
   for (const { event } of entries) {
     switch (event.type) {
+      case 'system/message': {
+        // V3 persists system prompts as surface messages. Keep every snapshot
+        // inspectable, including replacements, without presenting it as a reply.
+        const message = event.data.message
+        addMessage({
+          id: `event-${event.seq}`,
+          seq: event.seq,
+          time: event.time,
+          kind: 'context',
+          title: labels.context,
+          contextSource: { ...projectContextSource(message.source), form: 'instructions' },
+          blocks: projectBlocks(message.content, labels),
+        }, event.data.turn)
+        break
+      }
       case 'user/message': {
         if (isReplacement(event.surfaceOp)) break
         const source = event.data.source

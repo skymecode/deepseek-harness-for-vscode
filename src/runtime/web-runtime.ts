@@ -8,7 +8,13 @@ import type { BundledRuntimeResolver } from './bundled-runtime.js'
 import { harnessHomePath } from './harness-home.js'
 import { isProjectionCacheFailure, recoverStaleProjectionCache } from './projection-cache-recovery.js'
 import { pruneShadowedRuntimePackages } from './profile-scope-prune.js'
+import { isModuleFallbackConflict } from './module-fallback-recovery.js'
+import { prepareModuleFallback } from './prepare-module-fallback.js'
 import { renderOverlay } from './runtime-overlay.js'
+import { sharedHistoryHome } from './shared-history/paths.js'
+import { runHistoryMigration } from './shared-history/runner.js'
+import { historyCompression as detectHistoryCompression } from './shared-history/encoding.js'
+import { LAST_SESSION_STATE_KEY } from '../domain/session-selection.js'
 
 const START_TIMEOUT_MS = 90_000
 const STOP_TIMEOUT_MS = 5_000
@@ -42,6 +48,10 @@ export class HarnessHostRuntime implements vscode.Disposable {
   private stopTask: Promise<void> | undefined
   private identity: string | undefined
   private stateValue: HostRuntimeState = { phase: 'idle' }
+  private preparationAbort: AbortController | undefined
+  private sharedHistoryValue = false
+
+  get sharedHistory(): boolean { return this.sharedHistoryValue }
 
   readonly onDidChangeState = this.stateEmitter.event
 
@@ -69,7 +79,9 @@ export class HarnessHostRuntime implements vscode.Disposable {
 
     this.identity = identity
     this.setState({ phase: 'starting' })
-    const task = this.spawnRuntime(workspace, configuration)
+    const abort = new AbortController()
+    this.preparationAbort = abort
+    const task = this.spawnRuntime(workspace, configuration, abort.signal)
     this.startTask = task
     try {
       return await task
@@ -79,6 +91,7 @@ export class HarnessHostRuntime implements vscode.Disposable {
       throw error
     } finally {
       if (this.startTask === task) this.startTask = undefined
+      if (this.preparationAbort === abort) this.preparationAbort = undefined
     }
   }
 
@@ -100,13 +113,40 @@ export class HarnessHostRuntime implements vscode.Disposable {
   private async spawnRuntime(
     workspace: string,
     configuration: HarnessConfiguration,
+    signal: AbortSignal,
   ): Promise<string> {
     const launch = await this.resolver.resolve()
     const home = harnessHomePath(this.context)
     const overlay = path.join(home, 'vscode.patch.yml')
     const gatewayPlugin = path.join(this.context.extensionUri.fsPath, 'dist', 'runtime', 'gateway-runtime.mjs')
     await mkdir(home, { recursive: true })
-    await writeFile(overlay, renderOverlay(configuration, gatewayPlugin), 'utf8')
+    const sharedHome = sharedHistoryHome(configuration.historyHome)
+    let historyCompression: 'zstd' | 'none' = 'zstd'
+    this.sharedHistoryValue = false
+    try {
+      const preferredSessionId = this.context.globalState?.get<string>(LAST_SESSION_STATE_KEY)
+      const report = await runHistoryMigration(launch.command, this.context.asAbsolutePath('dist/runtime/shared-history-worker.mjs'), {
+        destinationHome: sharedHome,
+        forkLabel: vscode.l10n.t('VS Code history'),
+        ...(preferredSessionId === undefined ? {} : { preferredSessionId }),
+        sourceHomes: [home, ...(this.context.globalStorageUri?.fsPath === undefined ? [] : [path.join(this.context.globalStorageUri.fsPath, 'harness-home')])],
+      }, signal)
+      this.sharedHistoryValue = true
+      historyCompression = report.compression
+      if (report.preferredSessionId !== undefined) await this.context.globalState?.update(LAST_SESSION_STATE_KEY, report.preferredSessionId)
+      this.output.appendLine(`[history] Shared history ready: ${JSON.stringify(report)}`)
+      if (report.deferred > 0) void vscode.window.showWarningMessage(vscode.l10n.t('Some old sessions are still in use. Their originals are preserved; migration will retry on the next Harness start.'))
+    } catch (error) {
+      if (signal.aborted) throw error
+      this.sharedHistoryValue = false
+      this.output.appendLine(`[history] ${error instanceof Error ? error.message : String(error)}`)
+      historyCompression = await detectHistoryCompression(path.join(home, 'sessions'))
+      void vscode.window.showWarningMessage(vscode.l10n.t('History sharing could not finish safely. This launch keeps your previous extension history; no original logs were removed. See the output logs.'))
+    }
+    signal.throwIfAborted()
+    await writeFile(overlay, renderOverlay(configuration, gatewayPlugin, this.sharedHistoryValue ? sharedHome : home, historyCompression), 'utf8')
+    const installAnchor = this.context.asAbsolutePath(path.join('node_modules', '@deepseek-ai', 'dsh', 'package.json'))
+    await prepareModuleFallback(home, installAnchor, this.output)
     // Profile-level @deepseek-ai copies shadow the bundled runtime during
     // plugin resolution; drop stale ones so an older build's leftovers cannot
     // fail the boot with a stale-schema validation error.
@@ -129,21 +169,27 @@ export class HarnessHostRuntime implements vscode.Disposable {
       { cwd: workspace, model: configuration.model, reasoning: configuration.reasoningEffort, preset: configuration.agentPreset },
     ))
 
-    // Boot with one self-heal retry: a dsh upgrade can leave a stale
-    // session-projection cache (session_projcache) whose records no longer
-    // match the new schema, crashing the gateway on boot in a loop. Detect the
-    // schema failure from stderr, back up + clear the cache, and retry once.
-    for (let attempt = 1; ; attempt += 1) {
+    // Each recovery may run once; neither path can cause an endless restart.
+    let retriedModules = false
+    let retriedProjection = false
+    for (;;) {
       const boot = await this.spawnGateway(launch, home, args, env)
-      if (boot.url !== undefined) return boot.url
+      if (boot.url !== undefined) { this.setState({ phase: 'ready', url: boot.url }); return boot.url }
       if (boot.failure !== undefined) {
         this.setState({ phase: 'error', error: boot.failure })
         throw new Error(boot.failure)
       }
-      if (attempt === 1
+      if (!retriedModules && (boot.exitCode ?? 0) !== 0 && isModuleFallbackConflict(boot.diagnostics ?? '')) {
+        retriedModules = true
+        await prepareModuleFallback(home, installAnchor, this.output)
+        this.output.appendLine(vscode.l10n.t('[host] Retrying Harness startup after a module fallback conflict.'))
+        continue
+      }
+      if (!retriedProjection
         && (boot.exitCode ?? 0) !== 0
         && isProjectionCacheFailure(boot.diagnostics ?? '')
         && (await recoverStaleProjectionCache(home))) {
+        retriedProjection = true
         this.output.appendLine(vscode.l10n.t('[host] The Gateway crashed on a stale session-projection cache; the cache was backed up and the boot is retried once.'))
         continue
       }
@@ -235,6 +281,8 @@ export class HarnessHostRuntime implements vscode.Disposable {
   }
 
   private async performStop(): Promise<void> {
+    this.preparationAbort?.abort()
+    this.preparationAbort = undefined
     const child = this.child
     this.child = undefined
     this.identity = undefined

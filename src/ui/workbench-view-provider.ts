@@ -134,7 +134,6 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     if (isRecord(message) && message.type === 'webviewError') {
       // Webview-side exceptions (blank panel diagnostics) land in the host
       // log with the same [webview] prefix we can grep for.
-      console.error('[webview]', String(message.message ?? 'unknown webview error'))
       const name = 'deepseekHarness-renderer-error'
       vscode.window.createOutputChannel(name, { log: true }).appendLine(String(message.message ?? 'unknown webview error'))
       return
@@ -152,6 +151,10 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       }, message)
     } catch (cause: unknown) {
       const detail = cause instanceof Error ? cause.message : String(cause)
+      if (detail.includes('already owned by an active write handle')) {
+        void vscode.window.showInformationMessage(vscode.l10n.t('This conversation is open in another Harness process. You can read its saved history here; close the owning process before continuing, or fork a new conversation.'))
+        return
+      }
       if (isTimeoutError(cause)) {
         // The transport aborts a request that exceeds its budget with a bare
         // "The operation was aborted due to timeout". Surface that as an

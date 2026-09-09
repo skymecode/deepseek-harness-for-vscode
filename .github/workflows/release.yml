@@ -50,6 +50,10 @@ jobs:
 
       - name: Package VSIX
         run: npm run package
+        env:
+          # Exercise the bundled runtime, migration and two-backend sharing on
+          # each OS/architecture; no real model credentials are used.
+          DSH_RUNTIME_SMOKE: '1'
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
@@ -94,17 +98,6 @@ jobs:
             echo "No CHANGELOG section found for ${section}" >&2
             exit 1
           fi
-
-      - name: Delete stale release for this tag (re-publish safety)
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="${{ github.event_name == 'push' && github.ref_name || inputs.tag_name }}"
-          # A re-pushed tag (e.g. moving v0.5.7 to a corrected commit) may leave
-          # an earlier build's release behind. Delete it so this run's build is
-          # the one that ships; the tag itself is kept and points at the new commit.
-          gh release delete "${tag}" --yes || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

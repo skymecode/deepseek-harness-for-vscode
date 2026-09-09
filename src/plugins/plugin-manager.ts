@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import * as vscode from 'vscode'
 import type { BundledRuntimeResolver } from '../runtime/bundled-runtime.js'
 import { harnessHomePath } from '../runtime/harness-home.js'
+import { prepareModuleFallback } from '../runtime/prepare-module-fallback.js'
 import { DEFAULT_BUILTIN_PLUGINS } from './default-plugins.js'
 import { isNpmPackageName, normalizePluginSpec } from './plugin-spec.js'
 import { RoutingSuiteInstaller } from './routing-suite/installer.js'
@@ -151,6 +152,7 @@ export class DshPluginManager {
     const launch = await this.resolver.resolve()
     const args = [...launch.args, 'plugin', '--profile', PROFILE, ...pnpmArguments]
     const env = { ...launch.environment, DSH_HOME: this.harnessHome() }
+    await prepareModuleFallback(env.DSH_HOME, this.context.asAbsolutePath(path.join('node_modules', '@deepseek-ai', 'dsh', 'package.json')), this.output)
     this.output.appendLine(`[plugin] dsh plugin --profile ${PROFILE} ${pnpmArguments.map(diagnosticArgument).join(' ')}`)
     await new Promise<void>((resolve, reject) => {
       const child = spawn(launch.command, args, {
