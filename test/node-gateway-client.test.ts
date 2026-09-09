@@ -44,7 +44,7 @@ describe('NodeGatewayClient Remote carrier', () => {
     await expect(client.executeCommand('session-1', '/plan')).resolves.toMatchObject({ commandId: 'cmd-1' })
     expect(requests).toEqual([
       expect.objectContaining({ method: 'commands/list', payload: { args: { agentId: 'session-1' } } }),
-      expect.objectContaining({ method: 'commands/execute', payload: { args: { agentId: 'session-1', line: '/plan', images: [] } } }),
+      expect.objectContaining({ method: 'commands/execute', payload: { args: { agentId: 'session-1', line: '/plan', submittedAttachments: [] } } }),
     ])
   })
 

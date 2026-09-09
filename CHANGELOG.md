@@ -2,6 +2,12 @@
 
 ## 0.6.0-dev (Unreleased)
 
+- Keep conversation history buttons mounted during streaming updates so clicking another session reliably switches conversations. Preserve keyboard focus and update titles, running indicators, tags and archive actions in place.
+
+- Anchor reasoning-card expansion and collapse to the activated header, and exclude folded or clipped historical content from reading anchors to prevent scroll jumps.
+
+- Fix every Host slash command (`/permission`, `/model`, `/compact`, …) failing with `RPC commands/execute failed: gateway/arguments-invalid: … missing "submittedAttachments"; unexpected "images"` after the bundled runtime moved to `dsh@0.1.3-alpha.2`: upstream renamed the third `commands/execute` parameter from `images` to `submittedAttachments` (encoded images plus staged file receipts) and the typert descriptor validates args strictly, so the legacy field name rejects the whole call. The client now sends an explicit empty list under the new name.
+
 - Fix dismissal of the Skills/context panel after the composer-menu redesign: add an always-visible close button, Escape handling before turn cancellation, repeated-shortcut toggling and automatic dismissal after choosing a skill or switching sessions. Keep panel navigation separate from detail rendering and preserve live updates and drafts.
 
 - Simplify the composer footer: remove the permanent keyboard-hint row and render permissions/model/effort as borderless text controls. Preserve full-access warning colors, accessible focus and existing pickers; move image-rejection feedback into a shared transient component that occupies no space when idle.

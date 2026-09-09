@@ -44,7 +44,7 @@ function fixture() {
   const wheel = (deltaY: number, target: HTMLElement = viewport) => target.dispatchEvent(new WheelEvent('wheel', { deltaY, bubbles: true }))
   const bottom = () => viewport.scrollHeight - viewport.clientHeight
   const readHistory = () => { wheel(-100); viewport.scrollTop = 1200; scroll() }
-  return { viewport, content, dock, paragraph, geometry, controller, resized: () => resized(), disconnect, follow, interaction, scroll, wheel, bottom, readHistory }
+  return { viewport, content, dock, paragraph, geometry, rect, controller, resized: () => resized(), disconnect, follow, interaction, scroll, wheel, bottom, readHistory }
 }
 
 describe('conversation scroll intent and layout anchoring', () => {
@@ -181,6 +181,42 @@ describe('conversation scroll intent and layout anchoring', () => {
     f.resized()
     expect(f.viewport.scrollTop).toBe(1200)
     expect(f.follow).toHaveBeenLastCalledWith(false)
+  })
+
+  it.each(['pointer', 'Enter', ' ', 'click'])('anchors the activated header before layout changes (%s)', (input) => {
+    const f = fixture()
+    const details = document.createElement('details')
+    details.className = 'reasoning-block'
+    const summary = document.createElement('summary')
+    const label = document.createElement('span')
+    label.textContent = 'Thought for 1s'
+    summary.append(label)
+    details.append(summary)
+    f.content.append(details)
+    let headerTop = 1400
+    summary.getBoundingClientRect = () => f.rect(headerTop - f.viewport.scrollTop, 40)
+    f.readHistory()
+    if (input === 'pointer') {
+      label.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      document.dispatchEvent(new PointerEvent('pointerup'))
+    } else if (input !== 'click') {
+      summary.dispatchEvent(new KeyboardEvent('keydown', { key: input, bubbles: true }))
+    }
+    // Like a markdown expansion handler, layout can change during the click,
+    // before the event reaches the viewport's bubbling listeners.
+    summary.addEventListener('click', () => {
+      headerTop += 100
+      f.geometry.contentHeight += 400
+      f.controller.afterLayout()
+    })
+    label.click()
+    f.resized()
+    expect(summary.getBoundingClientRect().top).toBe(200)
+    expect(f.viewport.scrollTop).toBe(1300)
+    expect(f.follow).toHaveBeenLastCalledWith(false)
+    f.geometry.contentHeight += 900
+    f.resized()
+    expect(f.viewport.scrollTop).toBe(1300)
   })
 
   it('handles an empty loading state and disconnects listeners/observers on dispose', () => {

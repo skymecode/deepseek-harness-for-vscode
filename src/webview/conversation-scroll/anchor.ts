@@ -11,19 +11,24 @@ export interface ReadingAnchor {
 // card is a reading surface too. The content root never contains the composer.
 const READING_BLOCKS = '.message-label, p, li, pre, summary, .work-duration, .turn-changes-card, .notice, .interaction-card, .detail-tabs'
 
-export function captureReadingAnchor(viewport: HTMLElement, content: HTMLElement): ReadingAnchor | undefined {
+export function captureReadingAnchor(viewport: HTMLElement, content: HTMLElement, preferred?: HTMLElement): ReadingAnchor | undefined {
   const viewportRect = viewport.getBoundingClientRect()
+  // A disclosure is an explicit reading target. Anchor its header as a block,
+  // not its changing preview text or an unrelated paragraph above the click.
+  if (preferred && content.contains(preferred) && visibleReadingBounds(viewport, preferred)) {
+    const rect = preferred.getBoundingClientRect()
+    return { element: preferred, top: rect.top - viewportRect.top, height: rect.height }
+  }
   for (const element of Array.from(content.querySelectorAll<HTMLElement>(READING_BLOCKS))) {
-    const closed = element.closest('details:not([open])')
-    if (closed && !(element.tagName === 'SUMMARY' && element.parentElement === closed)) continue
+    const visible = visibleReadingBounds(viewport, element)
+    if (!visible) continue
     const rect = element.getBoundingClientRect()
-    if (rect.height === 0 || rect.bottom <= viewportRect.top + 1 || rect.top >= viewportRect.bottom) continue
     // Keep a character at the top of the reading area when resizing a long
     // paragraph. Range geometry follows that character across line wrapping.
     const document = element.ownerDocument
     const range = document.caretRangeFromPoint?.(
       Math.max(viewportRect.left + 2, rect.left + 2),
-      Math.max(viewportRect.top + 2, rect.top + 2),
+      Math.min(visible.bottom - 1, visible.top + 2),
     )
     if (range && range.startContainer.nodeType === 3 && element.contains(range.startContainer)) {
       const text = range.startContainer as Text
@@ -44,8 +49,7 @@ export function readingAnchorDelta(viewport: HTMLElement, anchor: ReadingAnchor)
   const top = viewport.getBoundingClientRect().top
   // Finishing a turn folds its process. If the reader was inside it, anchor
   // to the remaining disclosure header rather than invisible child geometry.
-  const folded = anchor.element.closest('.turn-process:not([open])')
-  const header = folded?.querySelector('summary')
+  const header = hiddenDisclosureHeader(anchor.element)
   if (header && header !== anchor.element) return header.getBoundingClientRect().top - top - Math.max(0, anchor.top)
   if (anchor.textRange && anchor.textTop !== undefined && anchor.element.contains(anchor.textRange.startContainer)) {
     const rect = anchor.textRange.getBoundingClientRect()
@@ -56,4 +60,33 @@ export function readingAnchorDelta(viewport: HTMLElement, anchor: ReadingAnchor)
   // the middle of a tall card, and the exact top offset otherwise.
   const offset = anchor.top < 0 && anchor.height > 0 ? anchor.top * rect.height / anchor.height : anchor.top
   return rect.top - top - offset
+}
+
+/** A nested summary is still hidden when an outer process/card is closed. */
+function hiddenDisclosureHeader(element: HTMLElement): HTMLElement | undefined {
+  let header: HTMLElement | undefined
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    if (parent.tagName !== 'DETAILS' || parent.hasAttribute('open')) continue
+    const summary = parent.querySelector<HTMLElement>(':scope > summary')
+    if (summary && !summary.contains(element)) header = summary
+  }
+  return header
+}
+
+/** Layout boxes can intersect the viewport while clipped out of an old card. */
+function visibleReadingBounds(viewport: HTMLElement, element: HTMLElement): { top: number; bottom: number } | undefined {
+  if (hiddenDisclosureHeader(element)) return undefined
+  const rect = element.getBoundingClientRect()
+  const viewportRect = viewport.getBoundingClientRect()
+  let top = Math.max(rect.top, viewportRect.top)
+  let bottom = Math.min(rect.bottom, viewportRect.bottom)
+  if (bottom <= top + 1) return undefined
+  for (let parent = element.parentElement; parent && parent !== viewport; parent = parent.parentElement) {
+    if (!['auto', 'scroll', 'hidden', 'clip'].includes(getComputedStyle(parent).overflowY)) continue
+    const clip = parent.getBoundingClientRect()
+    top = Math.max(top, clip.top)
+    bottom = Math.min(bottom, clip.bottom)
+    if (bottom <= top + 1) return undefined
+  }
+  return { top, bottom }
 }

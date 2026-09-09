@@ -114,9 +114,22 @@ export class NodeGatewayClient {
     return value
   }
 
-  /** Executes one registered Host slash command without sending it to the LLM. */
+  /**
+   * Executes one registered Host slash command without sending it to the LLM.
+   *
+   * dsh 0.1.3-alpha.2 renamed the third `commands/execute` parameter from
+   * `images` to `submittedAttachments` (encoded images plus staged file
+   * receipts). The typert descriptor validates its args in strict mode, so the
+   * old name is rejected wholesale with `gateway/arguments-invalid`. Host
+   * commands never carry attachments: send an explicit empty list under the
+   * name the pinned descriptor declares.
+   */
   async executeCommand(agentId: string, line: string): Promise<HostCommandExecution | undefined> {
-    const value = await this.callRaw<HostCommandExecution | undefined>('commands/execute', { agentId, line, images: [] })
+    const value = await this.callRaw<HostCommandExecution | undefined>('commands/execute', {
+      agentId,
+      line,
+      submittedAttachments: [],
+    })
     return value
   }
 

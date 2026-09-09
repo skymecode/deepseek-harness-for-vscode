@@ -32,6 +32,9 @@ export class ConversationScrollController {
     this.listen(viewport, 'scroll', this.onScroll)
     this.listen(viewport, 'wheel', this.onWheel)
     this.listen(viewport, 'pointerdown', this.onPointerDown)
+    // Capture runs before disclosure click handlers/native details activation
+    // mutate layout, including clicks synthesized by keyboard/assistive input.
+    this.listen(viewport, 'click', this.onDisclosureClick, true)
     this.listen(viewport.ownerDocument, 'pointerup', this.releasePointer)
     this.listen(viewport.ownerDocument, 'pointercancel', this.releasePointer)
     this.listen(viewport, 'touchstart', this.onTouchStart)
@@ -107,7 +110,8 @@ export class ConversationScrollController {
     if (event.target instanceof Node && this.options.dock.contains(event.target)) return
     // Opening an old card is reading intent. Its ensuing resize must not
     // immediately pin to the end and move the newly opened content away.
-    if (event.target instanceof Element && event.target.closest(READING_DISCLOSURE)) this.pause()
+    const disclosure = this.disclosureTarget(event.target)
+    if (disclosure) this.pause(disclosure)
     this.interacting = true
     this.options.onInteractionChange(true)
   }
@@ -117,6 +121,11 @@ export class ConversationScrollController {
     this.interacting = false
     this.options.onInteractionChange(false)
     this.remember()
+  }
+
+  private readonly onDisclosureClick = (event: MouseEvent): void => {
+    const disclosure = this.disclosureTarget(event.target)
+    if (!event.defaultPrevented && disclosure) this.pause(disclosure)
   }
 
   private readonly onTouchStart = (event: TouchEvent): void => { this.touchY = event.touches[0]?.clientY }
@@ -130,14 +139,20 @@ export class ConversationScrollController {
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     const target = event.target as HTMLElement | null
     if (target?.closest('textarea, input, select, [contenteditable="true"]')) return
-    if ((event.key === 'Enter' || event.key === ' ') && target?.closest(READING_DISCLOSURE)) this.pause()
+    const disclosure = this.disclosureTarget(target)
+    if ((event.key === 'Enter' || event.key === ' ') && disclosure) this.pause(disclosure)
     if (event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Home' || (event.key === ' ' && event.shiftKey)) this.pause()
   }
 
-  private pause(): void {
+  private disclosureTarget(target: EventTarget | null): HTMLElement | undefined {
+    const element = target instanceof Element ? target.closest<HTMLElement>(READING_DISCLOSURE) : null
+    return element && this.options.content.contains(element) ? element : undefined
+  }
+
+  private pause(preferred?: HTMLElement): void {
     this.expectedTop = undefined
     this.setFollowing(false)
-    this.remember()
+    this.remember(preferred)
   }
 
   private setFollowing(value: boolean): void {
@@ -150,8 +165,8 @@ export class ConversationScrollController {
     return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 4
   }
 
-  private remember(): void {
-    this.anchor = this.following ? undefined : captureReadingAnchor(this.options.viewport, this.options.content)
+  private remember(preferred?: HTMLElement): void {
+    this.anchor = this.following ? undefined : captureReadingAnchor(this.options.viewport, this.options.content, preferred)
   }
 
   private writeTop(top: number): void {
@@ -167,9 +182,9 @@ export class ConversationScrollController {
     return `${viewport.clientWidth}:${viewport.clientHeight}:${content.offsetHeight}:${dock.offsetHeight}:${viewport.scrollHeight}`
   }
 
-  private listen<K extends keyof GlobalEventHandlersEventMap>(target: EventTarget, type: K, callback: (event: GlobalEventHandlersEventMap[K]) => void): void {
-    target.addEventListener(type, callback as EventListener, { passive: true })
-    this.removeListeners.push(() => target.removeEventListener(type, callback as EventListener))
+  private listen<K extends keyof GlobalEventHandlersEventMap>(target: EventTarget, type: K, callback: (event: GlobalEventHandlersEventMap[K]) => void, capture = false): void {
+    target.addEventListener(type, callback as EventListener, { passive: true, capture })
+    this.removeListeners.push(() => target.removeEventListener(type, callback as EventListener, capture))
   }
 }
 

@@ -1,6 +1,7 @@
 import type { ActiveSessionView, PermissionView } from '../../domain/workbench-state.js'
 import { FULL_ACCESS_PERMISSION_ID, PERMISSION_PRESET_IDS } from '../../domain/permissions.js'
 import { applyIcon, icon } from '../icons.js'
+import { SessionListComponent } from '../session-list/component.js'
 import { composerConfigurationInput } from '../composer-configuration/adapter.js'
 import { permissionSelectOptions, type PermissionSelectOption } from '../permission/adapter.js'
 import { clearPastedImages } from './images.js'
@@ -8,7 +9,6 @@ import { closeTimeline } from './timeline.js'
 import {
   components,
   elements,
-  node,
   payload,
   post,
   searchResults,
@@ -21,6 +21,28 @@ import { formatRelativeTime } from './utils.js'
 
 let showingArchived = false
 
+const sessionList = new SessionListComponent({
+  element: elements.sessionList,
+  translate: t,
+  formatTime: formatRelativeTime,
+  onAction: (action, sessionId) => {
+    if (action === 'selectSession') {
+      components.composerConfiguration.reset()
+      closeTimeline()
+      clearPastedImages()
+      post(action, { sessionId })
+      toggleHistory(false)
+      return
+    }
+    post(action, { sessionId })
+    if (action === 'restoreSession') {
+      // Follow a restored row back to the default list.
+      showingArchived = false
+      renderSessions()
+    }
+  },
+})
+
 export function renderSessions(): void {
   if (!payload) return
   const query = elements.historySearch.value.trim()
@@ -28,103 +50,24 @@ export function renderSessions(): void {
   const resultIds = new Set(searchResults.map((result) => result.sessionId))
   const pool = showingArchived ? payload.state.archivedSessions : payload.state.sessions
   const sessions = query === '' ? pool : pool.filter((session) => resultIds.has(session.id))
-  const fragment = document.createDocumentFragment()
-  for (const session of sessions) {
-    // Every row can be archived, including blank drafts: an unwanted
-    // new-conversation stub is hidden exactly like any other conversation.
-    const canArchive = true
-    const wrap = node('div', 'session-row-wrap')
-    const button = node('button', `session-row${canArchive ? ' has-archive-action' : ''}${session.isolated === true ? ' has-worktree-action' : ''}`) as HTMLButtonElement
-    if (session.id === payload.state.active?.id) button.classList.add('active')
-    const top = node('span', 'session-row-top')
-    top.append(node('span', 'session-name', session.title), node('span', `running-dot${session.running ? ' active' : ''}`))
-    if (session.meta?.pinned === true) { const mark = node('span', 'session-mark'); applyIcon(mark, icon('pin', 10)); top.append(mark) }
-    const meta = node('span', 'session-meta', formatRelativeTime(session.updatedAt))
-    if (session.agentPreset) meta.append(` · ${session.agentPreset}`)
-    button.append(top, meta)
-    if (session.shared === true) {
-      const shared = node('span', 'session-tag shared', t('sharedWorkspaceTag'))
-      shared.title = t('sharedWorkspaceHint')
-      shared.setAttribute('aria-label', t('sharedWorkspaceHint'))
-      button.append(shared)
-    }
-    const tags = session.meta?.tags ?? []
-    if (tags.length > 0) {
-      const tagRow = node('span', 'session-tags')
-      for (const tag of tags) tagRow.append(node('span', 'session-tag', tag))
-      button.append(tagRow)
-    }
-    const snippet = snippets.get(session.id)
-    if (snippet) button.append(node('span', 'session-snippet', snippet))
-    button.addEventListener('click', () => {
-      components.composerConfiguration.reset()
-      closeTimeline()
-      clearPastedImages()
-      post('selectSession', { sessionId: session.id })
-      toggleHistory(false)
-    })
-    wrap.append(button)
-    const actions = node('div', 'session-row-actions')
-    const pinned = session.meta?.pinned === true
-    const pin = metaAction(pinned ? t('unpinSession') : t('pinSession'), pinned ? icon('pin', 12) : icon('unpin', 12), () => post('toggleSessionPin', { sessionId: session.id }))
-    if (pinned) pin.classList.add('active')
-    actions.append(pin)
-    actions.append(metaAction(t('editSessionTags'), '#', () => post('editSessionTags', { sessionId: session.id })))
-    if (canArchive) {
-      const action = node('button', 'icon-button compact session-archive-action') as HTMLButtonElement
-      action.type = 'button'
-      action.title = showingArchived ? t('restoreSession') : t('archiveSession')
-      action.setAttribute('aria-label', action.title)
-      applyIcon(action, showingArchived ? icon('restore', 12) : icon('archive', 12))
-      action.addEventListener('click', (event) => {
-        event.stopPropagation()
-        if (showingArchived) {
-          post('restoreSession', { sessionId: session.id })
-          // Follow the row back to the default list instead of leaving the user
-          // staring at the archived view it just left.
-          showingArchived = false
-          renderSessions()
-          return
-        }
-        post('archiveSession', { sessionId: session.id })
-      })
-      actions.append(action)
-    }
-    wrap.append(actions)
-    if (session.isolated === true) {
-      const action = node('button', 'icon-button compact session-worktree-action') as HTMLButtonElement
-      action.type = 'button'
-      action.title = t('worktreeActions')
-      action.setAttribute('aria-label', action.title)
-      applyIcon(action, icon('fork', 12))
-      action.addEventListener('click', (event) => {
-        event.stopPropagation()
-        post('worktreeAction', { sessionId: session.id })
-      })
-      wrap.append(action)
-    }
-    fragment.append(wrap)
-  }
+  let emptyMessage = ''
   if (sessions.length === 0) {
     const archivedHits = query === '' || showingArchived
       ? []
       : payload.state.archivedSessions.filter((session) => resultIds.has(session.id))
     if (archivedHits.length > 0) {
-      fragment.append(node('p', 'muted-empty', t('archivedSearchHint', { count: String(archivedHits.length) })))
+      emptyMessage = t('archivedSearchHint', { count: String(archivedHits.length) })
     } else if (showingArchived && query !== '') {
-      // Archived rows exist but none match the search query.
-      fragment.append(node('p', 'muted-empty', t('noMatchingArchivedConversations')))
+      emptyMessage = t('noMatchingArchivedConversations')
     } else if (showingArchived) {
-      fragment.append(node('p', 'muted-empty', t('noArchivedConversations')))
+      emptyMessage = t('noArchivedConversations')
     } else if (query === '') {
-      // No conversations belong to this window's scope — either the project
-      // has no history yet, or no project is open at all.
-      fragment.append(node('p', 'muted-empty', t(workspaceFolderOpen ? 'noProjectConversations' : 'historyNeedsProject')))
+      emptyMessage = t(workspaceFolderOpen ? 'noProjectConversations' : 'historyNeedsProject')
     } else {
-      fragment.append(node('p', 'muted-empty', t('noMatchingConversations')))
+      emptyMessage = t('noMatchingConversations')
     }
   }
-  elements.sessionList.replaceChildren(fragment)
+  sessionList.update(sessions, { activeId: payload.state.active?.id, archived: showingArchived, snippets, emptyMessage })
   renderHistoryFilter()
 }
 
@@ -303,17 +246,4 @@ export function toggleHistory(open: boolean): void {
     renderSessions()
     elements.historySearch.focus()
   }
-}
-
-function metaAction(label: string, glyph: string, onClick: () => void): HTMLButtonElement {
-  const action = node('button', 'icon-button compact session-archive-action') as HTMLButtonElement
-  action.type = 'button'
-  action.title = label
-  action.setAttribute('aria-label', label)
-  applyIcon(action, glyph)
-  action.addEventListener('click', (event) => {
-    event.stopPropagation()
-    onClick()
-  })
-  return action
 }
