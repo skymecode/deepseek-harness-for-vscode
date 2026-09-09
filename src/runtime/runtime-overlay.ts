@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url'
+import { join } from 'node:path'
 import type { HarnessConfiguration } from '../config/configuration.js'
 
 /** Generates a trusted overlay from validated VS Code settings. */
@@ -10,7 +11,7 @@ export function renderOverlay(configuration: HarnessConfiguration, gatewayPlugin
   const historyRows = historyHome === undefined ? '' : `
 - id: session-persistence-jsonl
   config:
-    root: ${JSON.stringify(historyHome.replace(/[\\/]$/u, '') + '/sessions')}
+    root: ${JSON.stringify(join(historyHome, 'sessions'))}
     compression: ${compression}
 
 - id: attachment-local

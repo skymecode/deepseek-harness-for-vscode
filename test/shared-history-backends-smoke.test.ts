@@ -12,9 +12,17 @@ import { projectConversation } from '../src/domain/workbench-state.js'
 import { bootSmokeRuntime } from './helpers/runtime-smoke.js'
 
 async function prompt(client: NodeGatewayClient, id: SessionId, text: string, signal: AbortSignal): Promise<void> {
+  const failures: unknown[] = []
   for await (const frame of client.sessionFollow({ address: { kind: 'session', sessionId: id } }, signal)) {
     if (frame.type === 'snapshot') await client.sessionPrompt({ requestId: randomUUID() as SessionPromptRequest['requestId'], sessionId: id, mode: 'queue', content: [{ type: 'text', text }] })
-    else if (frame.type === 'event' && frame.event.type === 'turn/end') return
+    else if (frame.type === 'event') {
+      const event = frame.event as unknown as HistoryEntry['event']
+      if (event.type === 'assistant/attempt') failures.push(event.data)
+      if (event.type === 'turn/end') {
+        if (event.data.reason.kind !== 'completed') throw new Error(`Scripted turn failed: ${JSON.stringify({ reason: event.data.reason, failures })}`)
+        return
+      }
+    }
   }
   throw new Error('No completed turn.')
 }

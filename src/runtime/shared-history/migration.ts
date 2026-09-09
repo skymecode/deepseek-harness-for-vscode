@@ -4,7 +4,7 @@ import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
 import { mkdir, readFile, realpath } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { isAbsolute, join, relative } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { canonicalJson, compareHistories } from './compare.js'
 import { migrateAttachments } from './attachments.js'
@@ -21,23 +21,28 @@ export interface SharedHistoryReport { copied: number; advanced: number; forked:
 /** Runs under the bundled Node, never under Electron, to use the official cross-platform session locks/codecs. */
 export async function migrateSharedHistory(request: SharedHistoryRequest): Promise<SharedHistoryReport> {
   await mkdir(request.destinationHome, { recursive: true, mode: 0o700 })
-  const destination = await realpath(request.destinationHome)
+  // Use realpath only to deduplicate stores. Windows' upstream semaphore name
+  // is based on the configured path: changing a short-name root into its long
+  // alias here would bypass a writer opened with the original spelling.
+  const destination = resolve(request.destinationHome)
+  const destinationIdentity = await realpath(destination)
   const { context: targetContext, fiber: targetFiber, compression } = await openHistoryStore(destination)
   const report: SharedHistoryReport = { copied: 0, advanced: 0, forked: 0, skipped: 0, deferred: 0, compression }
-  const seen = new Set<string>([destination])
+  const seen = new Set<string>([destinationIdentity])
   try {
     for (const path of request.sourceHomes) {
-      const source = await realpath(path).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error })
-      if (source === undefined || seen.has(source)) continue
-      seen.add(source)
+      const identity = await realpath(path).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error })
+      if (identity === undefined || seen.has(identity)) continue
+      seen.add(identity)
+      const source = resolve(path)
       for (const store of ['attachments', 'sessions']) {
-        const child = relative(join(source, store), destination)
+        const child = relative(join(identity, store), destinationIdentity)
         if (child === '' || (!child.startsWith('..') && !isAbsolute(child))) throw new Error('Shared history destination cannot be inside a legacy data store.')
       }
       const { context: sourceContext, fiber: sourceFiber } = await openHistoryStore(source)
       const attachments = new Map<string, string>()
       try {
-        const journal = join(source, 'shared-history-migration', hash(destination))
+        const journal = join(source, 'shared-history-migration', hash(destinationIdentity))
         await mkdir(journal, { recursive: true, mode: 0o700 })
         for (const snapshot of await sourceContext.sessionPersistence.list()) {
           const marker = join(journal, `${hash(String(snapshot.header.id))}.json`)
@@ -56,7 +61,7 @@ export async function migrateSharedHistory(request: SharedHistoryRequest): Promi
             // never copy an active writer's log or remove its kernel lock.
             sourceHandle = await sourceContext.sessionPersistence.open(snapshot.header.id, 'write')
             await migrateAttachments(join(source, 'attachments'), join(destination, 'attachments'), attachments)
-            const outcome = await transferSession(sourceHandle, targetContext, source, request.forkLabel ?? 'VS Code history')
+            const outcome = await transferSession(sourceHandle, targetContext, identity, request.forkLabel ?? 'VS Code history')
             const settledSource = await sourceContext.sessionPersistence.stat(sourceHandle.id)
             await writeFileAtomic(marker, JSON.stringify({ schema: 1, complete: true, sourceId: sourceHandle.id, sourceRevision: canonicalJson(settledSource?.revision), ...outcome }) + '\n', { mode: 0o600 })
             report[outcome.kind]++

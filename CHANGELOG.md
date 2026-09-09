@@ -4,6 +4,8 @@
 
 > Upgrade notice: this release bundles Harness `0.1.5-alpha.1` and uses V3 session logs. Independently installed official DSH must also support V3 to share history. Original legacy logs are retained; back up the shared and private history homes before upgrading. Two backends may read saved history, but only one may own a session for writing at a time.
 
+- Keep Windows storage paths aligned with their configured spelling for session-lock identity; use canonical paths only for deduplication and containment checks. Generate platform-native history paths in runtime overlays.
+
 - Keep conversation history buttons mounted during streaming updates so clicking another session reliably switches conversations. Preserve keyboard focus and update titles, running indicators, tags and archive actions in place.
 
 - Anchor reasoning-card expansion and collapse to the activated header, and exclude folded or clipped historical content from reading anchors to prevent scroll jumps.
