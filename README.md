@@ -10,6 +10,12 @@ A native VS Code coding-agent extension powered by [DeepSeek Harness](https://gi
 
 Older installations can leave ordinary package directories where Harness expects managed links. Startup and plugin installation now recover these shared `profiles/node_modules` conflicts automatically: incompatible entries move into `module-fallback-backup-*` inside the Harness home, then Harness rebuilds its links. Backup paths appear in the output log. Existing links/proxies, `profiles/web` plugins, conversation history and credentials are preserved; no terminal cleanup is required for this conflict. Permission or sharing errors stop recovery without deleting the original data.
 
+## Runtime update policy
+
+The bundled DeepSeek Harness runtime is upgraded selectively, not automatically with every upstream release. We review the actual changes—relevant features, bug and security fixes, and breaking changes—and adopt an update after compatibility adaptation and regression testing, with particular attention to Windows, macOS, Linux, existing conversation history, and plugins.
+
+Stability and the upgrade experience for existing users take priority over always bundling the newest version. Releases that still need validation or introduce compatibility risks may be deferred; an extension update may also keep the current pinned runtime. The bundled version and any upgrade caveats are documented in this README and the [changelog](CHANGELOG.md).
+
 ## Features
 
 - **Native VS Code workbench** — all interaction happens in the sidebar; the local Harness Gateway exposes only the loopback API transport, while the official WebUI is neither served nor embedded.
