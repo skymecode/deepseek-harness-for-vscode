@@ -83,9 +83,13 @@ components.streamingMessage = new StreamingMessageComponent({
   thinkingLabel: (tokens) => tokens === undefined
     ? t('thinking')
     : t('thinkingWithTokens', { tokens: formatTokenCount(tokens) }),
-  reasoningDoneLabel: (elapsed, tokens) => tokens === undefined
-    ? t('thoughtFor', { duration: formatWorkDuration(elapsed) })
-    : t('thoughtForWithTokens', { duration: formatWorkDuration(elapsed), tokens: formatTokenCount(tokens) }),
+  reasoningDoneLabel: (elapsed, tokens) => {
+    // Completed reasoning displays at least one second; retain the real timing in history.
+    const duration = formatWorkDuration(Math.max(1_000, elapsed))
+    return tokens === undefined
+      ? t('thoughtFor', { duration })
+      : t('thoughtForWithTokens', { duration, tokens: formatTokenCount(tokens) })
+  },
   renderMarkdown: (target, source) => renderMarkdown(target, source, markdownActions),
   onStreamFrame: () => {
     // A pending pointer interaction (scrollbar grab, text selection) pauses

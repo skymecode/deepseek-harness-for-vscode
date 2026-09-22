@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Display completed reasoning durations below one second as `1s`, without changing recorded timing or other duration displays.
+
 - Harden native job output observation: resume with DSH byte cursors after reconnects, cancel collapsed observations, bound retained output and preserve focus/scroll in keyed job rows. Replace session/subagent subscriptions atomically, keep native workspace order current after removal, and show archive activity details before stopping work.
 - Register a legacy `code` preset alias through the native registry without overwriting user declarations, and target the renamed `agent-preset-registry` default setting. Search displays active and archived matches together with the corresponding restore action.
 
