@@ -14,8 +14,11 @@ vi.mock('vscode', () => ({
   },
   l10n: { t: (message: string): string => message },
   env: { openExternal: async () => true },
+  window: { showWarningMessage: vi.fn() },
 }))
 
+import * as vscode from 'vscode'
+import { DshRemoteError } from '../src/gateway/node-gateway-client.js'
 import { HarnessGatewayService } from '../src/gateway/harness-gateway-service.js'
 import type { WorktreeService } from '../src/editor/worktree-service.js'
 import type { HarnessHostRuntime } from '../src/runtime/web-runtime.js'
@@ -135,6 +138,7 @@ function createService(options: {
 
 /** Structural view of the private gateway state the tests drive directly. */
 interface GatewayTestHarness {
+  archiveSession: (id: string) => Promise<void>
   client: TestClient | undefined
   summaries: Map<string, { blank?: boolean; origin?: string; parentSessionId?: string }>
   archives: {
@@ -155,6 +159,32 @@ interface GatewayTestHarness {
 }
 
 describe('HarnessGatewayService archive overlay', () => {
+  it('stops and archives only after native activity has been confirmed', async () => {
+    const { service, client } = createService()
+    service.summaries.set('target', { blank: false })
+    const activity = [{ kind: 'turn' }, { kind: 'job', items: [{ id: 'bash-1', label: 'build' }, { id: 'bash-2', label: 'serve' }] }]
+    client.workspaceArchiveSession.mockRejectedValueOnce(new DshRemoteError('workspace/session-active', 'busy', { activity }))
+      .mockResolvedValueOnce({ archivedSessionIds: ['target'] })
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValueOnce('Stop and archive' as never)
+    await service.archiveSession('target')
+    expect(vscode.window.showWarningMessage).toHaveBeenLastCalledWith(expect.any(String), {
+      modal: true, detail: 'Running turn\nBackground jobs: build\nBackground jobs: serve',
+    }, 'Stop and archive')
+    expect(client.workspaceArchiveSession).toHaveBeenNthCalledWith(1, { sessionId: 'target' })
+    expect(client.workspaceArchiveSession).toHaveBeenNthCalledWith(2, { sessionId: 'target', stopActivity: true })
+    expect(service.archives.isArchived('target')).toBe(true)
+  })
+
+  it('does not stop any work when the archive confirmation is dismissed', async () => {
+    const { service, client } = createService()
+    service.summaries.set('target', { blank: false })
+    client.workspaceArchiveSession.mockRejectedValueOnce(new DshRemoteError('workspace/session-active', 'busy', { activity: [{ kind: 'turn' }] }))
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValueOnce(undefined)
+    await service.archiveSession('target')
+    expect(client.workspaceArchiveSession).toHaveBeenCalledTimes(1)
+    expect(service.archives.isArchived('target')).toBe(false)
+  })
+
   it('applies the host archive baseline from a workspace/follow frame and keeps it across refresh', async () => {
     const { service } = createService({ archived: [] })
     service.archives.archivedIds = new Set()

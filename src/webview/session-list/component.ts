@@ -12,6 +12,7 @@ interface SessionRow {
 interface SessionListState {
   readonly activeId: string | undefined
   readonly archived: boolean
+  readonly archivedIds?: ReadonlySet<string>
   readonly snippets: ReadonlyMap<string, string>
   readonly emptyMessage: string
 }
@@ -50,7 +51,7 @@ export class SessionListComponent {
         row = this.createRow(session.id)
         this.rows.set(session.id, row)
       }
-      row.update(session, session.id === state.activeId, state.archived, state.snippets.get(session.id) ?? '')
+      row.update(session, session.id === state.activeId, state.archivedIds?.has(session.id) ?? state.archived, state.snippets.get(session.id) ?? '')
       // Even moving an existing node into a fragment detaches the pressed
       // target. Leave rows in place unless the actual list order changed.
       if (row.element !== cursor) this.options.element.insertBefore(row.element, cursor)
@@ -101,6 +102,7 @@ export class SessionListComponent {
         worktree.classList.toggle('hidden', session.isolated !== true)
         shared.classList.toggle('hidden', session.shared !== true)
         const nextPinned = session.meta?.pinned === true
+        pin.disabled = nextArchived && !nextPinned
         if (pinned !== nextPinned) {
           pinned = nextPinned
           mark.classList.toggle('hidden', !pinned)

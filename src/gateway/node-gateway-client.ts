@@ -7,9 +7,11 @@ import type { BundleInfo as DshBundleInfo } from '@deepseek-ai/dsh-plugin-manage
 import type { PluginInfo as DshPluginInfo } from '@deepseek-ai/dsh-plugin-manager/types'
 import type { ChangeResult as DshChangeResult } from '@deepseek-ai/dsh-plugin-manager/types'
 import type { PluginInstallCancellation as DshPluginInstallCancellation } from '@deepseek-ai/dsh-plugin-manager/types'
-import type { ModelCatalog as DshModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { ModelCatalog as DshModelCatalog, SessionProjectionsRequest, SessionProjectionsValue } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { JobFollowFrame, JobFollowRequest, JobKillRequest, JobKillValue, JobListFrame, JobListRequest } from '@deepseek-ai/dsh-api-job-controller/types'
+import type { SessionId as DshSessionId } from '@deepseek-ai/dsh-session/types'
 /**
- * Node transport for the Harness Gateway (dsh 0.1.2 Typert Remote protocol).
+ * Node transport for the Harness Gateway (dsh 0.1.7 Typert Remote protocol).
  *
  * Unary calls POST a Connection `client-request` envelope to `/api/<endpoint>`
  * with the endpoint's named `{ args }` payload; event and domain streams run
@@ -53,11 +55,25 @@ import type {
   SessionUpdateQueueValue,
   SkillListValue,
   WorkspaceArchiveValue,
+  WorkspacePinValue,
   WorkspaceFollowFrame,
 } from './domain-api.js'
 import { parseImportDiscoverResult, parseImportResult, type ImportDiscoverRequest, type ImportDiscoverResult, type ImportRequest, type ImportResult } from '../import/types.js'
 import { parseRemoteEvent, type RemoteEvent, type RemoteEventOutcome } from './remote-event-protocol.js'
+import { subagentCatalogRows } from './subagent-catalog.js'
 import type { SubagentListEntry } from './gateway-wire.js'
+
+/** Structured failure returned by the native DSH Typert Remote endpoint. */
+export class DshRemoteError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly details?: object,
+  ) {
+    super(message)
+    this.name = 'DshRemoteError'
+  }
+}
 
 interface SubagentCatalog {
   readonly entries: readonly SubagentListEntry[]
@@ -176,12 +192,12 @@ export class NodeGatewayClient {
     return result.value
   }
 
-  /** Official copy keeps legacy code sessions resumable without rewriting their logs. */
+  /** Verify the declarative preset roster before loading saved sessions. */
   async ensureLegacyCodePreset(): Promise<void> {
     const roster = await this.agentPresetList()
     // DSH 0.1.7 moves preset composition into plugin bundles and removes the
-    // old copy endpoint. Existing `code` rows remain usable; new installs use
-    // the official `ptc` preset instead of attempting a private copy.
+    // old copy endpoint. The gateway plugin declares the compatibility `code`
+    // alias using the native registry; new sessions use the official `ptc` id.
     void roster
   }
 
@@ -305,6 +321,11 @@ export class NodeGatewayClient {
     return await this.callRaw<DshModelCatalog>('session/modelCatalog', {})
   }
 
+  /** Reads durable projection data without activating the Session. */
+  async sessionProjections(request: SessionProjectionsRequest): Promise<SessionProjectionsValue> {
+    return await this.callRaw<SessionProjectionsValue>('session/projections', { request })
+  }
+
   /** Session queue mutation (Typert `session/updateQueue`). */
   async sessionUpdateQueue(request: { readonly sessionId: unknown; readonly itemId: unknown; readonly action: SessionQueueMutation }): Promise<SessionUpdateQueueValue> {
     return await this.callRaw<SessionUpdateQueueValue>('session/updateQueue', { request })
@@ -325,9 +346,14 @@ export class NodeGatewayClient {
     return this.openStream<SessionControlFrame>('session/control', {}, signal)
   }
 
-  /** Sub-agent catalog (Typert `subagents/list`). */
+  /** Read the native durable subagent catalog without activating children. */
   async subagentList(parentSessionId: unknown): Promise<SubagentCatalog> {
-    return await this.callRaw<SubagentCatalog>('subagents/list', { parentSessionId })
+    const projection = await this.sessionProjections({ sessionId: parentSessionId as DshSessionId })
+    const entries = projection?.values.subagentCatalog ?? []
+    return {
+      entries: subagentCatalogRows(entries),
+      parentAvailable: projection !== null,
+    }
   }
 
   /** Sub-agent prompt (Typert `subagents/prompt`). */
@@ -346,7 +372,7 @@ export class NodeGatewayClient {
   }
 
   /** Archive one session (Typert `workspace/archiveSession`). */
-  async workspaceArchiveSession(request: { readonly sessionId: unknown }): Promise<WorkspaceArchiveValue> {
+  async workspaceArchiveSession(request: { readonly sessionId: unknown; readonly stopActivity?: boolean }): Promise<WorkspaceArchiveValue> {
     return await this.callRaw<WorkspaceArchiveValue>('workspace/archiveSession', { request })
   }
 
@@ -355,8 +381,33 @@ export class NodeGatewayClient {
     return await this.callRaw<WorkspaceArchiveValue>('workspace/unarchiveSession', { request })
   }
 
+  /** Native DSH workspace pin set (most recently pinned first). */
+  async workspacePinSession(request: { readonly sessionId: unknown }): Promise<WorkspacePinValue> {
+    return await this.callRaw<WorkspacePinValue>('workspace/pinSession', { request })
+  }
+
+  /** Removes one session from the native DSH workspace pin set. */
+  async workspaceUnpinSession(request: { readonly sessionId: unknown }): Promise<WorkspacePinValue> {
+    return await this.callRaw<WorkspacePinValue>('workspace/unpinSession', { request })
+  }
+
   workspaceFollow(signal: AbortSignal): AsyncGenerator<WorkspaceFollowFrame> {
     return this.openStream<WorkspaceFollowFrame>('workspace/follow', {}, signal)
+  }
+
+  /** Native DSH 0.1.7 background-job roster for one session. */
+  jobList(request: JobListRequest, signal: AbortSignal): AsyncGenerator<JobListFrame> {
+    return this.openStream<JobListFrame>('job/list', { request }, signal)
+  }
+
+  /** Native human cancellation of a visible background job. */
+  async jobKill(request: JobKillRequest): Promise<JobKillValue> {
+    return await this.callRaw<JobKillValue>('job/kill', { request })
+  }
+
+  /** Streams retained output and the terminal status of one background job. */
+  jobFollow(request: JobFollowRequest, signal: AbortSignal): AsyncGenerator<JobFollowFrame> {
+    return this.openStream<JobFollowFrame>('job/follow', { request }, signal)
   }
 
   /** Agent preset roster (Typert `agentPresets/list`). */
@@ -522,7 +573,7 @@ export class NodeGatewayClient {
       const full = serverResponseSchema.parse(await response.json()) as ServerResponse
       this.onEnvelope(full)
       if (full.rpcId !== rpcId) throw new Error(`rpcId mismatch for ${method}: sent ${rpcId}, got ${full.rpcId}`)
-      if (!full.result.ok) throw new Error(`RPC ${method} failed: ${full.result.error.code}: ${full.result.error.message}`)
+      if (!full.result.ok) throw new DshRemoteError(full.result.error.code, full.result.error.message, full.result.error.details)
       return full.result.value as T
     } finally {
       this.pendingRequests.delete(controller)
@@ -563,7 +614,7 @@ export class NodeGatewayClient {
         if (frame.streamId !== streamId) return
         if (frame.type === 'item') enqueue({ kind: 'item', value: frame.value as T })
         else if (frame.type === 'end') enqueue({ kind: 'end' })
-        else if (frame.type === 'error') fail(new Error(`stream ${endpoint} failed: ${String(frame.error?.code ?? '')}: ${frame.error?.message ?? ''}`))
+        else if (frame.type === 'error') fail(new DshRemoteError(frame.error?.code ?? 'stream/error', frame.error?.message ?? 'Stream failed', frame.error?.details))
       } catch {
         // A malformed push is isolated. Generation closes retry the stream.
       }

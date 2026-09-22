@@ -185,6 +185,10 @@ interface GatewayTestHarness {
   pendingQueue: { pending: Map<string, unknown[]>; admitted: Set<string> }
   entries: unknown[]
   projections: Record<string, unknown>
+  selectSubagent: (id: string, mode: 'one-shot' | 'continuable') => Promise<void>
+  followAbort?: AbortController
+  jobsAbort?: AbortController
+  selectionGeneration: number
   pendingCarryOver: { targetSessionId: string; message: string } | undefined
   metaStore: { effortIntents: Map<string, string>; metaBySession: Map<string, unknown> }
   models:
@@ -214,6 +218,36 @@ function config(reasoningEffort: string, agentPreset = 'standard'): unknown {
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('official control projections', () => {
+  it('replaces both live subscriptions only after the child catalog has loaded', async () => {
+    const { service, client } = createService()
+    const follow = new AbortController()
+    const jobs = new AbortController()
+    service.followAbort = follow
+    service.jobsAbort = jobs
+    let resolve!: (value: unknown) => void
+    client.subagentList.mockReturnValue(new Promise(done => { resolve = done }))
+    const selected = service.selectSubagent('child', 'continuable')
+    expect(follow.signal.aborted).toBe(false)
+    expect(jobs.signal.aborted).toBe(false)
+    resolve({ entries: [], parentAvailable: true })
+    await selected
+    expect(service.activeSessionId).toBe('child')
+    expect(follow.signal.aborted).toBe(true)
+    expect(jobs.signal.aborted).toBe(true)
+  })
+
+  it('does not open a stale child after another navigation supersedes it', async () => {
+    const { service, client } = createService()
+    let resolve!: (value: unknown) => void
+    client.subagentList.mockReturnValue(new Promise(done => { resolve = done }))
+    const selected = service.selectSubagent('child', 'continuable')
+    service.selectionGeneration += 1
+    service.activeSessionId = 'another-session'
+    resolve({ entries: [], parentAvailable: true })
+    await selected
+    expect(service.activeSessionId).toBe('another-session')
+  })
+
   it('restores only the active session Inbox and model selection from a reconnect baseline', () => {
     const { service } = createService()
     const inbox = { 'next-step': [], 'next-turn': [{ id: 'pending', content: [{ type: 'text', text: 'continue' }] }] }

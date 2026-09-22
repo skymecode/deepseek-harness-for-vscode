@@ -64,6 +64,18 @@ export class SessionMetaStore {
     return metaSortRank(this.metaBySession.get(sessionId))
   }
 
+  /** Legacy pin records written before DSH owned workspace pinning. */
+  legacyPinnedSessionIds(): readonly string[] {
+    return [...this.metaBySession.entries()].filter(([, meta]) => meta.pinned === true).map(([sessionId]) => sessionId)
+  }
+
+  /** Removes only the obsolete local pin marker, retaining user tags. */
+  async clearLegacyPin(sessionId: string): Promise<void> {
+    const meta = this.metaFor(sessionId)
+    if (meta?.pinned !== true) return
+    await this.updateMeta(sessionId, (current) => current?.tags === undefined ? {} : { tags: current.tags })
+  }
+
   /**
    * Persists the candidate meta before committing it to memory: a failed write
    * must not leave a ghost state that the UI would echo as if it had worked.

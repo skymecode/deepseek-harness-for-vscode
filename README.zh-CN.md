@@ -12,7 +12,7 @@
 
 ## 内核更新策略
 
-本扩展会根据 DeepSeek Harness 上游版本的实际更新内容，有选择地升级内置内核（运行时），不会每发布一个上游版本就自动跟进。我们会评估与扩展相关的新功能、Bug 和安全修复，以及破坏性变更，完成兼容适配与回归验证后再引入，重点关注 Windows、macOS、Linux 的使用体验、已有会话历史和插件兼容性。
+本扩展会根据 DeepSeek Harness 上游版本的实际更新内容，有选择地升级内置内核（运行时），不会每发布一个上游版本就自动跟进。我们会评估与扩展相关的新功能、Bug 和安全修复，以及破坏性变更，完成兼容适配与回归验证后再引入，重点关注 Windows、macOS、Linux 的使用体验、已有会话历史和插件兼容性。本次 0.1.7 的原生能力差距记录在[升级审计](docs/DSH_0_1_7_NATIVE_GAP_ANALYSIS.zh-CN.md)中。
 
 相比始终追随最新版本，我们优先保障稳定性和老用户的升级体验，减少未经充分验证的内核更新带来的回归问题。尚需验证或存在兼容风险的上游版本可能暂缓升级；扩展自身发布新版本时，也可能继续使用当前固定的内核版本。实际内置版本及升级注意事项会在本 README 和[更新日志](CHANGELOG.md)中说明。
 
@@ -92,7 +92,7 @@
 | macOS | `~/.dsh` |
 | Linux | `~/.dsh` |
 
-继承的 `DSH_HOME` 优先。官方 DSH 使用其他目录时，可在应用级设置 `deepseekHarness.historyHome` 中填写同一个绝对路径。仅共享 `sessions/` 和 `attachments/`；扩展密钥、插件配置与缓存仍保存在 `~/.dsh/vscode/harness-home`，归档、置顶和界面筛选各自独立。卸载 VS Code 扩展不会移除共享历史。
+继承的 `DSH_HOME` 优先。官方 DSH 使用其他目录时，可在应用级设置 `deepseekHarness.historyHome` 中填写同一个绝对路径。仅共享 `sessions/` 和 `attachments/`；扩展密钥、插件配置与缓存仍保存在 `~/.dsh/vscode/harness-home`，归档和置顶使用扩展私有 Home 下的 DSH 原生工作区注册表，与独立启动的官方 DSH 仍各自保存。标签与 VS Code 历史筛选仍属于当前工作台。卸载 VS Code 扩展不会移除共享历史。
 
 升级时通过官方日志编解码迁移旧私有目录／globalStorage 中的会话，原日志保留：相同记录不重复导入；单边追加的兼容历史仅在获得写权限后补齐；已分叉的历史，或目标正被占用的新副本，会另存为带“VS Code 历史副本”标记的分支。迁移记录避免反复导入。旧来源仍被占用时延后处理；迁移失败时，本次继续显示原私有历史并提示原因，不会静默切换成空历史。
 
@@ -120,7 +120,7 @@
 
 ## 配置
 
-官方 DeepSeek 默认使用 Messages 协议及 `https://api.deepseek.com/anthropic`。升级迁移旧官方根地址时保留显式 Chat Completions 设置，第三方端点与协议不批量改写。
+DSH 0.1.7 的官方 DeepSeek 适配器仅支持 Messages，默认地址为 `https://api.deepseek.com/anthropic`。旧手工配置中的 `llm-deepseek.protocol` 需删除；需要 Chat Completions 的端点应配置为自定义提供商。第三方提供商的协议保持不变。
 
 默认关闭 OTel、请求附带会话日志 `dsh_session_log` 和插件清单 `dsh_plugin_packages`。正常模型请求仍包含用户提交的消息、上下文和附件。
 

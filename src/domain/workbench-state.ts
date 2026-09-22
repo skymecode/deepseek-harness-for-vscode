@@ -1,3 +1,4 @@
+import type { JobOutputView } from '../gateway/job-output-observer.js'
 import type { HistoryEntry, JobView, SessionSummary, SkillEntry } from '../gateway/gateway-wire.js'
 import type { AgentPresetRow as AgentPresetEntry } from '@deepseek-ai/dsh-agent-preset-registry/types'
 import type { ModelReasoningEffort } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -128,7 +129,8 @@ export interface ActiveSessionView {
   readonly messages: readonly ChatItem[]
   readonly todos: readonly { readonly content: string; readonly status: string }[]
   readonly skills: readonly SkillEntry[]
-  readonly jobs: readonly JobView[]
+  readonly jobs: readonly JobDisplayView[]
+  readonly schedules?: readonly ScheduleDisplayView[]
   readonly queue: readonly QueuedPromptView[]
   readonly approvals: readonly PendingApprovalView[]
   readonly questions: readonly PendingQuestionView[]
@@ -151,6 +153,36 @@ export interface ActiveSessionView {
   readonly retry?: ModelRetryView
   /** Latest runtime turn, independent of queued prompts and delayed running flags. */
   readonly turnActivity?: TurnActivityScope
+}
+
+/** Durable native DSH schedule projection rendered by the workbench. */
+export interface ScheduleDisplayView {
+  readonly id: string
+  readonly kind: 'after' | 'at' | 'every'
+  readonly prompt: string
+  readonly scheduledAt: string
+  readonly state?: 'scheduled' | 'overdue'
+  readonly intervalSeconds?: number
+}
+
+/** Native background-job row plus output retained by the local observer. */
+export type JobDisplayView = JobView & Partial<JobOutputView>
+
+export function projectionSchedules(value: unknown): readonly ScheduleDisplayView[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.id !== 'string' || typeof entry.prompt !== 'string'
+      || (entry.kind !== 'after' && entry.kind !== 'at' && entry.kind !== 'every')
+      || typeof entry.scheduledAt !== 'string') return []
+    return [{
+      id: entry.id,
+      kind: entry.kind,
+      prompt: entry.prompt,
+      scheduledAt: entry.scheduledAt,
+      ...(entry.state === 'scheduled' || entry.state === 'overdue' ? { state: entry.state } : {}),
+      ...(typeof entry.everySeconds === 'number' ? { intervalSeconds: entry.everySeconds } : {}),
+    }]
+  })
 }
 
 /**

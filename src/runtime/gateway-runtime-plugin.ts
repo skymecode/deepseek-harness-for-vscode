@@ -1,5 +1,7 @@
 import type { LlmResolvedModelInfo as DshLlmResolvedModelInfo } from '@deepseek-ai/dsh-llm/types'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { AgentPresetRegistry, PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
+import type { Loader } from '@deepseek-ai/cordis-plugin-loader'
 
 /**
  * Host Connection surface consumed for the launch-token exchange. Typed
@@ -25,6 +27,7 @@ interface GatewayPluginContext {
   }
   provide(name: 'webRuntime', value: GatewayRuntimeValues): void
   get(name: string): unknown
+  on?(event: 'dispose', listener: () => Promise<void>): unknown
 }
 
 interface GatewayRuntimeConfig {
@@ -90,7 +93,27 @@ export function apply(ctx: GatewayPluginContext, config: GatewayRuntimeConfig = 
   }
   const settled = (ctx.get('loader') as { await(): Promise<unknown> } | undefined)?.await()
   if (settled === undefined) announce()
-  else void settled.then(announce, () => undefined)
+  else void settled.then(async () => {
+    await registerLegacyCodePreset(ctx)
+    announce()
+  }).catch((cause: unknown) => {
+    process.stderr.write(`dsh gateway preparation failed: ${cause instanceof Error ? cause.message : String(cause)}\n`)
+  })
+}
+
+/** Old extension sessions record `code`; declare that alias through the native registry. */
+export async function registerLegacyCodePreset(ctx: Pick<GatewayPluginContext, 'get' | 'on'>): Promise<void> {
+  const presets = ctx.get('agentPresets') as AgentPresetRegistry | undefined
+  const loader = ctx.get('loader') as Loader | undefined
+  if (!presets || !loader) return
+  // Respect any user-supplied declaration. No session header or profile file is rewritten.
+  if ((await presets.list()).some(preset => preset.id === 'code')) return
+  const ptc = [...loader.entries()].find(entry => !entry.disabled && entry.options.name === '@deepseek-ai/dsh-agent-preset'
+    && (entry.options.config as PresetDefinition | undefined)?.id === 'ptc')
+  if (!ptc) return
+  const definition = ptc.options.config as PresetDefinition
+  const dispose = await presets.register({ ...definition, id: 'code', name: 'PTC (legacy code)', order: 99 })
+  ctx.on?.('dispose', dispose)
 }
 
 function announceAuthenticated(

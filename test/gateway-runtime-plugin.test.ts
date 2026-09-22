@@ -1,7 +1,22 @@
 import { describe, expect, it, vi } from 'vitest'
-import { apply, gatewayUrl } from '../src/runtime/gateway-runtime-plugin.js'
+import { apply, gatewayUrl, registerLegacyCodePreset } from '../src/runtime/gateway-runtime-plugin.js'
 
 describe('headless Gateway runtime plugin', () => {
+  it('keeps a user-declared code preset and releases an extension alias on disposal', async () => {
+    const register = vi.fn().mockResolvedValue(vi.fn())
+    const presets = { list: vi.fn().mockResolvedValue([{ id: 'code' }]), register }
+    const plugins = [{ id: 'tool-fs', name: '@deepseek-ai/dsh-tool-fs' }]
+    const loader = { entries: () => [{ disabled: false, options: { name: '@deepseek-ai/dsh-agent-preset', config: { id: 'ptc', plugins } } }] }
+    const on = vi.fn()
+    const ctx = { get: (key: string) => key === 'agentPresets' ? presets : key === 'loader' ? loader : undefined, on }
+    await registerLegacyCodePreset(ctx)
+    expect(register).not.toHaveBeenCalled()
+    presets.list.mockResolvedValue([{ id: 'ptc' }])
+    await registerLegacyCodePreset(ctx)
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({ id: 'code', plugins }))
+    expect(on).toHaveBeenCalledWith('dispose', expect.any(Function))
+  })
+
   it('provides loopback trust without registering a frontend fallback', () => {
     const provide = vi.fn()
     const context = {

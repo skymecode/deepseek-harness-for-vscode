@@ -29,6 +29,15 @@ export class DshPluginCenterController implements vscode.Disposable {
       this.manager.listInstalled(),
     ])
     const errors = [catalog, installed].flatMap((result) => result.status === 'rejected' ? [errorText(result.reason)] : [])
+    if (catalog.status === 'fulfilled') {
+      for (const issue of catalog.value.sourceIssues ?? []) {
+        const source = issue.source === 'github-topic' ? 'GitHub Topic'
+          : issue.source === 'curated' ? 'Awesome DSH Plugin' : vscode.l10n.t('Built-in')
+        errors.push(issue.usingCache
+          ? vscode.l10n.t('Could not refresh {0}: {1}. Showing cached results.', source, issue.message)
+          : vscode.l10n.t('Could not load {0}: {1}. Only available sources are shown. Use Refresh to retry.', source, issue.message))
+      }
+    }
     this.update({
       ...(catalog.status === 'fulfilled'
         ? { catalog: catalog.value }

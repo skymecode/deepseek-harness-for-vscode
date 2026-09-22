@@ -86,6 +86,8 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('DSH 0.1.7 official contra
       // 0.1.7 removes the old preset-copy endpoint; legacy sessions retain
       // their recorded preset, while new sessions use a declared preset.
       expect((await client.agentPresetList()).presets.some((preset) => preset.id === 'minimal' && !preset.broken)).toBe(true)
+      expect((await client.agentPresetList()).presets.some((preset) => preset.id === 'code' && !preset.broken)).toBe(true)
+      expect(await client.sessionCreate({ cwd: workspace, agentPreset: 'code' })).toHaveProperty('sessionId')
       const legacy = await client.sessionCreate({ cwd: workspace, agentPreset: 'minimal' })
       expect(legacy.sessionId).toBeDefined()
       const plugins = await client.pluginListPlugins()
@@ -93,6 +95,12 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('DSH 0.1.7 official contra
       expect(Array.isArray(await client.pluginListBundles())).toBe(true)
       const created = await client.sessionCreate({ cwd: workspace, agentPreset: 'minimal' })
       const sessionId = created.sessionId
+      expect((await client.workspacePinSession({ sessionId })).pinnedSessionIds).toContain(sessionId)
+      expect((await client.workspaceUnpinSession({ sessionId })).pinnedSessionIds).not.toContain(sessionId)
+      for await (const frame of client.jobList({ sessionId }, AbortSignal.timeout(5_000))) {
+        expect(frame).toMatchObject({ type: 'rows', jobs: [] })
+        break
+      }
       const archived = await client.workspaceArchiveSession({ sessionId })
       expect(archived.archivedSessionIds).toContain(sessionId)
       const restored = await client.workspaceUnarchiveSession({ sessionId })

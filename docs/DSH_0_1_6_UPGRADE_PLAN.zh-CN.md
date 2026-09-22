@@ -82,7 +82,7 @@
 | 从 `tool/call` / `tool/result` 推导改动文件、增删行和每轮卡片 | `workspace/changes` 事件，`/api/changes.summary`、`/api/changes.diff`，`dsh-workspace-changes` | **新回合优先官方。** 用官方摘要/比较数据渲染卡片与逐文件审阅，覆盖 shell 等非编辑工具造成的变化。 | **不能全部删除旧历史投影。** 官方摘要和 diff 只保留到 Session disposed；重启或从未记录该回合的 Host 返回 404。旧日志用现有工具事件作有限统计并注明缺少完整 diff；不拿当前工作区差异冒充历史。 |
 | 自定义模型容量大表、视觉命名规则、固定模型与推理枚举 | 官方 model catalog / resolved model / `inputModalities` / `contextPressure`；自定义模型声明 | **确定改权威来源。** 用户显式覆盖写进官方 profile，由运行时统一解析，再回显；本地表最多作为经验证的缺失值兼容，不能覆盖官方或用户设置。 | Auto 模型选择/Auto effort 的产品策略暂留，因为未确认存在等价官方选型策略；其输入改读官方能力。 |
 | 文件正文拼接、图片处理、文件引用和“交付文件”展示 | 官方附件/PromptContentPart、文件提交与资源地址、`tool-present`、`workspaceFiles`、Files API | 接入官方持久附件和交付语义，支持任意文件；Host 保管附件引用与实际路径，避免私造 provider payload、上传缓存与图片复用机制。 | 未保存编辑器选区、文件 ID 校验、剪贴板入口、VS Code URI/编辑器跳转继续由扩展负责。 |
-| 自定义会话标题、排序和 pin/tags 等本地元数据 | 官方标题事件、workspace 顺序操作及会话状态 | 标题和官方已有的顺序尽量接管；梳理本地自动标题是否会抢写官方结果。迁移必须保留手动重命名和用户顺序。 | pin/tags/Auto intent 只有确认对应持久化字段后迁移；未覆盖的展示偏好保留本地。 |
+| 自定义会话标题、排序和 pin/tags 等本地元数据 | 官方标题事件、`workspace/pinSession` / `unpinSession`、workspace 顺序操作及会话状态 | 标题与置顶已接管官方投影；历史列表按官方 pin 顺序渲染。标签和 Auto intent 仍由扩展保存，因为 0.1.7 没有等价的标签字段。 | UI 筛选和标签编辑继续属于 VS Code 工作台；不再把 pin 写入扩展自己的元数据。 |
 | 子代理列表与续聊操作、自定义消息可视化 | 官方 subagent 与 SessionAddress、队列、运行和投影契约 | 同步新版参数、取消和父子会话边界；可独立复用的解析/状态模块优先复用。 | Webview 消息布局、滚动锚定、VS Code 主题、中文文案与动画继续保留，不把官方 Sidebar slot 当作 VS Code slot。 |
 | 自有跨版本共享历史迁移、格式恢复和插件导入桥 | 官方 Session persistence、格式转换、SessionQuery、session 导出 | 格式解码、版本迁移、fork 和锁使用官方实现；扩展只保留数据目录选择、冲突编排和平台交互。 | 多根旧历史合并没有确认到等价官方入口；`dsh-chat-import` 的跨产品导入也不能仅因 DSH 新版就删除。 |
 | 模块 fallback 和 profile 包修复 | 官方 runtime profile resolution、legacy link 识别 | 以官方 resolver 为主，验证后撤销重复修复路径。 | 只有旧 VSIX 遗留文件的可复现问题仍需要扩展处理时，保留有备份、范围明确的一次性迁移。 |

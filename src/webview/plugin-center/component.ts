@@ -105,6 +105,8 @@ export function createPluginCenterComponent(options: {
     },
     update(value) {
       snapshot = value
+      if (!snapshot.busy) loaded = snapshot.catalog !== undefined
+        && (snapshot.catalog.sourceIssues?.length ?? 0) === 0 && snapshot.error === undefined
       render()
     },
   }
@@ -140,10 +142,10 @@ export function createPluginCenterComponent(options: {
     loadMore.classList.toggle('hidden', visible.length >= filtered.length)
     summary.textContent = catalog === undefined
       ? ''
-      : options.translate('pluginCatalogSummary', {
+      : options.translate(catalog.topicRepositoryCount === undefined ? 'pluginCatalogSummaryUnavailable' : 'pluginCatalogSummary', {
         visible: visible.length,
         total: filtered.length,
-        marketTotal: catalog.topicRepositoryCount ?? catalog.plugins.length,
+        marketTotal: catalog.topicRepositoryCount ?? 0,
       })
   }
 

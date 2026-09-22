@@ -197,6 +197,40 @@ describe('DSH plugin catalog sources', () => {
     expect(githubFetch).toHaveBeenCalledTimes(2)
   })
 
+  it('reports both remote failures when only built-in recipes can be shown', async () => {
+    const failing = { load: vi.fn().mockRejectedValue(new TypeError('fetch failed', { cause: { code: 'ETIMEDOUT' } })) }
+    const catalog = await new DshPluginCatalogService(failing, failing).load('zh-cn')
+    expect(catalog.plugins).toHaveLength(3)
+    expect(catalog.topicRepositoryCount).toBeUndefined()
+    expect(catalog.sourceIssues).toEqual([
+      { source: 'github-topic', message: 'fetch failed (ETIMEDOUT)', usingCache: false },
+      { source: 'curated', message: 'fetch failed (ETIMEDOUT)', usingCache: false },
+    ])
+  })
+
+  it('retains each successful source after a failed refresh and clears diagnostics on recovery', async () => {
+    const topic = projectGitHubTopicResponse(githubSearch, 'en')
+    const curated = projectPluginRegistry(registry, 'en')
+    const githubSource = { load: vi.fn().mockResolvedValue(topic) }
+    const curatedSource = { load: vi.fn().mockResolvedValue(curated) }
+    const service = new DshPluginCatalogService(githubSource, curatedSource)
+    const first = await service.load('en')
+    githubSource.load.mockRejectedValue(new Error('HTTP 403'))
+    curatedSource.load.mockRejectedValue(new Error('timeout'))
+    const cached = await service.load('en', true)
+    expect(cached.plugins).toEqual(first.plugins)
+    expect(cached.topicRepositoryCount).toBe(3016)
+    expect(cached.sourceIssues).toEqual([
+      { source: 'github-topic', message: 'HTTP 403', usingCache: true },
+      { source: 'curated', message: 'timeout', usingCache: true },
+    ])
+    githubSource.load.mockResolvedValue({ ...topic, totalAvailable: 3017 })
+    curatedSource.load.mockResolvedValue(curated)
+    const recovered = await service.load('en', true)
+    expect(recovered.topicRepositoryCount).toBe(3017)
+    expect(recovered.sourceIssues).toBeUndefined()
+  })
+
   it('fails only when every marketplace source fails', async () => {
     const failing = { load: vi.fn(async (): Promise<DshPluginCatalogContribution> => { throw new Error('offline') }) }
     await expect(new DshPluginCatalogService(failing, failing, failing).load('en')).rejects.toThrow('Could not load')

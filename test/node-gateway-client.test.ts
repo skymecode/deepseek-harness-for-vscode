@@ -1,6 +1,8 @@
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { JobId } from '@deepseek-ai/dsh-jobs/brand'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { NodeGatewayClient } from '../src/gateway/node-gateway-client.js'
 
 const servers: ReturnType<typeof createServer>[] = []
@@ -45,6 +47,42 @@ describe('NodeGatewayClient Remote carrier', () => {
     expect(requests).toEqual([
       expect.objectContaining({ method: 'commands/list', payload: { args: { agentId: 'session-1' } } }),
       expect.objectContaining({ method: 'commands/execute', payload: { args: { agentId: 'session-1', line: '/plan', submittedAttachments: [] } } }),
+    ])
+  })
+
+  it('uses native workspace pin and background-job cancellation endpoints', async () => {
+    const requests: { readonly method: string; readonly payload: unknown }[] = []
+    const server = createServer((request, response) => {
+      void (async () => {
+        const chunks: Buffer[] = []
+        for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        const message = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+          readonly rpcId: string
+          readonly method: string
+          readonly payload: unknown
+        }
+        requests.push(message)
+        const value = message.method === 'workspace/pinSession'
+          ? { pinnedSessionIds: ['session-1'] }
+          : message.method === 'workspace/unpinSession'
+            ? { pinnedSessionIds: [] }
+            : { outcome: 'requested' }
+        response.setHeader('content-type', 'application/json')
+        response.end(JSON.stringify({ type: 'server-response', rpcId: message.rpcId, result: { ok: true, value } }))
+      })()
+    })
+    servers.push(server)
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address() as AddressInfo
+    const client = new NodeGatewayClient(`http://127.0.0.1:${address.port}`)
+
+    await expect(client.workspacePinSession({ sessionId: 'session-1' })).resolves.toEqual({ pinnedSessionIds: ['session-1'] })
+    await expect(client.workspaceUnpinSession({ sessionId: 'session-1' })).resolves.toEqual({ pinnedSessionIds: [] })
+    await expect(client.jobKill({ sessionId: 'session-1' as SessionId, jobId: 'bash-1' as JobId })).resolves.toEqual({ outcome: 'requested' })
+    expect(requests.map((request) => ({ method: request.method, payload: request.payload }))).toEqual([
+      { method: 'workspace/pinSession', payload: { args: { request: { sessionId: 'session-1' } } } },
+      { method: 'workspace/unpinSession', payload: { args: { request: { sessionId: 'session-1' } } } },
+      { method: 'job/kill', payload: { args: { request: { sessionId: 'session-1', jobId: 'bash-1' } } } },
     ])
   })
 

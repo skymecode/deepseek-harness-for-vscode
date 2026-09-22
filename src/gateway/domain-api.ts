@@ -10,7 +10,7 @@
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/types'
-export type { WorkspaceArchiveValue, WorkspaceFollowFrame } from '@deepseek-ai/dsh-api-workspace-controller/types'
+export type { WorkspaceArchiveValue, WorkspaceFollowFrame, WorkspacePinValue } from '@deepseek-ai/dsh-api-workspace-controller/types'
 
 export type {
   SessionAddress,

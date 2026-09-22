@@ -48,8 +48,10 @@ export function renderSessions(): void {
   const query = elements.historySearch.value.trim()
   const snippets = new Map(searchResults.map((result) => [result.sessionId, result.snippet]))
   const resultIds = new Set(searchResults.map((result) => result.sessionId))
-  const pool = showingArchived ? payload.state.archivedSessions : payload.state.sessions
-  const sessions = query === '' ? pool : pool.filter((session) => resultIds.has(session.id))
+  const archivedIds = new Set(payload.state.archivedSessions.map(session => session.id))
+  const pool = showingArchived ? payload.state.archivedSessions
+    : query === '' ? payload.state.sessions : [...payload.state.sessions, ...payload.state.archivedSessions]
+  const sessions = query === '' ? pool : pool.filter(session => resultIds.has(session.id))
   let emptyMessage = ''
   if (sessions.length === 0) {
     const archivedHits = query === '' || showingArchived
@@ -67,7 +69,7 @@ export function renderSessions(): void {
       emptyMessage = t('noMatchingConversations')
     }
   }
-  sessionList.update(sessions, { activeId: payload.state.active?.id, archived: showingArchived, snippets, emptyMessage })
+  sessionList.update(sessions, { activeId: payload.state.active?.id, archived: showingArchived, archivedIds, snippets, emptyMessage })
   renderHistoryFilter()
 }
 

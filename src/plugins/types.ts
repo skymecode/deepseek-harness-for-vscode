@@ -24,11 +24,19 @@ export interface DshPluginCatalogItem {
   readonly compatibility: 'agent' | 'partial' | 'official-web-ui' | 'unknown'
 }
 
+export interface DshPluginCatalogIssue {
+  readonly source: DshPluginCatalogContribution['source']
+  readonly message: string
+  readonly usingCache: boolean
+}
+
 export interface DshPluginCatalogSnapshot {
   readonly source: 'builtin+github-topic+awesome-dsh-plugin'
   readonly sourceUrl: string
   readonly topicUrl: string
   readonly curatedSourceUrl: string
+  /** Failed sources and whether their last successful results are retained. */
+  readonly sourceIssues?: readonly DshPluginCatalogIssue[]
   /** Total repositories reported by GitHub, including entries not loaded yet. */
   readonly topicRepositoryCount?: number
   readonly updated?: string

@@ -16,9 +16,15 @@ import { clearPastedImages } from './images.js'
 import { closeTimeline } from './timeline.js'
 import { appendTodoRows } from './todo-list.js'
 import { cssEscape, formatRelativeTime } from './utils.js'
+import { JobsComponent } from '../jobs/component.js'
 import { RuntimeContextInspector } from '../runtime-context/component.js'
 
 const runtimeContext = new RuntimeContextInspector(document, t)
+const jobs = new JobsComponent(document, t, post)
+new MutationObserver(() => {
+  if (elements.details.classList.contains('hidden')) { jobs.collapse(); setDetailSignature('') }
+}).observe(elements.details, { attributes: true, attributeFilter: ['class'] })
+window.addEventListener('pagehide', () => jobs.collapse(), { once: true })
 
 export function renderDetails(): void {
   if (!payload) return
@@ -28,6 +34,13 @@ export function renderDetails(): void {
   elements.jobCount.textContent = String(active?.jobs.length || 0)
   elements.agentCount.textContent = String(active?.subagents.length || 0)
   for (const tab of Array.from(document.querySelectorAll<HTMLElement>('[data-detail]'))) tab.classList.toggle('active', tab.dataset.detail === currentDetail)
+  if (currentDetail === 'jobs') {
+    setDetailSignature('jobs')
+    jobs.update(active?.id ?? '', active?.jobs ?? [])
+    if (jobs.element.parentElement !== elements.detailContent) elements.detailContent.replaceChildren(jobs.element)
+    return
+  }
+  jobs.collapse()
   if (currentDetail === 'runtime') {
     // Keep open records/focus intact when unrelated assistant chunks arrive.
     // Reset the other tabs' cache so switching back cannot leave this view mounted.
@@ -45,6 +58,7 @@ export function renderDetails(): void {
     skills: active?.skills,
     subagents: active?.subagents,
     jobs: active?.jobs,
+    schedules: active?.schedules,
     timeline: timelineSignature(active),
     running: active?.running,
   })
@@ -118,11 +132,15 @@ export function renderDetails(): void {
       })
       fragment.append(button)
     }
-  } else if (currentDetail === 'jobs') {
-    for (const job of active?.jobs || []) {
-      const row = node('div', 'job-row')
-      row.append(node('span', `job-status ${job.status}`), node('div', '', job.label))
-      if (job.detail) row.append(node('small', '', job.detail))
+  } else if (currentDetail === 'schedules') {
+    for (const schedule of active?.schedules || []) {
+      const row = node('div', 'schedule-row')
+      const kindLabel = schedule.kind === 'after' ? t('scheduleAfter') : schedule.kind === 'at' ? t('scheduleAt') : t('scheduleEvery')
+      const kind = schedule.kind === 'every' && schedule.intervalSeconds !== undefined
+        ? `${kindLabel} · ${Math.round(schedule.intervalSeconds / 60)}${t('durationMinuteShort')}`
+        : kindLabel
+      row.append(node('strong', '', schedule.prompt))
+      row.append(node('small', '', `${kind} · ${formatScheduleTime(schedule.scheduledAt)}${schedule.state === 'overdue' ? ` · ${t('scheduleOverdue')}` : ''}`))
       fragment.append(row)
     }
   } else if (currentDetail === 'timeline') {
@@ -162,4 +180,10 @@ function goalPhaseLabel(phase: GoalView['phase']): string {
   if (phase === 'paused') return t('goalPhasePaused')
   if (phase === 'blocked') return t('goalPhaseBlocked')
   return t('goalPhaseComplete')
+}
+
+function formatScheduleTime(value: string): string {
+  const time = Date.parse(value)
+  if (!Number.isFinite(time)) return value
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(time)
 }

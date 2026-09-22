@@ -2,8 +2,16 @@
 
 ## Unreleased
 
+- Harden native job output observation: resume with DSH byte cursors after reconnects, cancel collapsed observations, bound retained output and preserve focus/scroll in keyed job rows. Replace session/subagent subscriptions atomically, keep native workspace order current after removal, and show archive activity details before stopping work.
+- Register a legacy `code` preset alias through the native registry without overwriting user declarations, and target the renamed `agent-preset-registry` default setting. Search displays active and archived matches together with the corresponding restore action.
+
+- Report failed marketplace sources instead of silently showing only the three built-in recipes. Retain each source's last successful results during the current extension session, retry degraded loads when reopening the plugin center, and show an unavailable GitHub total rather than substituting the built-in count.
+
 - Upgrade the pinned runtime to `@deepseek-ai/dsh@0.1.7-alpha.1`. Adopt V4 session logs, Messages-only DeepSeek transport, native job and preset contracts, and the new runtime plugin/configuration model. Preserve old credentials, model declarations, V2/V3 history and legacy session records; retain only the saved-credential endpoint probe adapter.
 - Disable both request-attached session logs and plugin-package inventory, in addition to OTel. Use the official package resolver and a self-contained bundled pnpm shim compatible with Plugin Manager's scrubbed environment. Keep VS Code-specific UI, worktrees and unsupported upstream Web UI features separate; see the [upgrade record](docs/DSH_0_1_6_UPGRADE_PLAN.zh-CN.md) for compatibility boundaries.
+- Route session pinning and background-job cancellation through the native 0.1.7 `workspace` and `job` Remote namespaces. The workbench keeps only extension-specific tags and presentation state locally; see the [0.1.7 native capability audit](docs/DSH_0_1_7_NATIVE_GAP_ANALYSIS.zh-CN.md) for remaining Web UI features.
+- Expand background jobs from the native `job/list` roster with `job/follow` output, bounded output rendering, keyboard-accessible expansion, and the native stop action. Running-session archive requests now honor DSH's `workspace/session-active` response and offer the native `stopActivity` retry.
+- Surface the native `schedule` session projection as a read-only reminder card; creation and deletion remain owned by DSH's Schedule tools.
 
 - Fix workspace file links with root-level filenames and line/column/range suffixes across file types, rather than only Markdown files. Parse locations before URI detection, preserve native Windows/UNC and POSIX paths and Unicode names, and keep external URLs excluded. Preserve literal underscores and backslashes in prose file references so Markdown cannot split `__init__.py` or alter Windows paths. Keep Host existence validation and keyboard navigation, with parser, rendered-link and cross-platform path regression tests.
 

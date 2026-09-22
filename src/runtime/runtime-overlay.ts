@@ -50,7 +50,7 @@ ${webSearchRow}- id: llm-deepseek
     provider: ${JSON.stringify(configuration.provider)}
     model: ${JSON.stringify(configuration.model)}
 
-- id: agent-presets
+- id: agent-preset-registry
   config:
     default: ${configuration.agentPreset}
 

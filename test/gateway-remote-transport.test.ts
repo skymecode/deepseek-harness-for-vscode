@@ -2,6 +2,8 @@ import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { WebSocketServer } from 'ws'
 import { expect, it } from 'vitest'
+import type { JobId } from '@deepseek-ai/dsh-jobs/brand'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { NodeGatewayClient } from '../src/gateway/node-gateway-client.js'
 import type { RemoteEvent } from '../src/gateway/remote-event-protocol.js'
 import { approvalFrame, questionFrame } from './helpers/interaction-frames.js'
@@ -52,6 +54,35 @@ it('receives actionable mux frames and posts results in the official Typert enve
   } finally {
     clearTimeout(deadline)
     abort.abort()
+    for (const socket of sockets.clients) socket.terminate()
+    await new Promise<void>((resolve) => sockets.close(() => resolve()))
+    server.closeAllConnections()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
+})
+
+it('follows native background-job output and terminal status', async () => {
+  const server = createServer()
+  const sockets = new WebSocketServer({ server, path: '/api/remote.mux' })
+  sockets.on('connection', (socket) => socket.on('message', (data) => {
+    const message = JSON.parse(data.toString()) as { type: string; streamId: string; endpoint: string }
+    if (message.type !== 'open' || message.endpoint !== 'job/follow') return
+    for (const value of [
+      { type: 'opened', job: { id: 'bash-1', kind: 'bash', label: 'build', status: 'running', startedAt: 1, output: { total: 0, earliest: 0 } }, from: 0 },
+      { type: 'output', chunks: [{ at: 0, text: 'hello\n', channel: 'stdout' }], next: 6 },
+      { type: 'status', job: { id: 'bash-1', kind: 'bash', label: 'build', status: 'completed', startedAt: 1, finishedAt: 2, output: { total: 6, earliest: 0 } } },
+    ]) socket.send(JSON.stringify({ type: 'item', streamId: message.streamId, value }))
+    socket.send(JSON.stringify({ type: 'end', streamId: message.streamId }))
+  }))
+  try {
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const client = new NodeGatewayClient(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
+    const frames = []
+    for await (const frame of client.jobFollow({ sessionId: 'session-1' as SessionId, jobId: 'bash-1' as JobId }, AbortSignal.timeout(5_000))) frames.push(frame)
+    expect(frames).toHaveLength(3)
+    expect(frames[1]).toMatchObject({ type: 'output', chunks: [{ text: 'hello\n' }] })
+    expect(frames[2]).toMatchObject({ type: 'status', job: { status: 'completed' } })
+  } finally {
     for (const socket of sockets.clients) socket.terminate()
     await new Promise<void>((resolve) => sockets.close(() => resolve()))
     server.closeAllConnections()

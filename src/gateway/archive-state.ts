@@ -10,7 +10,7 @@ export interface ArchiveStateOptions {
   /** `workspace.list` RPC returning the official archived-id set. */
   readonly listArchived: () => Promise<string[]>
   /** `workspace.archiveSession` RPC for one session. */
-  readonly archiveSession: (sessionId: string) => Promise<string[]>
+  readonly archiveSession: (sessionId: string, stopActivity?: boolean) => Promise<string[]>
   readonly unarchiveSession: (sessionId: string) => Promise<string[]>
   /** Opens the first suitable visible session after leaving an archived one. */
   readonly openSession: (sessionId: string) => Promise<void>
@@ -73,10 +73,10 @@ export class ArchiveState {
     }
   }
 
-  async archive(sessionId: string, sessionExists: (id: string) => boolean): Promise<void> {
+  async archive(sessionId: string, sessionExists: (id: string) => boolean, stopActivity = false): Promise<void> {
     if (!sessionExists(sessionId)) return
     await this.migration
-    const ids = await this.options.archiveSession(sessionId)
+    const ids = await this.options.archiveSession(sessionId, stopActivity)
     this.restoredIds.delete(sessionId)
     this.baselineLoaded = true
     this.install(ids)

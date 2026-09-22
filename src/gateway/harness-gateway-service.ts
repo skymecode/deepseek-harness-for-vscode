@@ -2,6 +2,7 @@ import type { LlmResolvedModelInfo as DshLlmResolvedModelInfo } from '@deepseek-
 import type { ModelSelection as DshModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionAddress as DshSessionAddress } from './gateway-wire.js'
 import type { SessionRequestId as DshSessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { JobId as DshJobId } from '@deepseek-ai/dsh-jobs/brand'
 import * as vscode from 'vscode'
 import { officialChangesView, formatWorkspaceDiff } from './workspace-changes.js'
 import type { SessionChangesView } from '../domain/session-changes.js'
@@ -34,7 +35,7 @@ import { projectSessionChanges } from '../domain/session-changes.js'
 import { projectTurnChanges } from '../domain/turn-changes.js'
 import { isAutoEffort, resolveEffortIntent, type AutoEffortSignals, type EffortIntent, type PromptEffortSignals } from '../domain/session-effort.js'
 import { pickAutoModel, type ModelProfileInput } from '../domain/model-profile.js'
-import { setTags, togglePinned } from '../domain/session-meta.js'
+import { setTags } from '../domain/session-meta.js'
 import { projectSessionStats, projectionSessionStats } from '../domain/session-stats.js'
 import { sameWorkspacePath } from '../domain/workspace-scope.js'
 import type { WorktreeService } from '../editor/worktree-service.js'
@@ -44,6 +45,7 @@ import {
   projectionGoal,
   projectionPermissions,
   projectionPlan,
+  projectionSchedules,
   projectionTitle,
   projectionTokenUsage,
   sessionListItem,
@@ -52,6 +54,7 @@ import {
 } from '../domain/workbench-state.js'
 import type { HarnessHostRuntime } from '../runtime/web-runtime.js'
 import type { ConnectionSettingsService } from '../services/connection-settings-service.js'
+import { archiveActivityLines } from './archive-activity.js'
 import { ArchiveState } from './archive-state.js'
 import { AssistantStreamState, presentationHistory } from './assistant-stream-state.js'
 import {
@@ -65,13 +68,16 @@ import {
   recordValue,
   subagentView,
 } from './gateway-helpers.js'
-import { NodeGatewayClient } from './node-gateway-client.js'
+import { DshRemoteError, NodeGatewayClient } from './node-gateway-client.js'
 import { PendingConfigurationQueue, type PendingConfigEntry } from './pending-queue.js'
 import { PendingInteractions, type PendingInteraction } from './pending-interactions.js'
 import type { RemoteEventOutcome, RemoteWaterfallEvent } from './remote-event-protocol.js'
 import { SessionMetaStore } from './session-meta-store.js'
 import { TurnCompletionTracker } from './turn-completion-tracker.js'
 import type { CompletionNotice } from '../domain/turn-completion.js'
+import { subagentCatalogRows } from './subagent-catalog.js'
+import type { SubagentCatalogEntry } from '@deepseek-ai/dsh-subagent/client'
+import { JobOutputObserver, pauseJobStream } from './job-output-observer.js'
 import { LAST_SESSION_STATE_KEY } from '../domain/session-selection.js'
 
 /**
@@ -87,12 +93,20 @@ export class HarnessGatewayService implements vscode.Disposable {
   private client: NodeGatewayClient | undefined
   private streamAbort: AbortController | undefined
   private followAbort: AbortController | undefined
+  private jobsAbort: AbortController | undefined
+  private readonly jobOutput = new JobOutputObserver(() => this.fireChange())
   /** Per-session follow cursor (the snapshot `cursor` handed to session/page). */
   private readonly followCursor = new Map<string, number>()
   private readonly assistantStream = new AssistantStreamState()
   private readonly interactions = new PendingInteractions()
   /** Latest archived-session snapshot from `workspace/follow`, if seen. */
   private archivedFromHost: readonly string[] | undefined
+  /** Native DSH workspace pin set (most recently pinned first). */
+  private pinnedFromHost: readonly string[] = []
+  /** Native Workspace manual session order for the active project. */
+  private workspaceSessionOrder: readonly string[] = []
+  private workspaceOrderOwner: string | undefined
+  private legacyPinMigrationStarted = false
   /** Setters waiting for the current follow snapshot (keyed by session id). */
   private readonly followSnapshotWaiters = new Map<string, (value: void) => void>()
   private summaries = new Map<string, SessionSummary>()
@@ -163,8 +177,11 @@ export class HarnessGatewayService implements vscode.Disposable {
       globalState: this.globalState,
       output: this.output,
       listArchived: async () => [...(this.archivedFromHost ?? [])],
-      archiveSession: async (sessionId) => {
-        const result = await this.requireClient().workspaceArchiveSession({ sessionId: sessionId as SessionId })
+      archiveSession: async (sessionId, stopActivity) => {
+        const result = await this.requireClient().workspaceArchiveSession({
+          sessionId: sessionId as SessionId,
+          ...(stopActivity ? { stopActivity: true } : {}),
+        })
         return this.archivedFromHost = result.archivedSessionIds.map(String)
       },
       unarchiveSession: async (sessionId) => {
@@ -389,11 +406,17 @@ export class HarnessGatewayService implements vscode.Disposable {
     const scoped = this.orderedSummaries().filter((summary) => this.inCurrentWorkspace(summary))
     const partitioned = this.archives.partition(scoped.map((summary) => {
       const item = this.sessionListItemWithIsolation(summary)
-      const meta = this.metaStore.metaFor(String(summary.sessionId))
-      return meta === undefined ? item : { ...item, meta }
+      const id = String(summary.sessionId)
+      const meta = this.metaStore.metaFor(id)
+      const pinned = this.pinnedFromHost.includes(id)
+      const tags = meta?.tags
+      return !pinned && (tags === undefined || tags.length === 0)
+        ? item
+        : { ...item, meta: { ...(pinned ? { pinned: true } : {}), ...(tags === undefined || tags.length === 0 ? {} : { tags }) } }
     }))
 
     const activeSummary = this.activeSessionId === undefined ? undefined : this.summaries.get(this.activeSessionId)
+    const subagents = this.currentSubagentRows()
     const projected = projectConversation(presentationHistory(this.entries, this.assistantStream.entries()), this.labels)
     const permissions = projectionPermissions(this.projections.permissions)
     const plan = projectionPlan(this.projections.plan)
@@ -437,11 +460,12 @@ export class HarnessGatewayService implements vscode.Disposable {
       ...(projected.retry === undefined ? {} : { retry: projected.retry }),
       ...(projected.turnActivity === undefined ? {} : { turnActivity: projected.turnActivity }),
       skills: this.skills,
-      jobs: this.jobs,
+      jobs: this.jobs.map(job => ({ ...job, ...this.jobOutput.viewFor(this.activeSessionId ?? '', String(job.id)) })),
+      schedules: projectionSchedules(this.projections.schedule),
       queue: this.queue.map(queuedPromptView),
       ...this.interactions.forSession(this.activeSessionId),
-      subagentCount: this.subagentCount,
-      subagents: this.subagents.map(subagentView),
+      subagentCount: subagents.length,
+      subagents: subagents.map(subagentView),
       ...(this.subagentAddress === undefined ? {} : {
         parentSessionId: String(this.subagentAddress.parentSessionId),
         subagentMode: this.subagentAddress.mode,
@@ -786,6 +810,8 @@ export class HarnessGatewayService implements vscode.Disposable {
     // session's live stream (which never re-sends its snapshot), so the
     // conversation renders empty.
     this.followAbort?.abort()
+    this.jobsAbort?.abort()
+    this.jobOutput.stop()
     this.subagentAddress = undefined
     this.entries = []
     this.assistantStream.reset()
@@ -853,7 +879,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     }
     if (summary?.origin === 'subagent' && summary.parentSessionId !== undefined) {
       await this.selectSession(String(summary.parentSessionId))
-      const child = this.subagents.find((entry) => entry.kind === 'child' && String(entry.id) === sessionId)
+      const child = this.currentSubagentRows().find((entry) => entry.kind === 'child' && String(entry.id) === sessionId)
       if (child === undefined || child.kind !== 'child') throw new Error(vscode.l10n.t('Could not resolve the sub-agent from its parent session.'))
       await this.selectSubagent(sessionId, child.mode)
       return
@@ -1150,7 +1176,37 @@ export class HarnessGatewayService implements vscode.Disposable {
     }
   }
 
+  /** Requests native DSH cancellation of one visible background job. */
+  async killJob(jobId: string): Promise<void> {
+    const sessionId = this.requireActiveSession()
+    const job = this.jobs.find(job => String(job.id) === jobId)
+    if (!job) {
+      throw new Error(vscode.l10n.t('Background job not found.'))
+    }
+    const client = this.requireClient()
+    const stop = vscode.l10n.t('Stop background job')
+    if (await vscode.window.showWarningMessage(vscode.l10n.t('Stop background job "{0}"?', job.label), { modal: true }, stop) !== stop) return
+    if (client !== this.client) return
+    await client.jobKill({ sessionId: sessionId as SessionId, jobId: jobId as DshJobId })
+  }
+
+  /** Starts native DSH observation for one visible background job. */
+  async followJob(jobId: string): Promise<void> {
+    const sessionId = this.requireActiveSession()
+    if (!this.jobs.some((job) => String(job.id) === jobId)) {
+      throw new Error(vscode.l10n.t('Background job not found.'))
+    }
+    this.jobOutput.start(this.requireClient(), { sessionId: sessionId as SessionId, jobId: jobId as DshJobId })
+  }
+
+  stopFollowingJob(sessionId: string, jobId: string): void {
+    if (this.jobOutput.viewFor(sessionId, jobId) === undefined) return
+    this.jobOutput.stop()
+    this.fireChange()
+  }
+
   async selectSubagent(childSessionId: string, mode: 'one-shot' | 'continuable'): Promise<void> {
+    const generation = ++this.selectionGeneration
     const parentSessionId = this.subagentAddress?.childSessionId ?? this.requireActiveSession() as SessionId
     const address: SubagentAddress = {
       parentSessionId,
@@ -1158,6 +1214,10 @@ export class HarnessGatewayService implements vscode.Disposable {
       mode,
     }
     const list = await this.requireClient().subagentList(childSessionId)
+    if (generation !== this.selectionGeneration) return
+    this.followAbort?.abort()
+    this.jobsAbort?.abort()
+    this.jobOutput.stop()
     this.subagentAddress = address
     this.activeSessionId = childSessionId
     this.followCursor.set(childSessionId, 0)
@@ -1235,7 +1295,10 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   async toggleSessionPin(sessionId: string): Promise<void> {
     if (!this.summaries.has(sessionId)) throw new Error(vscode.l10n.t('Session not found.'))
-    await this.metaStore.updateMeta(sessionId, (meta) => togglePinned(meta))
+    const result = this.pinnedFromHost.includes(sessionId)
+      ? await this.requireClient().workspaceUnpinSession({ sessionId: sessionId as SessionId })
+      : await this.requireClient().workspacePinSession({ sessionId: sessionId as SessionId })
+    this.pinnedFromHost = result.pinnedSessionIds.map(String)
     this.fireChange()
   }
 
@@ -1339,7 +1402,23 @@ export class HarnessGatewayService implements vscode.Disposable {
    * new-conversation stub can be hidden; unknown ids are a no-op.
    */
   async archiveSession(id: string): Promise<void> {
-    await this.archives.archive(id, (sessionId) => this.summaries.has(sessionId))
+    try {
+      await this.archives.archive(id, (sessionId) => this.summaries.has(sessionId))
+    } catch (cause) {
+      if (!(cause instanceof DshRemoteError) || cause.code !== 'workspace/session-active') throw cause
+      const details = cause.details as { readonly activity?: readonly unknown[] } | undefined
+      const labels: Record<string, string> = { turn: vscode.l10n.t('Running turn'), subagent: vscode.l10n.t('Sub-agents'),
+        job: vscode.l10n.t('Background jobs'), schedule: vscode.l10n.t('Scheduled reminders') }
+      const lines = archiveActivityLines(details?.activity, kind => labels[kind] ?? kind)
+      const stopAndArchive = vscode.l10n.t('Stop and archive')
+      const choice = await vscode.window.showWarningMessage(
+        vscode.l10n.t('Session "{0}" still has active work{1}. Stop it and archive the session?', this.sessionTitle(id), lines.length > 0 ? vscode.l10n.t(' ({0} active items)', lines.length) : ''),
+        { modal: true, detail: lines.join('\n') },
+        stopAndArchive,
+      )
+      if (choice !== stopAndArchive) return
+      await this.archives.archive(id, (sessionId) => this.summaries.has(sessionId), true)
+    }
   }
 
   /**
@@ -1461,11 +1540,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     return removed
   }
 
-  /**
-   * Brings a Harness-archived session back to this workbench's default list.
-   * The bundled runtime (0.1.1-rc.2) has no unarchive RPC, so restore is a
-   * durable overlay on the official set.
-   */
+  /** Brings a DSH-archived session back to this workbench's default list. */
   async restoreSession(sessionId: string): Promise<void> {
     await this.archives.restore(sessionId)
   }
@@ -1516,6 +1591,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     void this.pumpRemoteEvents(abort.signal)
     void this.pumpWorkspace(abort.signal)
     void this.pumpActiveFollow(abort.signal)
+    void this.pumpActiveJobs(abort.signal)
   }
 
   /** Host-wide live state (queue/jobs/projections): `session/control`. */
@@ -1609,7 +1685,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       signal.addEventListener('abort', onSharedAbort, { once: true })
       try {
         for await (const frame of this.requireClient().sessionFollow({ address: followAddress as DshSessionAddress, maxMessages: 80 }, followAbort.signal)) {
-          if (this.activeSessionId !== sessionId) break
+          if (signal.aborted || followAbort.signal.aborted || this.activeSessionId !== sessionId) break
           this.handleFollowFrame(sessionId, frame)
           this.markConnected()
         }
@@ -1622,6 +1698,43 @@ export class HarnessGatewayService implements vscode.Disposable {
       if (this.followAbort === followAbort) this.followAbort = undefined
       if (!signal.aborted && !followAbort.signal.aborted && this.activeSessionId === sessionId) await this.waitToReconnect(signal)
     }
+  }
+
+  /** Keeps the active session's native DSH 0.1.7 background-job roster current. */
+  private async pumpActiveJobs(signal: AbortSignal): Promise<void> {
+    while (!signal.aborted) {
+      if (this.activeSessionId === undefined) {
+        await pauseJobStream(signal)
+        continue
+      }
+      const sessionId = this.activeSessionId
+      const jobsAbort = new AbortController()
+      this.jobsAbort = jobsAbort
+      const onSharedAbort = (): void => jobsAbort.abort()
+      signal.addEventListener('abort', onSharedAbort, { once: true })
+      try {
+        for await (const frame of this.requireClient().jobList({ sessionId: sessionId as SessionId }, jobsAbort.signal)) {
+          if (signal.aborted || jobsAbort.signal.aborted || this.activeSessionId !== sessionId) break
+          if (frame.type === 'rows') {
+            this.jobs = frame.jobs
+            this.fireChange()
+          }
+        }
+      } catch (cause) {
+        if (!signal.aborted && !jobsAbort.signal.aborted) {
+          this.output.appendLine(vscode.l10n.t('[gateway] Reconnecting job stream: {0}', errorMessage(cause)))
+        }
+      } finally {
+        signal.removeEventListener('abort', onSharedAbort)
+        if (this.jobsAbort === jobsAbort) this.jobsAbort = undefined
+      }
+      if (!signal.aborted && !jobsAbort.signal.aborted && this.activeSessionId === sessionId) await pauseJobStream(signal)
+    }
+  }
+
+  private currentSubagentRows(): readonly SubagentListEntry[] {
+    const catalog = this.projections.subagentCatalog
+    return Array.isArray(catalog) ? subagentCatalogRows(catalog as SubagentCatalogEntry[], this.summaries) : this.subagents
   }
 
   private activeFollowAddress(): DshSessionAddress | undefined {
@@ -1688,10 +1801,17 @@ export class HarnessGatewayService implements vscode.Disposable {
             this.projections = { ...value }
             this.queue = inboxQueue(value.inbox)
           }
+          const summary = this.summaries.get(sessionId)
+          if (summary) this.summaries.set(sessionId, { ...summary, projections: { ...projection, kind: 'sequenced' } })
           this.applyTitleProjection(sessionId, projectionTitle(value))
         }
       }
     } else if (frame.type === 'projection') {
+      const summary = this.summaries.get(String(frame.sessionId))
+      if (summary) this.summaries.set(String(frame.sessionId), { ...summary, projections: {
+        kind: 'sequenced', asOfSeq: frame.seq,
+        values: { ...summary.projections?.values, [frame.key]: frame.value },
+      } })
       if (String(frame.sessionId) === active) {
         this.projections[frame.key] = frame.value
         if (frame.key === 'inbox') this.queue = inboxQueue(frame.value)
@@ -1783,8 +1903,16 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   private handleWorkspace(frame: unknown): void {
-    const value = frame as { readonly type?: string; readonly value?: { readonly archivedSessionIds?: readonly unknown[] }; readonly archivedSessionIds?: readonly unknown[] }
+    const value = frame as {
+      readonly type?: string
+      readonly value?: { readonly archivedSessionIds?: readonly unknown[]; readonly pinnedSessionIds?: readonly unknown[]; readonly items?: readonly unknown[] }
+      readonly archivedSessionIds?: readonly unknown[]
+      readonly pinnedSessionIds?: readonly unknown[]
+      readonly workspace?: unknown
+      readonly workspaceId?: unknown
+    }
     const archived = value.type === 'baseline' ? value.value?.archivedSessionIds : value.type === 'archived' ? value.archivedSessionIds : undefined
+    const pinned = value.type === 'baseline' ? value.value?.pinnedSessionIds : value.type === 'pinned' ? value.pinnedSessionIds : undefined
     if (archived !== undefined) {
       this.archivedFromHost = archived.map(String)
       // A host snapshot is authoritative: establish the baseline before
@@ -1792,6 +1920,70 @@ export class HarnessGatewayService implements vscode.Disposable {
       // ids as authoritative, even on the first frame.
       this.archives.installFromHost(this.archivedFromHost)
     }
+    if (pinned !== undefined) this.pinnedFromHost = pinned.map(String)
+    if (value.type === 'baseline' && value.value?.items !== undefined) this.installWorkspaceOrder(value.value.items)
+    if (value.type === 'upsert') this.installWorkspaceView(value.workspace)
+    if (value.type === 'remove' && value.workspaceId === this.workspaceOrderOwner) {
+      this.workspaceSessionOrder = []
+      this.workspaceOrderOwner = undefined
+    }
+    if (value.type === 'baseline' && pinned !== undefined && !this.legacyPinMigrationStarted) {
+      this.legacyPinMigrationStarted = true
+      void this.migrateLegacyPins()
+    }
+    this.fireChange()
+  }
+
+  private installWorkspaceOrder(items: readonly unknown[]): void {
+    const current = this.currentWorkspaceCwd()
+    const rows = items.flatMap((value) => {
+      const row = this.workspaceView(value)
+      return row === undefined ? [] : [row]
+    })
+    const matching = rows.find(row => sameWorkspacePath(row.path, current))
+    this.workspaceOrderOwner = matching?.workspaceId
+    this.workspaceSessionOrder = matching?.sessionIds ?? []
+  }
+
+  private installWorkspaceView(value: unknown): void {
+    const row = this.workspaceView(value)
+    if (row === undefined) return
+    const current = this.currentWorkspaceCwd()
+    if (!sameWorkspacePath(row.path, current)) return
+    this.workspaceOrderOwner = row.workspaceId
+    this.workspaceSessionOrder = [...row.sessionIds]
+  }
+
+  private workspaceView(value: unknown): { readonly workspaceId: string; readonly path: string; readonly sessionIds: readonly string[] } | undefined {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+    const record = value as { readonly workspaceId?: unknown; readonly path?: unknown; readonly sessionIds?: unknown }
+    if (typeof record.workspaceId !== 'string' || typeof record.path !== 'string' || !Array.isArray(record.sessionIds)) return undefined
+    return { workspaceId: record.workspaceId, path: record.path, sessionIds: record.sessionIds.filter((id): id is string => typeof id === 'string') }
+  }
+
+  /** Moves pre-0.1.7 local pins into DSH once the native baseline is known. */
+  private async migrateLegacyPins(): Promise<void> {
+    const client = this.client
+    if (client === undefined) return
+    let failed = false
+    for (const sessionId of this.metaStore.legacyPinnedSessionIds()) {
+      if (this.client !== client) return
+      if (this.pinnedFromHost.includes(sessionId)) {
+        await this.metaStore.clearLegacyPin(sessionId).catch(() => { failed = true })
+        continue
+      }
+      try {
+        const result = await client.workspacePinSession({ sessionId: sessionId as SessionId })
+        if (this.client !== client) return
+        this.pinnedFromHost = result.pinnedSessionIds.map(String)
+        await this.metaStore.clearLegacyPin(sessionId)
+      } catch (cause) {
+        failed = true
+        this.output.appendLine(vscode.l10n.t('[gateway] Failed to migrate the pin for session {0}: {1}', sessionId, errorMessage(cause)))
+      }
+    }
+    if (this.client !== client) return
+    if (failed) this.legacyPinMigrationStarted = false
     this.fireChange()
   }
 
@@ -1932,11 +2124,27 @@ export class HarnessGatewayService implements vscode.Disposable {
       // dropped as soon as the user switches away or a real turn begins.
       .filter((summary) => !summary.blank)
       .sort((left, right) => {
-        const leftRank = this.metaStore.metaSortRankFor(String(left.sessionId))
-        const rightRank = this.metaStore.metaSortRankFor(String(right.sessionId))
+        const leftRank = this.nativePinRank(String(left.sessionId))
+        const rightRank = this.nativePinRank(String(right.sessionId))
         if (leftRank !== rightRank) return leftRank - rightRank
+        const leftOrder = this.workspaceSessionRank(String(left.sessionId))
+        const rightOrder = this.workspaceSessionRank(String(right.sessionId))
+        if (leftOrder !== rightOrder && (leftOrder <= this.workspaceSessionOrder.length || rightOrder <= this.workspaceSessionOrder.length)) {
+          return leftOrder - rightOrder
+        }
         return right.updatedAt - left.updatedAt
       })
+  }
+
+  /** Pinned sessions sort ahead of history in the native DSH order. */
+  private nativePinRank(sessionId: string): number {
+    const index = this.pinnedFromHost.indexOf(sessionId)
+    return index < 0 ? this.pinnedFromHost.length + 1 : index
+  }
+
+  private workspaceSessionRank(sessionId: string): number {
+    const index = this.workspaceSessionOrder.indexOf(sessionId)
+    return index < 0 ? this.workspaceSessionOrder.length + 1 : index
   }
 
   /** The first workspace folder open in this window, or undefined when none is. */
@@ -2075,6 +2283,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.completions.clear()
     this.streamAbort?.abort()
     this.streamAbort = undefined
+    this.jobOutput.stop()
     this.interactions.disconnect()
     // Abort in-flight unary calls before replacing the client. Otherwise a
     // timed-out baseline can finish later and start streams on the next
@@ -2084,6 +2293,10 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.officialChanges.clear()
     this.requestedChanges.clear()
     this.modelMetadata.clear()
+    this.pinnedFromHost = []
+    this.workspaceSessionOrder = []
+    this.workspaceOrderOwner = undefined
+    this.legacyPinMigrationStarted = false
     this.connectionSettings.disconnect()
     this.phase = 'idle'
     // A new connection must re-establish the official archive baseline: bump

@@ -12,7 +12,7 @@ Startup uses the official runtime package resolver. Only a recognized legacy mod
 
 ## Runtime update policy
 
-The bundled DeepSeek Harness runtime is upgraded selectively, not automatically with every upstream release. We review the actual changes—relevant features, bug and security fixes, and breaking changes—and adopt an update after compatibility adaptation and regression testing, with particular attention to Windows, macOS, Linux, existing conversation history, and plugins.
+The bundled DeepSeek Harness runtime is upgraded selectively, not automatically with every upstream release. We review the actual changes—relevant features, bug and security fixes, and breaking changes—and adopt an update after compatibility adaptation and regression testing, with particular attention to Windows, macOS, Linux, existing conversation history, and plugins. The 0.1.7 native capability gap is tracked in [the upgrade audit](docs/DSH_0_1_7_NATIVE_GAP_ANALYSIS.zh-CN.md).
 
 Stability and the upgrade experience for existing users take priority over always bundling the newest version. Releases that still need validation or introduce compatibility risks may be deferred; an extension update may also keep the current pinned runtime. The bundled version and any upgrade caveats are documented in this README and the [changelog](CHANGELOG.md).
 
@@ -92,7 +92,7 @@ The extension still ships and starts its own tested Harness/Node runtime. A sepa
 | macOS | `~/.dsh` |
 | Linux | `~/.dsh` |
 
-An inherited `DSH_HOME` takes precedence. If official DSH uses another home, set the application-level `deepseekHarness.historyHome` to that same absolute path. Only `sessions/` and `attachments/` are shared. The extension's credentials, plugin profile and caches remain under `~/.dsh/vscode/harness-home`; archive/pin state and UI filters remain separate. VS Code uninstall does not remove the shared history.
+An inherited `DSH_HOME` takes precedence. If official DSH uses another home, set the application-level `deepseekHarness.historyHome` to that same absolute path. Only `sessions/` and `attachments/` are shared. The extension's credentials, plugin profile and caches remain under `~/.dsh/vscode/harness-home`; archive and pin state use the native DSH workspace registry in the extension's private home and remain separate from independently launched DSH. Tags and the VS Code history filter stay local to this workbench. VS Code uninstall does not remove the shared history.
 
 Old private/globalStorage histories are migrated through the official session codecs, with the original logs retained. Equal records are not duplicated; a strictly newer compatible prefix is appended only with write ownership. Diverged histories, or newer copies whose destination is busy, become separately named “VS Code history” forks. Completed imports are journaled, so reopening the extension does not keep duplicating them. In-use old sources are deferred; if migration fails, the extension keeps its previous private history for that launch and shows a warning instead of silently starting with an empty migrated store.
 
@@ -120,7 +120,7 @@ Marketplace cards classify known entries as **Agent compatible**, **Agent works 
 
 ## Configuration
 
-DeepSeek Official defaults to Messages at `https://api.deepseek.com/anthropic`. Migration removes obsolete official-root overrides while preserving explicit Chat Completions and custom-provider protocols.
+DSH 0.1.7 uses only Messages for DeepSeek Official, at `https://api.deepseek.com/anthropic`. Old hand-written `llm-deepseek.protocol` options must be removed; Chat Completions endpoints belong under a custom provider. Custom-provider protocols remain unchanged.
 
 OTel, request-attached session logs (`dsh_session_log`) and plugin inventories (`dsh_plugin_packages`) are disabled by default. Normal model requests still contain submitted messages, context and attachments.
 

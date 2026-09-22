@@ -146,6 +146,7 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
             <button data-detail="skills">${text('skills')} <span id="skill-count">0</span></button>
             <button data-detail="agents">${text('agents')} <span id="agent-count">0</span></button>
             <button data-detail="jobs">${text('jobs')} <span id="job-count">0</span></button>
+            <button data-detail="schedules">${text('schedules')}</button>
             <button data-detail="timeline">${text('timeline')}</button>
             <button data-detail="runtime">${text('runtimeContext')}</button>
           </div>

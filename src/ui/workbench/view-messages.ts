@@ -189,6 +189,17 @@ export interface WorkbenchViewActions {
     case 'cancel':
       await ctx.gateway.cancel()
       break
+    case 'killJob':
+      if (ctx.gateway.openSessionId() !== requiredString(value, 'sessionId')) break
+      await ctx.gateway.killJob(requiredString(value, 'jobId'))
+      break
+    case 'followJob':
+      if (ctx.gateway.openSessionId() !== requiredString(value, 'sessionId')) break
+      await ctx.gateway.followJob(requiredString(value, 'jobId'))
+      break
+    case 'stopFollowingJob':
+      ctx.gateway.stopFollowingJob(requiredString(value, 'sessionId'), requiredString(value, 'jobId'))
+      break
     case 'steerQueued':
       await ctx.gateway.steerQueued(requiredString(value, 'itemId'))
       break

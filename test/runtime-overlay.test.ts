@@ -27,6 +27,8 @@ describe('Harness Web profile overlay', () => {
     expect(overlay).toContain('provider: "packycode"')
     expect(overlay).toContain('model: "deepseek-v4-pro"')
     expect(overlay).toContain('default: ptc')
+    expect(overlay).toContain('id: agent-preset-registry')
+    expect(overlay).not.toContain('id: agent-presets\n')
     expect(overlay).toContain('defaultPreset: workspace-write')
     expect(overlay).not.toContain('llm-pi-ai')
     expect(overlay).not.toContain('web-search-deepseek')

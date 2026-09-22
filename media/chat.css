@@ -2399,13 +2399,53 @@ body.vscode-light .markdown-body .hljs-deletion {
 .job-row {
   padding: 5px;
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 2px 6px;
   font-size: 11px;
+  cursor: pointer;
+  border-radius: 5px;
 }
-.job-row small {
-  grid-column: 2;
+.job-row:hover { background: var(--vscode-list-hoverBackground); }
+.job-toggle {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.job-toggle:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+.job-output-note { grid-column: 1 / -1; color: var(--vscode-descriptionForeground); }
+.job-row [hidden] { display: none; }
+.job-copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: grid;
+  gap: 2px;
+}
+.job-copy small {
   color: var(--vscode-descriptionForeground);
+}
+.job-stop {
+  align-self: start;
+}
+.job-output {
+  grid-column: 1 / -1;
+  min-width: 0;
+  max-height: 220px;
+  overflow: auto;
+  margin: 4px 0 0;
+  padding: 6px;
+  border: 1px solid var(--vscode-widget-border);
+  background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+  color: var(--vscode-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.45;
 }
 .job-status {
   width: 7px;
@@ -2419,6 +2459,23 @@ body.vscode-light .markdown-body .hljs-deletion {
 }
 .job-status.inactive {
   background: var(--vscode-descriptionForeground);
+}
+.schedule-row {
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 5px;
+}
+.schedule-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.schedule-row strong {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.schedule-row small {
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
 }
 .subagent-row {
   padding: 6px;

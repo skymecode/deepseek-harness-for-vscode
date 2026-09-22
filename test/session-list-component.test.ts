@@ -24,6 +24,17 @@ function fixture() {
 }
 
 describe('session history during live updates', () => {
+  it('renders restore actions for archived matches alongside active search results', () => {
+    const f = fixture()
+    f.component.update([session('active'), session('archived')], { ...f.state, archivedIds: new Set(['archived']) })
+    expect(f.row('active').querySelector('[aria-label="Archive conversation"]')).not.toBeNull()
+    const restore = f.row('archived').querySelector<HTMLButtonElement>('[aria-label="Restore conversation"]')!
+    expect(restore).not.toBeNull()
+    restore.click()
+    expect(f.onAction).toHaveBeenCalledWith('restoreSession', 'archived')
+    expect(f.row('archived').querySelector<HTMLButtonElement>('[aria-label="Pin conversation"]')?.disabled).toBe(true)
+  })
+
   it('preserves the pressed row and its children throughout streaming state pushes', () => {
     const f = fixture()
     const sessions = [session('running', { running: true }), session('history')]

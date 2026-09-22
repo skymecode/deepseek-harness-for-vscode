@@ -1,7 +1,7 @@
 import { BuiltinDshPluginSource } from './builtin-plugin-source.js'
 import { CuratedDshPluginSource, projectPluginRegistry } from './curated-plugin-source.js'
 import { GitHubDshPluginTopicSource } from './github-topic-source.js'
-import type { DshPluginCatalogContribution, DshPluginCatalogItem, DshPluginCatalogSnapshot } from './types.js'
+import type { DshPluginCatalogContribution, DshPluginCatalogIssue, DshPluginCatalogItem, DshPluginCatalogSnapshot } from './types.js'
 
 const REGISTRY_PAGE = 'https://awesome-dsh-plugin.com/'
 const TOPIC_URL = 'https://github.com/topics/dsh-plugin'
@@ -12,6 +12,8 @@ export interface DshPluginSource {
 
 /** Combines remote catalogs with trusted recipes for non-package suites. */
 export class DshPluginCatalogService {
+  private readonly lastSuccessful = new Map<string, DshPluginCatalogContribution>()
+
   constructor(
     private readonly githubTopic: DshPluginSource = new GitHubDshPluginTopicSource(),
     private readonly curated: DshPluginSource = new CuratedDshPluginSource(),
@@ -24,12 +26,26 @@ export class DshPluginCatalogService {
       this.curated.load(language, force),
       this.builtin.load(language, force),
     ])
-    const contributions = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
+    const sources = ['github-topic', 'curated', 'builtin'] as const
+    const sourceIssues: DshPluginCatalogIssue[] = []
+    const contributions: DshPluginCatalogContribution[] = []
+    results.forEach((result, index) => {
+      const source = sources[index]!
+      const key = `${language}/${source}`
+      if (result.status === 'fulfilled') {
+        this.lastSuccessful.set(key, result.value)
+        contributions.push(result.value)
+      } else {
+        const cached = this.lastSuccessful.get(key)
+        if (cached !== undefined) contributions.push(cached)
+        sourceIssues.push({ source, message: catalogFailureMessage(result.reason), usingCache: cached !== undefined })
+      }
+    })
     if (contributions.length === 0) {
       const details = results.flatMap((result) => result.status === 'rejected' ? [String(result.reason)] : []).join('\n')
       throw new Error(`Could not load the DSH plugin marketplace.\n${details}`)
     }
-    return mergePluginCatalog(contributions)
+    return { ...mergePluginCatalog(contributions), ...(sourceIssues.length === 0 ? {} : { sourceIssues }) }
   }
 }
 
@@ -84,3 +100,12 @@ export function mergePluginCatalog(contributions: readonly DshPluginCatalogContr
 }
 
 export { projectPluginRegistry }
+
+/** Keep transport codes useful without dumping response bodies or request headers. */
+function catalogFailureMessage(cause: unknown): string {
+  if (!(cause instanceof Error)) return String(cause)
+  const detail = cause.cause
+  const code = typeof detail === 'object' && detail !== null && 'code' in detail && typeof detail.code === 'string'
+    ? detail.code : undefined
+  return code === undefined ? cause.message : `${cause.message} (${code})`
+}
