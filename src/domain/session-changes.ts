@@ -1,12 +1,14 @@
 import type { HistoryEntry } from '../gateway/gateway-wire.js'
 
 export interface SessionFileChangeView {
+  readonly index?: number
   readonly path: string
   readonly added: number
   readonly removed: number
 }
 
 export interface SessionChangesView {
+  readonly official?: { readonly sessionId: string; readonly seq: number }
   readonly files: readonly SessionFileChangeView[]
   readonly added: number
   readonly removed: number
@@ -32,7 +34,7 @@ interface PendingChange {
  * bar appears when a conclusion lands, disappears when the next round begins,
  * and returns with the next conclusion.
  */
-export function projectSessionChanges(entries: readonly HistoryEntry[]): SessionChangesView | undefined {
+export function projectSessionChanges(entries: readonly HistoryEntry[], official: ReadonlyMap<number, SessionChangesView | undefined> = new Map()): SessionChangesView | undefined {
   let lastTurnEnd: number | undefined
   let maxTurn: number | undefined
   for (const { event } of entries) {
@@ -46,6 +48,10 @@ export function projectSessionChanges(entries: readonly HistoryEntry[]): Session
   // A newer round has started but has not concluded yet: hide the previous
   // round's summary until this round's own conclusion arrives.
   if (maxTurn !== undefined && maxTurn > lastTurnEnd) return undefined
+
+  const announcement = entries.findLast(({ event }) => event.type === 'workspace/changes' && event.data.turn === lastTurnEnd)?.event
+  const recorded = announcement === undefined ? undefined : official.get(announcement.seq)
+  if (recorded !== undefined) return recorded.files.length === 0 ? undefined : recorded
 
   const pending = new Map<string, PendingChange>()
   const byPath = new Map<string, { added: number; removed: number }>()

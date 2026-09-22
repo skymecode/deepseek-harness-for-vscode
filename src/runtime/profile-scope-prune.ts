@@ -1,8 +1,8 @@
-import { readdir, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, readFile, rename } from 'node:fs/promises'
 import * as path from 'node:path'
 
 /**
- * Removes profile-level copies of @deepseek-ai runtime packages whose version
+ * Quarantines profile-level copies of @deepseek-ai runtime packages whose version
  * differs from the runtime bundled in the VSIX.
  *
  * cordis-plugin-loader resolves profile entries from the profile's own
@@ -12,8 +12,8 @@ import * as path from 'node:path'
  * the Gateway boot with a stale-schema validation error. Pruning mismatched
  * copies makes resolution fall through to the bundled packages again.
  *
- * Returns the names of the removed packages. Unreadable entries are left in
- * place: pruning must never block the boot.
+ * Returns the names of the quarantined packages. Unreadable entries are left
+ * in place: pruning must never block the boot or destroy user data.
  */
 export async function pruneShadowedRuntimePackages(
   profileScopeDir: string,
@@ -21,6 +21,7 @@ export async function pruneShadowedRuntimePackages(
   log: (line: string) => void,
 ): Promise<string[]> {
   const removed: string[] = []
+  let backupRoot: string | undefined
   let names: string[]
   try {
     names = (await readdir(profileScopeDir, { withFileTypes: true }))
@@ -35,9 +36,12 @@ export async function pruneShadowedRuntimePackages(
     const profileVersion = await packageVersion(path.join(profileScopeDir, name))
     if (profileVersion === undefined || profileVersion === bundledVersion) continue
     try {
-      await rm(path.join(profileScopeDir, name), { recursive: true, force: true })
+      backupRoot ??= await mkdtemp(path.join(path.dirname(profileScopeDir), 'runtime-package-backup-'))
+      const backup = path.join(backupRoot, name)
+      await mkdir(path.dirname(backup), { recursive: true })
+      await rename(path.join(profileScopeDir, name), backup)
       removed.push(name)
-      log(`[host] Pruned stale profile runtime package @deepseek-ai/${name}@${profileVersion} (bundled: ${bundledVersion}).`)
+      log(`[host] Backed up stale profile runtime package @deepseek-ai/${name}@${profileVersion} to ${backup} (bundled: ${bundledVersion}).`)
     } catch {
       log(`[host] Failed to prune stale profile runtime package @deepseek-ai/${name}@${profileVersion}.`)
     }

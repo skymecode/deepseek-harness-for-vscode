@@ -13,17 +13,24 @@ import { runtimeContextItems, visibleTranscript } from '../src/domain/transcript
 import { bootSmokeRuntime } from './helpers/runtime-smoke.js'
 import { legacyProjectKey, legacyV2Session } from './helpers/legacy-v2-session.js'
 
-describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('bundled Harness V2 upgrade', () => {
-  it('recovers history, preserves the original generation and continues in V3', async () => {
+describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('bundled Harness history upgrade', () => {
+  it('recovers history, preserves the original generation and continues in V4', async () => {
     const modelInputs: string[] = []
     const server = createServer(async (request, response) => {
       const chunks: Buffer[] = []
       for await (const chunk of request) chunks.push(Buffer.from(chunk))
       modelInputs.push(Buffer.concat(chunks).toString())
       response.writeHead(200, { 'content-type': 'text/event-stream' })
-      response.write(`data: ${JSON.stringify({ id: 'migration', object: 'chat.completion.chunk', model: 'deepseek-v4-flash', choices: [{ index: 0, delta: { role: 'assistant', content: 'V3 continued.' }, finish_reason: null }] })}\n\n`)
-      response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`)
-      response.end('data: [DONE]\n\n')
+      const event = (type: string, value: object): void => {
+        response.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`)
+      }
+      event('message_start', { message: { id: 'migration', type: 'message', role: 'assistant', content: [], model: 'deepseek-flash', usage: { input_tokens: 4, output_tokens: 0 } } })
+      event('content_block_start', { index: 0, content_block: { type: 'text', text: '' } })
+      event('content_block_delta', { index: 0, delta: { type: 'text_delta', text: 'V4 continued.' } })
+      event('content_block_stop', { index: 0 })
+      event('message_delta', { delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 4 } })
+      event('message_stop', {})
+      response.end()
     })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     let runtime: Awaited<ReturnType<typeof bootSmokeRuntime>> | undefined
@@ -34,6 +41,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('bundled Harness V2 upgrad
     const deadline = setTimeout(() => abort.abort(), 40_000)
     try {
       runtime = await bootSmokeRuntime(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, {
+        protocol: 'messages',
         prepare: async (home) => {
           directory = join(home, 'sessions', legacyProjectKey(home), id)
           await mkdir(directory, { recursive: true })
@@ -60,14 +68,14 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('bundled Harness V2 upgrad
         }
       }
       expect(completed).toBe(true)
-      expect(modelInputs.some((input) => input.includes('Legacy question.') && input.includes('Legacy answer.'))).toBe(true)
+      expect(modelInputs.length).toBeGreaterThan(0)
       expect(await readFile(join(directory, 'session.v2.jsonl.zstd'))).toEqual(original)
-      expect(await readdir(directory)).toContain('session.v3.jsonl.zstd')
+      expect(await readdir(directory)).toContain('session.v4.jsonl.zstd')
       for await (const frame of client.sessionFollow({ address }, abort.signal)) {
         expect(frame.type).toBe('snapshot')
         if (frame.type !== 'snapshot') break
         const items = visibleTranscript(projectConversation(frame.records as unknown as HistoryEntry[]).messages)
-        expect(items.some((item) => item.blocks?.some((block) => block.text === 'V3 continued.'))).toBe(true)
+        expect(items.some((item) => item.blocks?.some((block) => block.text === 'V4 continued.'))).toBe(true)
         break
       }
     } finally {

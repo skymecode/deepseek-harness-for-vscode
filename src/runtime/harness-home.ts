@@ -1,11 +1,11 @@
-import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type * as vscode from 'vscode'
 
 const MIGRATED = new Set<string>()
 
-/** Recognize immutable V2/V3 generations as well as pre-versioned logs. */
+/** Recognize immutable V2/V3/V4 generations as well as pre-versioned logs. */
 const SESSION_ARTIFACT_NAME = /^session(?:\.v\d+)?\.jsonl(?:\.zstd)?$/u
 
 export interface LegacySessionMigrationResult {
@@ -118,13 +118,38 @@ export function harnessHomePath(context: vscode.ExtensionContext): string {
 
 function migrateOnce(legacy: string, stable: string): void {
   if (MIGRATED.has(stable)) return
-  MIGRATED.add(stable)
   try {
-    if (existsSync(stable) || !existsSync(legacy)) return
+    if (!existsSync(legacy)) {
+      MIGRATED.add(stable)
+      return
+    }
     mkdirSync(path.dirname(stable), { recursive: true })
-    cpSync(legacy, stable, { recursive: true, preserveTimestamps: true })
+    // Merge missing legacy entries even when a previous launch already
+    // created the stable directory. A partially failed copy must not make
+    // the old globalStorage data permanently invisible, and stable entries
+    // always win so newer runtime state is never overwritten.
+    mergeLegacyTree(legacy, stable)
+    MIGRATED.add(stable)
   } catch {
-    // A failed migration must not block the runtime; the extension simply
-    // starts with a fresh stable home and the legacy copy is left untouched.
+    // A failed migration must not block the runtime. Leave the legacy copy
+    // untouched and do not mark the pass complete so a later activation can
+    // retry the missing entries.
+  }
+}
+
+/** Merges a legacy home without overwriting newer stable files. */
+export function mergeLegacyTree(legacy: string, stable: string): void {
+  mkdirSync(stable, { recursive: true })
+  for (const entry of readdirSync(legacy, { withFileTypes: true })) {
+    const source = path.join(legacy, entry.name)
+    const target = path.join(stable, entry.name)
+    if (!existsSync(target)) {
+      cpSync(source, target, { recursive: true, preserveTimestamps: true })
+      continue
+    }
+    if (lstatSync(target).isSymbolicLink()) continue
+    if (entry.isDirectory()) {
+      mergeLegacyTree(source, target)
+    }
   }
 }

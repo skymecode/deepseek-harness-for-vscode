@@ -1,5 +1,5 @@
 export const DEEPSEEK_OFFICIAL_PROVIDER = 'deepseek-official'
-export const DEEPSEEK_OFFICIAL_BASE_URL = 'https://api.deepseek.com'
+export const DEEPSEEK_OFFICIAL_BASE_URL = 'https://api.deepseek.com/anthropic'
 
 export interface CustomProvider {
   readonly name: string
@@ -35,10 +35,18 @@ export function isProviderRouteInUse(
 export function isDeepSeekOfficialBaseUrl(value: string | undefined): boolean {
   if (value === undefined || value.trim() === '') return true
   try {
-    return new URL(value).hostname.toLowerCase() === 'api.deepseek.com'
+    const url = new URL(value)
+    return url.protocol === 'https:' && url.hostname.toLowerCase() === 'api.deepseek.com'
+      && url.port === '' && url.username === '' && url.password === '' && url.search === '' && url.hash === ''
   } catch {
     return false
   }
+}
+
+/** Only roots formerly written by this extension are eligible for migration. */
+export function isLegacyOfficialRoot(value: unknown): boolean {
+  if (typeof value !== 'string' || !isDeepSeekOfficialBaseUrl(value)) return false
+  return ['/', '/v1', '/v1/'].includes(new URL(value).pathname)
 }
 
 /** Small deterministic browser-safe hash for provider names without ASCII. */

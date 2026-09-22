@@ -58,7 +58,7 @@ export class BundledRuntimeResolver {
       throw new Error(this.localize('The bundled Node version is not supported by Harness: {0}.', versionText || this.localize('unknown')))
     }
 
-    const tooling = await this.prepareTooling()
+    const tooling = await this.prepareTooling(node, pnpm)
     return {
       command: node,
       args: [entry],
@@ -72,10 +72,10 @@ export class BundledRuntimeResolver {
   }
 
   /** Provides the `pnpm` executable name expected by the official DSH CLI. */
-  private async prepareTooling(): Promise<string> {
+  private async prepareTooling(node: string, pnpm: string): Promise<string> {
     const directory = path.join(this.context.globalStorageUri.fsPath, 'runtime-bin')
     await mkdir(directory, { recursive: true })
-    const tooling = pnpmWrapper(process.platform)
+    const tooling = pnpmWrapper(process.platform, { node, pnpm })
     const wrapper = path.join(directory, tooling.filename)
     await writeFile(wrapper, tooling.content, 'utf8')
     if (tooling.executable) await chmod(wrapper, 0o755)
@@ -84,20 +84,26 @@ export class BundledRuntimeResolver {
 }
 
 /** Cross-platform shim consumed by DSH's official `spawnSync("pnpm")`. */
-export function pnpmWrapper(platform: NodeJS.Platform): {
+export function pnpmWrapper(platform: NodeJS.Platform, invocation?: { node: string; pnpm: string }): {
   readonly filename: string
   readonly content: string
   readonly executable: boolean
 } {
+  // Plugin Manager intentionally scrubs DSH_* variables. The launcher-owned
+  // shim must carry its executable paths instead of relying on inherited env.
+  const cmdQuote = (value: string): string => `"${value.replace(/%/gu, '%%')}"`
+  const shQuote = (value: string): string => `'${value.replace(/'/gu, `'"'"'`)}'`
   return platform === 'win32'
     ? {
       filename: 'pnpm.cmd',
-      content: '@echo off\r\n"%DSH_BUNDLED_NODE%" "%DSH_BUNDLED_PNPM%" %*\r\n',
+      content: invocation === undefined ? '@echo off\r\n"%DSH_BUNDLED_NODE%" "%DSH_BUNDLED_PNPM%" %*\r\n'
+        : `@echo off\r\nsetlocal DisableDelayedExpansion\r\n${cmdQuote(invocation.node)} ${cmdQuote(invocation.pnpm)} %*\r\n`,
       executable: false,
     }
     : {
       filename: 'pnpm',
-      content: '#!/bin/sh\nexec "$DSH_BUNDLED_NODE" "$DSH_BUNDLED_PNPM" "$@"\n',
+      content: invocation === undefined ? '#!/bin/sh\nexec "$DSH_BUNDLED_NODE" "$DSH_BUNDLED_PNPM" "$@"\n'
+        : `#!/bin/sh\nexec ${shQuote(invocation.node)} ${shQuote(invocation.pnpm)} "$@"\n`,
       executable: true,
     }
 }

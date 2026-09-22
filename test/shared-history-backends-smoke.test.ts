@@ -67,6 +67,19 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('independent backends shar
       const input = Buffer.concat(chunks).toString()
       const answer = input.includes('from-official-web') ? 'Official web answer.' : 'VS Code answer.'
       response.writeHead(200, { 'content-type': 'text/event-stream' })
+      if (request.url?.endsWith('/v1/messages') === true) {
+        const event = (type: string, value: object): void => {
+          response.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`)
+        }
+        event('message_start', { message: { id: 'shared', type: 'message', role: 'assistant', content: [], model: 'deepseek-flash', usage: { input_tokens: 4, output_tokens: 0 } } })
+        event('content_block_start', { index: 0, content_block: { type: 'text', text: '' } })
+        event('content_block_delta', { index: 0, delta: { type: 'text_delta', text: answer } })
+        event('content_block_stop', { index: 0 })
+        event('message_delta', { delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 4 } })
+        event('message_stop', {})
+        response.end()
+        return
+      }
       response.write(`data: ${JSON.stringify({ id: 'shared', object: 'chat.completion.chunk', model: 'deepseek-v4-flash', choices: [{ index: 0, delta: { role: 'assistant', content: answer }, finish_reason: null }] })}\n\n`)
       response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`)
       response.end('data: [DONE]\n\n')
@@ -78,7 +91,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('independent backends shar
     const abort = new AbortController()
     const deadline = setTimeout(() => abort.abort(), 50_000)
     try {
-      native = await bootSmokeRuntime(url, { historyHome: sharedHome })
+      native = await bootSmokeRuntime(url, { historyHome: sharedHome, protocol: 'messages' })
       const a = await native.client.sessionCreate({ cwd, agentPreset: 'minimal' })
       await prompt(native.client, a.sessionId, 'from-vscode', abort.signal)
       await savedHistory(sharedHome, a.sessionId, 'VS Code answer.')

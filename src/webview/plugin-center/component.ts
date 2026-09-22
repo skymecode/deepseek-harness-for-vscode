@@ -19,6 +19,7 @@ export function createPluginCenterComponent(options: {
   readonly onOpen: () => void
   readonly onLoad: (force: boolean) => void
   readonly onInstall: (plugin: { readonly spec: string; readonly name?: string; readonly repositoryUrl?: string }) => void
+  readonly onSetEnabled?: (name: string, enabled: boolean) => void
   readonly onRemove: (name: string) => void
   readonly onOpenExternal: (url: string) => void
 }): PluginCenterComponent {
@@ -215,9 +216,17 @@ export function createPluginCenterComponent(options: {
       actions.append(repository)
     }
     const remove = button('danger-button', options.translate('remove'))
-    remove.disabled = snapshot.busy
+    remove.disabled = snapshot.busy || plugin.removable === false
+    remove.title = plugin.readOnlyReason ?? ''
     remove.addEventListener('click', () => options.onRemove(plugin.name))
     actions.append(remove)
+    if (plugin.enabled !== undefined && options.onSetEnabled) {
+      const toggle = button('secondary-button', options.translate(plugin.enabled ? 'disablePlugin' : 'enablePlugin'))
+      toggle.disabled = snapshot.busy || plugin.readOnlyReason !== undefined
+      toggle.title = plugin.readOnlyReason ?? ''
+      toggle.addEventListener('click', () => options.onSetEnabled?.(plugin.name, !plugin.enabled))
+      actions.prepend(toggle)
+    }
     card.append(meta, actions)
     return card
   }

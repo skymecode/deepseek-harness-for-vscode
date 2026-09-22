@@ -16,6 +16,8 @@ type Translate = (key: WebviewMessageKey, args?: MessageArguments) => string
 export interface ComposerConfigurationComponent {
   readonly update: (input: ComposerConfigurationInput | undefined) => void
   readonly selection: () => PromptConfiguration | undefined
+  /** The currently staged model option, if any. */
+  readonly stagedModel: () => ModelConfigurationOption | undefined
   /** Whether the staged model accepts image input; undefined when unknown. */
   readonly supportsImageInput: () => boolean | undefined
   readonly markSubmitted: () => void
@@ -100,6 +102,15 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
 
   selection(): PromptConfiguration | undefined {
     return this.store.snapshot()?.selection
+  }
+
+  /** The model option currently staged in the model picker, if any. */
+  stagedModel(): ModelConfigurationOption | undefined {
+    const snapshot = this.store.snapshot()
+    if (snapshot === undefined) return undefined
+    // Auto mode has not resolved a concrete model yet; do not report a guess.
+    if (snapshot.autoActive) return undefined
+    return snapshot.model
   }
 
   supportsImageInput(): boolean | undefined {
@@ -604,8 +615,9 @@ function modelIcon(id: string): string {
   return '◇'
 }
 
+/** Maps one agent preset id to its compact toolbar glyph. */
 function presetIcon(id: string): string {
-  if (id === 'code') return '</>'
+  if (id === 'code' || id === 'ptc') return '</>'
   if (id === 'minimal') return '—'
   if (id === 'cordis') return icon('sparkle', 11)
   return '◎'

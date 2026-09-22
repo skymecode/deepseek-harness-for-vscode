@@ -7,7 +7,7 @@ vi.mock('vscode', () => ({
   // Only harnessHomePath touches vscode; the pure migration under test does not.
 }))
 
-import { legacyDshSessionsRoot, legacySessionsRoots, migrateLegacySessions } from '../src/runtime/harness-home.js'
+import { legacyDshSessionsRoot, legacySessionsRoots, mergeLegacyTree, migrateLegacySessions } from '../src/runtime/harness-home.js'
 
 let tmpRoot: string | undefined
 
@@ -24,7 +24,23 @@ afterEach(() => {
 })
 
 describe('migrateLegacySessions', () => {
-  it.each(['session.v2.jsonl', 'session.v2.jsonl.zstd', 'session.v3.jsonl', 'session.v3.jsonl.zstd'])('preserves versioned generation %s when copying a legacy home', (filename) => {
+  it('merges missing globalStorage entries when the stable home already exists', () => {
+    const root = makeTmp()
+    const legacy = path.join(root, 'legacy-home')
+    const stable = path.join(root, 'stable-home')
+    mkdirSync(path.join(legacy, 'profiles', 'web'), { recursive: true })
+    mkdirSync(path.join(stable, 'profiles', 'web'), { recursive: true })
+    writeFileSync(path.join(legacy, 'profiles', 'web', 'package.json'), 'legacy')
+    writeFileSync(path.join(legacy, 'credentials.json'), 'legacy-credential')
+    writeFileSync(path.join(stable, 'profiles', 'web', 'package.json'), 'newer')
+
+    mergeLegacyTree(legacy, stable)
+
+    expect(readFileSync(path.join(stable, 'profiles', 'web', 'package.json'), 'utf8')).toBe('newer')
+    expect(readFileSync(path.join(stable, 'credentials.json'), 'utf8')).toBe('legacy-credential')
+  })
+
+  it.each(['session.v2.jsonl', 'session.v2.jsonl.zstd', 'session.v3.jsonl', 'session.v3.jsonl.zstd', 'session.v4.jsonl', 'session.v4.jsonl.zstd'])('preserves versioned generation %s when copying a legacy home', (filename) => {
     const root = makeTmp()
     const legacy = path.join(root, 'legacy')
     const target = path.join(root, 'target')

@@ -1,8 +1,8 @@
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-/** Respect plaintext legacy/custom homes as well as the official default Zstandard format. */
-export async function historyCompression(root: string): Promise<'zstd' | 'none'> {
+/** Lists physical encodings present in a sessions root without opening it. */
+export async function historyFormats(root: string): Promise<readonly ('zstd' | 'none')[]> {
   const formats = new Set<'zstd' | 'none'>()
   const list = async (directory: string) => readdir(directory, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return []
@@ -18,6 +18,12 @@ export async function historyCompression(root: string): Promise<'zstd' | 'none'>
       }
     }
   }
-  if (formats.size > 1) throw new Error('Mixed physical session formats require separate stores; originals preserved.')
-  return formats.has('none') ? 'none' : 'zstd'
+  return [...formats].sort()
+}
+
+/** Respect plaintext legacy/custom homes as well as the official default Zstandard format. */
+export async function historyCompression(root: string): Promise<'zstd' | 'none'> {
+  const formats = await historyFormats(root)
+  if (formats.length > 1) throw new Error('Mixed physical session formats require separate stores; originals preserved.')
+  return formats.includes('none') ? 'none' : 'zstd'
 }

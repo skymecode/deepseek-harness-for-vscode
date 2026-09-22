@@ -12,6 +12,8 @@ export interface ModelConfigurationOption extends ConfigurationOption {
   readonly reasoning: readonly ConfigurationOption[]
   /** Whether the model accepts image input; drives the picker badge. */
   readonly imageInput?: boolean
+  /** The model's effective context window (tokens); drives the composer context meter. */
+  readonly contextWindow?: number
 }
 
 export interface ComposerConfigurationInput {

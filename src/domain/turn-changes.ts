@@ -19,7 +19,7 @@ export interface TurnChangesView {
  * card until its turn/start is loaded, instead of showing a partial total or
  * attaching an old cached card to a newer reply. Never mutate the source log.
  */
-export function projectTurnChanges(entries: readonly HistoryEntry[], messages: readonly ChatItem[]): TurnChangesView[] {
+export function projectTurnChanges(entries: readonly HistoryEntry[], messages: readonly ChatItem[], official: ReadonlyMap<number, SessionChangesView | undefined> = new Map()): TurnChangesView[] {
   const turns = new Map<number, HistoryEntry[]>()
   for (const entry of entries) {
     const data = entry.event.data
@@ -34,8 +34,8 @@ export function projectTurnChanges(entries: readonly HistoryEntry[], messages: r
     if (!group.some(({ event }) => event.type === 'turn/start')) continue
     const end = group.findLast(({ event }) => event.type === 'turn/end')?.event
     if (end === undefined) continue
-    const changes = projectSessionChanges(group)
-    if (changes === undefined) continue
+    const changes = projectSessionChanges(group, official)
+    if (changes === undefined || changes.files.length === 0) continue
     // Usually the final answer; for interrupted/tool-only turns this can be
     // the ending notice or final tool card. Never cross the turn boundary.
     const tail = group.findLast(({ event }) => event.seq <= end.seq && visible.has(event.seq))?.event

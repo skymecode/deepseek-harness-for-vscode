@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { RpcId } from '@deepseek-ai/dsh-client-connection'
 import type { ControlFrame, FollowFrame } from '../src/gateway/gateway-wire.js'
 
 
@@ -27,6 +26,7 @@ import type { WorktreeService } from '../src/editor/worktree-service.js'
 import type { Memento, OutputChannel } from 'vscode'
 
 interface TestClient {
+  abortPendingRequests: ReturnType<typeof vi.fn>
   probe: ReturnType<typeof vi.fn>
   sessionList: ReturnType<typeof vi.fn>
   sessionCreate: ReturnType<typeof vi.fn>
@@ -45,6 +45,7 @@ interface TestClient {
   subagentList: ReturnType<typeof vi.fn>
   subagentPrompt: ReturnType<typeof vi.fn>
   subagentInterrupt: ReturnType<typeof vi.fn>
+  ensureLegacyCodePreset: ReturnType<typeof vi.fn>
   agentPresetList: ReturnType<typeof vi.fn>
   agentPresetSelect: ReturnType<typeof vi.fn>
   workspaceArchiveSession: ReturnType<typeof vi.fn>
@@ -66,6 +67,7 @@ const CONFIG = {
 
 function createService(configOverride: Record<string, unknown> = {}): { service: GatewayTestHarness; client: TestClient; persist: ReturnType<typeof vi.fn>; worktrees: Record<string, ReturnType<typeof vi.fn>>; runtime: { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> } } {
   const client: TestClient = {
+    abortPendingRequests: vi.fn(),
     probe: vi.fn(),
     sessionList: vi.fn().mockResolvedValue([]),
     sessionCreate: vi.fn().mockResolvedValue({ sessionId: 's2', agentPreset: 'code' }),
@@ -84,6 +86,7 @@ function createService(configOverride: Record<string, unknown> = {}): { service:
     subagentList: vi.fn().mockResolvedValue({ entries: [], parentAvailable: true }),
     subagentPrompt: vi.fn().mockResolvedValue({ messageId: 'm1' }),
     subagentInterrupt: vi.fn().mockResolvedValue({ accepted: true }),
+    ensureLegacyCodePreset: vi.fn().mockResolvedValue(undefined),
     agentPresetList: vi.fn().mockResolvedValue({ presets: [], authorable: false }),
     agentPresetSelect: vi.fn().mockResolvedValue('standard'),
     workspaceArchiveSession: vi.fn().mockResolvedValue({ archivedSessionIds: [] }),
@@ -161,6 +164,10 @@ function createService(configOverride: Record<string, unknown> = {}): { service:
   service.activeSessionId = 's1'
   service.summaries.set('s1', { running: false, blank: false, agentPreset: 'standard', updatedAt: 1 })
   service.client = client
+  service.models = {
+    current: { provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'high' },
+    groups: [{ id: 'deepseek-official', name: 'DeepSeek', models: [{ id: 'deepseek-v4-flash', name: 'Flash', reasoning: { efforts: [{ id: 'off' }, { id: 'low' }, { id: 'high' }, { id: 'max' }] } }] }],
+  }
   return {
     service,
     client,
@@ -177,6 +184,7 @@ interface GatewayTestHarness {
   summaries: Map<string, { running?: boolean; blank?: boolean; agentPreset?: string; updatedAt?: number }>
   pendingQueue: { pending: Map<string, unknown[]>; admitted: Set<string> }
   entries: unknown[]
+  projections: Record<string, unknown>
   pendingCarryOver: { targetSessionId: string; message: string } | undefined
   metaStore: { effortIntents: Map<string, string>; metaBySession: Map<string, unknown> }
   models:
@@ -196,6 +204,7 @@ interface GatewayTestHarness {
   createSession: (agentPreset?: string) => Promise<string>
   queue: readonly { id: string; message: { content: readonly { type: string; text?: string }[] } }[]
   selectModel: (provider: string, model: string, reasoningEffort?: string, persist?: boolean, signals?: unknown) => Promise<void>
+  mutateRuntime: <T>(mutation: () => Promise<T>) => Promise<T>
 }
 
 function config(reasoningEffort: string, agentPreset = 'standard'): unknown {
@@ -204,7 +213,34 @@ function config(reasoningEffort: string, agentPreset = 'standard'): unknown {
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
+describe('official control projections', () => {
+  it('restores only the active session Inbox and model selection from a reconnect baseline', () => {
+    const { service } = createService()
+    const inbox = { 'next-step': [], 'next-turn': [{ id: 'pending', content: [{ type: 'text', text: 'continue' }] }] }
+    const model = { provider: 'relay', model: 'custom', reasoningEffort: 'low' }
+    service.handleControl({ type: 'baseline', value: { jobs: {}, projections: {
+      s1: { asOfSeq: 4, values: { inbox, modelSelection: { next: model } } },
+      s2: { asOfSeq: 8, values: { inbox: { 'next-turn': [{ id: 'other', content: [] }] }, modelSelection: { next: { provider: 'other', model: 'wrong' } } } },
+    } } } as unknown as ControlFrame)
+    expect(service.queue.map((item) => item.id)).toEqual(['pending'])
+    expect(service.models?.current).toEqual(model)
+    service.handleControl({ type: 'projection', sessionId: 's2', key: 'inbox', value: {}, seq: 9 } as unknown as ControlFrame)
+    expect(service.queue.map((item) => item.id)).toEqual(['pending'])
+    service.handleControl({ type: 'baseline', value: { jobs: {}, projections: {} } } as unknown as ControlFrame)
+    expect(service.queue).toEqual([])
+    expect(service.projections).toEqual({})
+  })
+
+  it('lets the provider choose reasoning when the official model has no effort catalog', async () => {
+    const { service, client } = createService()
+    service.models = { current: { provider: 'relay', model: 'unknown' }, groups: [{ id: 'relay', name: 'Relay', models: [{ id: 'unknown', name: 'Unknown' }] }] }
+    await service.selectModel('relay', 'unknown', 'max')
+    expect(client.sessionSelectModel).toHaveBeenCalledWith({ sessionId: 's1', provider: 'relay', model: 'unknown' })
+  })
+})
+
 function turnEndFrame(sessionId: string): FollowFrame {
+  void sessionId
   return {
     type: 'event',
     event: { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } }, time: 10, seq: 10 },
@@ -793,5 +829,68 @@ describe('start baseline watchdog', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('retires the timed-out client so a late baseline cannot start stale streams', async () => {
+    vi.useFakeTimers()
+    try {
+      const { service, client, runtime } = createService()
+      let rejectProbe!: (error: Error) => void
+      client.probe.mockImplementation(() => new Promise<void>((_resolve, reject) => { rejectProbe = reject }))
+      client.abortPendingRequests.mockImplementation(() => rejectProbe(new Error('Gateway client closed.')))
+      wireClient(service, client)
+
+      const started = (service as unknown as { start(): Promise<void> }).start()
+      await vi.advanceTimersByTimeAsync(50_000)
+      await started
+
+      expect(client.abortPendingRequests).toHaveBeenCalledOnce()
+      expect(runtime.stop).toHaveBeenCalledOnce()
+      // The retired baseline's promise has already been rejected; releasing
+      // it later cannot make the service start another event-stream pump.
+      expect(client.sessionControl).not.toHaveBeenCalled()
+      expect(client.sessionFollow).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('waits for every running session before mutating the runtime', async () => {
+    vi.useFakeTimers()
+    try {
+      const { service, runtime } = createService()
+      const events: string[] = []
+      service.summaries.set('background', { running: true, blank: false, agentPreset: 'standard', updatedAt: 1 })
+      ;(service as unknown as { start: () => Promise<void> }).start = vi.fn(async () => { events.push('restart') })
+      const mutation = service.mutateRuntime(async () => { events.push('mutation') })
+      await vi.advanceTimersByTimeAsync(250)
+      expect(events).toEqual([])
+
+      service.summaries.set('background', { running: false, blank: false, agentPreset: 'standard', updatedAt: 1 })
+      await vi.advanceTimersByTimeAsync(100)
+      await mutation
+      expect(events).toEqual(['mutation', 'restart'])
+      expect(runtime.stop).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gates a prompt while a profile mutation is restarting the Gateway', async () => {
+    const { service, client } = createService()
+    let releaseMutation!: () => void
+    const holdMutation = new Promise<void>((resolve) => { releaseMutation = resolve })
+    ;(service as unknown as { start: () => Promise<void> }).start = vi.fn(async () => {
+      ;(service as unknown as { client: TestClient }).client = client
+    })
+    const mutation = service.mutateRuntime(async () => await holdMutation)
+    await vi.waitFor(() => expect(client.abortPendingRequests).toHaveBeenCalledOnce())
+    const prompt = service.sendPrompt('queued behind install')
+    await Promise.resolve()
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+    releaseMutation()
+    await mutation
+    await prompt
+    expect(client.sessionPrompt).toHaveBeenCalledOnce()
   })
 })

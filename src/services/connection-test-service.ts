@@ -1,9 +1,10 @@
+import type { NodeGatewayClient as DshNodeGatewayClient } from '../gateway/node-gateway-client.js'
 import type { ConnectionSettingsInput, ConnectionTestResult } from '../domain/connection-settings.js'
 import { validateBaseUrl } from '../domain/base-url.js'
 import { DEEPSEEK_OFFICIAL_PROVIDER } from '../domain/provider.js'
 import { PI_AI_SETTINGS_NS } from './connection-settings-service.js'
 
-type ProviderControlClient = Pick<import('../gateway/node-gateway-client.js').NodeGatewayClient, 'llmDiscoverModels'>
+type ProviderControlClient = Pick<DshNodeGatewayClient, 'llmDiscoverModels'>
 
 /** Uses DSH's upstream GET /models discovery path; it never creates a completion. */
 export class ConnectionTestService {
@@ -21,7 +22,7 @@ export class ConnectionTestService {
       const models = await this.client().llmDiscoverModels(PI_AI_SETTINGS_NS, {
         ...(input.provider === '__new__' ? {} : { provider: input.provider }),
         baseURL,
-        api: 'openai-completions',
+        api: input.api ?? 'openai-completions',
         ...(input.apiKey.trim() === '' ? {} : { apiKey: input.apiKey.trim() }),
       })
       if (models.length === 0) {

@@ -240,18 +240,27 @@ export class SessionImportService {
   /** Returns false when the user declines to install the importer plugin. */
   private async ensureChatImportPlugin(): Promise<boolean> {
     const installed = await this.pluginManager.listInstalled()
-    if (installed.some((plugin) => plugin.name === CHAT_IMPORT_PACKAGE)) return true
+    const importer = installed.find((plugin) => plugin.name === CHAT_IMPORT_PACKAGE)
+    if (importer !== undefined) {
+      if (importer.enabled === false) await this.pluginManager.setEnabled(CHAT_IMPORT_PACKAGE, true)
+      return this.importerReady()
+    }
     const install = vscode.l10n.t('Install')
     const answer = await vscode.window.showWarningMessage(
       vscode.l10n.t('Session import uses the dsh-chat-import plugin. Install it now?'),
-      { modal: true, detail: vscode.l10n.t('Harness will restart after the profile is updated.') },
+      { modal: true, detail: vscode.l10n.t('The official plugin manager will install and activate the importer.') },
       install,
     )
     if (answer !== install) return false
-    await this.gateway.mutateRuntime(async () => {
-      await this.pluginManager.install(CHAT_IMPORT_PACKAGE)
-    })
-    return true
+    await this.pluginManager.install(CHAT_IMPORT_PACKAGE)
+    return this.importerReady()
+  }
+
+  private importerReady(): boolean {
+    const notice = this.pluginManager.takeNotice()
+    if (notice === undefined) return true
+    void vscode.window.showInformationMessage(notice)
+    return false
   }
 
   private requireClient(): NodeGatewayClient {

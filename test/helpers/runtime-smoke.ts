@@ -1,16 +1,20 @@
-import { spawn } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { spawn, execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { build } from 'esbuild'
+import { pnpmWrapper } from '../../src/runtime/bundled-runtime.js'
 import { renderOverlay } from '../../src/runtime/runtime-overlay.js'
 import { NodeGatewayClient } from '../../src/gateway/node-gateway-client.js'
-import { recoverModuleFallback } from '../../src/runtime/module-fallback-recovery.js'
 
 interface SmokeOptions {
   readonly home?: string
   readonly historyHome?: string
   readonly officialUi?: boolean
+  readonly permissionMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
+  /** Messages uses the native DeepSeek adapter; the legacy smoke fixtures use pi-ai Chat Completions. */
+  readonly protocol?: 'messages' | 'chat-completions'
   /** Seed only this test's temporary home; return extra trusted profile rows if needed. */
   readonly prepare?: (home: string, extensionRoot: string) => Promise<string | void>
 }
@@ -26,35 +30,55 @@ export async function bootSmokeRuntime(modelBaseUrl: string, options: SmokeOptio
   }
   let extraOverlay: string | void
   try { extraOverlay = await options.prepare?.(home, extensionRoot) }
-  catch (error) { if (options.home === undefined) await rm(home, { recursive: true, force: true }); throw error }
-  const overlay = options.officialUi === true ? `- id: llm-deepseek\n  config:\n    reasoningEffort: high\n    apiKeyEnv: DSH_SMOKE_API_KEY\n    baseURL: ${JSON.stringify(modelBaseUrl)}\n` : renderOverlay({
-    model: 'deepseek-v4-flash', provider: 'deepseek-official', reasoningEffort: 'high',
-    agentPreset: 'minimal', permissionMode: 'read-only', webSearch: false,
+  catch (error) { if (options.home === undefined) await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); throw error }
+  const messages = options.officialUi === true || options.protocol === 'messages'
+  let overlay = messages ? renderOverlay({
+    model: 'deepseek-flash', provider: 'deepseek-official', reasoningEffort: 'high',
+    agentPreset: 'minimal', permissionMode: options.permissionMode ?? 'read-only', webSearch: false,
     autoAttachSelection: false, experimentalAutoEffort: false, worktreeAutoMerge: 'never',
-  }, gatewayPlugin, options.historyHome).replace('reasoningEffort: high', `reasoningEffort: high\n    apiKeyEnv: DSH_SMOKE_API_KEY\n    baseURL: ${JSON.stringify(modelBaseUrl)}`)
+  }, gatewayPlugin, options.historyHome).replace('reasoningEffort: high', `reasoningEffort: high\n    apiKeyEnv: DSH_SMOKE_API_KEY\n    baseURL: ${JSON.stringify(modelBaseUrl)}`) : renderOverlay({
+    model: 'deepseek-v4-flash', provider: 'smoke', reasoningEffort: 'high',
+    agentPreset: 'minimal', permissionMode: options.permissionMode ?? 'read-only', webSearch: false,
+    autoAttachSelection: false, experimentalAutoEffort: false, worktreeAutoMerge: 'never',
+  }, gatewayPlugin, options.historyHome).replace('provider: "deepseek-official"', 'provider: "smoke"')
+  if (!messages) {
+    const baseURL = modelBaseUrl.replace(/\/+$/u, '')
+    overlay += `\n- id: llm-pi-ai\n  config:\n    providers:\n      smoke:\n        displayName: Smoke\n        api: openai-completions\n        apiKeyEnv: DSH_SMOKE_API_KEY\n        baseURL: ${JSON.stringify(baseURL)}\n        models:\n          - id: deepseek-v4-flash\n            reasoningEfforts:\n              off: null\n              high: high\n              max: max\n`
+  }
   const patch = join(home, 'vscode.patch.yml')
   await writeFile(patch, overlay + (extraOverlay ?? ''))
-  const moduleBackups = await recoverModuleFallback(home, join(extensionRoot, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'))
+  const moduleBackups: { packageName: string; original: string; backup: string }[] = []
   // Do not inherit any provider secrets or user DSH profile overrides.
   const env: NodeJS.ProcessEnv = { DSH_HOME: home, DSH_CWD: home, DSH_TELEMETRY_DISABLED: '1', DSH_SMOKE_API_KEY: 'smoke-only' }
   for (const key of ['PATH', 'HOME', 'USERPROFILE', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR']) {
     if (process.env[key] !== undefined) env[key] = process.env[key]
   }
-  const child = spawn(join(extensionRoot, 'node_modules/node/bin', process.platform === 'win32' ? 'node.exe' : 'node'), [
+  const node = join(extensionRoot, 'node_modules/node/bin', process.platform === 'win32' ? 'node.exe' : 'node')
+  const tooling = join(home, 'runtime-bin')
+  await mkdir(tooling, { recursive: true })
+  const wrapper = pnpmWrapper(process.platform, { node, pnpm: join(extensionRoot, 'node_modules/pnpm/bin/pnpm.mjs') })
+  await writeFile(join(tooling, wrapper.filename), wrapper.content)
+  if (wrapper.executable) await chmod(join(tooling, wrapper.filename), 0o755)
+  env.DSH_BUNDLED_NODE = node
+  env.DSH_BUNDLED_PNPM = join(extensionRoot, 'node_modules/pnpm/bin/pnpm.mjs')
+  env.PATH = [tooling, dirname(node), env.PATH].filter(Boolean).join(delimiter)
+  const child = spawn(node, [
     join(extensionRoot, 'node_modules/@deepseek-ai/dsh/lib/bin.js'), 'web', '--patch', patch, '--host', '127.0.0.1', '--port', '0', ...(options.officialUi === true ? ['--no-open'] : []),
-  ], { cwd: home, env, stdio: ['ignore', 'pipe', 'pipe'] })
+  ], { cwd: home, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
   let diagnostics = ''
   let closed = false
   const exit = new Promise<void>((resolveExit) => child.once('exit', () => { closed = true; resolveExit() }))
   const close = async (): Promise<void> => {
     if (!closed) {
-      child.kill('SIGTERM')
+      if (process.platform === 'win32' && child.pid) {
+        await promisify(execFile)('taskkill.exe', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true }).catch(() => undefined)
+      } else child.kill('SIGTERM')
       const deadline = setTimeout(() => child.kill('SIGKILL'), 5_000)
       await exit
       clearTimeout(deadline)
     }
     // Only this test's mkdtemp directory is removed; real Harness homes are untouched.
-    if (options.home === undefined) await rm(home, { recursive: true, force: true })
+    if (options.home === undefined) await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 })
   }
   try {
     const url = await new Promise<string>((resolveUrl, reject) => {

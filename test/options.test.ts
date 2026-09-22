@@ -9,18 +9,19 @@ import {
 } from '../src/domain/options.js'
 
 describe('official Harness option catalogs', () => {
-  it('contains the two official DeepSeek V4 routes', () => {
-    expect(MODEL_OPTIONS.map((item) => item.id)).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp'])
+  it('contains the current official DeepSeek routes', () => {
+    expect(MODEL_OPTIONS.map((item) => item.id)).toEqual(['deepseek-flash', 'deepseek-v4-pro'])
   })
 
   it('contains the official reasoning and preset ids', () => {
     expect(REASONING_OPTIONS.map((item) => item.id)).toEqual(['off', 'low', 'high', 'max'])
-    expect(AGENT_PRESET_OPTIONS.map((item) => item.id)).toEqual(['standard', 'code', 'minimal', 'cordis'])
+    expect(AGENT_PRESET_OPTIONS.map((item) => item.id)).toEqual(['standard', 'ptc', 'minimal', 'cordis'])
   })
 
   it('falls back safely when settings contain stale values', () => {
-    expect(modelId('unknown')).toBe('deepseek-v4-flash')
+    expect(modelId('unknown')).toBe('deepseek-flash')
     expect(reasoningEffort('unknown')).toBe('high')
+    expect(agentPresetId('code')).toBe('ptc')
     expect(agentPresetId('unknown')).toBe('standard')
   })
 })

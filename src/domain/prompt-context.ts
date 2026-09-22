@@ -19,4 +19,10 @@ export interface ImagePromptAttachment {
   readonly name?: string
 }
 
-export type PromptAttachment = TextPromptAttachment | ImagePromptAttachment
+export interface FilePromptAttachment {
+  readonly kind: 'binary-file'
+  readonly file: string
+  readonly data: string
+}
+
+export type PromptAttachment = TextPromptAttachment | ImagePromptAttachment | FilePromptAttachment

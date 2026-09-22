@@ -39,13 +39,15 @@ export function numberValue(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined
 }
 
+/** Coerces untrusted webview form values into the validated settings input shape. */
 export function settingsInput(value: Record<string, unknown>): ConnectionSettingsInput {
   const provider = typeof value.provider === 'string' && value.provider !== '' ? value.provider : 'deepseek-official'
   const name = typeof value.name === 'string' ? value.name : ''
   const baseUrl = typeof value.baseUrl === 'string' ? value.baseUrl : ''
   const apiKey = typeof value.apiKey === 'string' ? value.apiKey : ''
   const models = modelsInput(value.models)
-  return { provider, name, baseUrl, apiKey, models }
+  const modelContextWindows = modelContextWindowsInput(value.modelContextWindows)
+  return { provider, name, baseUrl, apiKey, models, modelContextWindows, ...(typeof value.api === 'string' ? { api: value.api } : {}) }
 }
 
 /** Accepts an array of ids or a single comma/space-separated string. */
@@ -55,6 +57,19 @@ export function modelsInput(value: unknown): readonly string[] {
     return value.split(/[,，\s]+/u).map((item) => item.trim()).filter((item) => item !== '')
   }
   return []
+}
+
+/** A model id → context window (tokens) map; non-positive or non-numeric entries are dropped. */
+export function modelContextWindowsInput(value: unknown): Readonly<Record<string, number>> {
+  if (!isRecord(value)) return {}
+  const result: Record<string, number> = {}
+  for (const [id, raw] of Object.entries(value)) {
+    if (id === '' || typeof raw !== 'number' || !Number.isFinite(raw)) continue
+    const tokens = Math.round(raw)
+    if (tokens <= 0) continue
+    result[id] = tokens
+  }
+  return result
 }
 
 /** Stable, cross-platform ZIP name for a session log export. */

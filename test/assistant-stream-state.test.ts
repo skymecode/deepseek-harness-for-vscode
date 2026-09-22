@@ -113,5 +113,5 @@ function completedMessage(): HistoryEntry {
         { type: 'chunk', time: 110, chunk: { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'Think' } } },
       ],
     },
-  } } as HistoryEntry
+  } } as unknown as HistoryEntry
 }

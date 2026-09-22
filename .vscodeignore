@@ -1,4 +1,5 @@
 .github/**
+.agents/**
 .vscode/**
 .commandcode/**
 # Per-session git worktree isolation data (A2). Created under the repo root at

@@ -1,5 +1,4 @@
 import type { HarnessConfiguration } from '../../config/configuration.js'
-import { supportsImageInput } from '../../domain/model-modalities.js'
 import type { HarnessWorkbenchState } from '../../domain/workbench-state.js'
 import type { ComposerConfigurationInput, ConfigurationOption, ModelConfigurationOption } from './types.js'
 
@@ -47,13 +46,9 @@ export function composerConfigurationInput(
       id: model.id,
       label: model.name,
       ...(model.description === undefined ? {} : { description: model.description }),
-      // The wire catalog drops inputModalities, so capability comes from the
-      // shared vision table (plus the vision-name fallback) used by admission
-      // and relay profile writing.
-      ...(supportsImageInput(model.id) ? { imageInput: true } : {}),
-      reasoning: model.reasoning.length === 0
-        ? fallbackReasoning
-        : model.reasoning.map((effort) => {
+      imageInput: model.inputModalities?.includes('image') === true,
+      ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
+      reasoning: model.reasoning.map((effort) => {
           const fallback = fallbackReasoning.find((option) => option.id === effort.id)
           const description = effort.description ?? fallback?.description
           return {
@@ -69,7 +64,7 @@ export function composerConfigurationInput(
       id: fallbackModel.id,
       label: fallbackModel.label,
       ...(fallbackModel.description === undefined ? {} : { description: fallbackModel.description }),
-      ...(supportsImageInput(fallbackModel.id) ? { imageInput: true } : {}),
+      imageInput: false,
       reasoning: fallbackReasoning,
     })))
   const presets: readonly ConfigurationOption[] = payload.state.presets.length > 0

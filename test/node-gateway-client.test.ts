@@ -104,6 +104,21 @@ describe('NodeGatewayClient Remote carrier', () => {
     await expect(client.discoverImportSessions()).rejects.toThrow(/timed out after 50ms/)
   })
 
+  it('cancels an in-flight Gateway RPC when the owning client is retired', async () => {
+    let resolveRequestSeen!: () => void
+    const requestSeen = new Promise<void>((resolve) => { resolveRequestSeen = resolve })
+    const server = createServer(() => { resolveRequestSeen() })
+    servers.push(server)
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address() as AddressInfo
+    const client = new NodeGatewayClient(`http://127.0.0.1:${address.port}`, 30_000)
+    const pending = client.probe()
+    await requestSeen
+    client.abortPendingRequests()
+    await expect(pending).rejects.toThrow()
+    await expect(client.probe()).rejects.toThrow('Gateway client is closed')
+  })
+
   it('aborts when the import API sends headers but never finishes the body', async () => {
     const server = createServer((_request, response) => {
       response.writeHead(200, { 'content-type': 'application/json' })

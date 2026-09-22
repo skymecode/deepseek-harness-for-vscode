@@ -1,8 +1,9 @@
 import type { HistoryEntry, JobView, SessionSummary, SkillEntry } from '../gateway/gateway-wire.js'
-import type { AgentPresetRow as AgentPresetEntry } from '@deepseek-ai/dsh-agent-presets/types'
+import type { AgentPresetRow as AgentPresetEntry } from '@deepseek-ai/dsh-agent-preset-registry/types'
 import type { ModelReasoningEffort } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {} from '@deepseek-ai/dsh-commands/types'
 import type {} from '@deepseek-ai/dsh-tool-todo'
+import type {} from '@deepseek-ai/dsh-tool-present/types'
 import type { ContextPressureView } from './context-pressure.js'
 import type { EffortIntent } from './session-effort.js'
 import type { SessionChangesView } from './session-changes.js'
@@ -110,6 +111,9 @@ export interface ModelView {
   readonly name: string
   readonly description?: string
   readonly reasoning: readonly ModelReasoningEffort[]
+  /** The model's effective context window (tokens), when known. */
+  readonly contextWindow?: number
+  readonly inputModalities?: readonly string[]
 }
 
 export interface ActiveSessionView {
@@ -131,7 +135,7 @@ export interface ActiveSessionView {
   readonly subagentCount: number
   readonly subagents: readonly SubagentView[]
   readonly parentSessionId?: string
-  readonly subagentMode?: 'one-shot' | 'continuable'
+  readonly subagentMode?: 'one-shot' | 'continuable' | 'unknown'
   readonly permissions?: PermissionView
   readonly commands?: readonly CommandEntry[]
   readonly plan?: { readonly active: boolean; readonly pending: boolean }
@@ -510,7 +514,7 @@ export function projectConversation(entries: readonly HistoryEntry[], labels = E
   for (const { event } of entries) {
     switch (event.type) {
       case 'system/message': {
-        // V3 persists system prompts as surface messages. Keep every snapshot
+        // V3/V4 persists system prompts as surface messages. Keep every snapshot
         // inspectable, including replacements, without presenting it as a reply.
         const message = event.data.message
         addMessage({
@@ -564,6 +568,17 @@ export function projectConversation(entries: readonly HistoryEntry[], labels = E
             blocks,
           }, event.data.turn)
         }
+        break
+      }
+      case 'deliverables/presented': {
+        addMessage({
+          id: `event-${event.seq}`, seq: event.seq, time: event.time,
+          kind: 'message', role: 'assistant',
+          blocks: event.data.files.map((file) => ({
+            kind: 'text',
+            text: `[${file.path.replace(/[[\]\\]/g, '\\$&')}](<${encodeURI(file.path).replace(/[<>]/g, (c) => encodeURIComponent(c))}>)${file.description ? `\n${file.description}` : ''}`,
+          })),
+        }, event.data.turn)
         break
       }
       case 'tool/call': {
@@ -826,6 +841,10 @@ function projectBlocks(blocks: readonly unknown[], labels: WorkbenchLabels): Cha
     if (!isRecord(value) || typeof value.type !== 'string') continue
     if ((value.type === 'text' || value.type === 'reasoning') && typeof value.text === 'string') {
       result.push({ kind: value.type, text: value.text })
+    } else if (value.type === 'file') {
+      const ref = isRecord(value.ref) ? value.ref : value
+      const name = typeof ref.name === 'string' ? ref.name : typeof ref.path === 'string' ? ref.path : 'File'
+      result.push({ kind: 'text', text: `[${name}]` })
     } else if (value.type === 'image') {
       result.push({ kind: 'image', text: labels.imageAttachment })
     }

@@ -22,6 +22,7 @@ export class DshPluginCenterController implements vscode.Disposable {
   }
 
   async load(force: boolean): Promise<void> {
+    await this.gateway.ensureStarted()
     this.update(pendingSnapshot(this.snapshot))
     const [catalog, installed] = await Promise.allSettled([
       this.catalog.load(vscode.env.language, force),
@@ -56,6 +57,7 @@ export class DshPluginCenterController implements vscode.Disposable {
     await this.mutate(
       async () => { await this.manager.install(spec) },
       vscode.l10n.t('DSH plugin installed: {0}', label),
+      this.manager.requiresStoppedRuntime(spec),
     )
   }
 
@@ -63,21 +65,35 @@ export class DshPluginCenterController implements vscode.Disposable {
     const remove = vscode.l10n.t('Remove')
     const answer = await vscode.window.showWarningMessage(
       vscode.l10n.t('Remove DSH plugin “{0}”?', name),
-      { modal: true, detail: vscode.l10n.t('Harness will restart after the profile is updated.') },
+      { modal: true, detail: vscode.l10n.t('The official plugin manager will unload and remove this bundle.') },
       remove,
     )
     if (answer !== remove) return
     await this.mutate(
       async () => { await this.manager.remove(name) },
       vscode.l10n.t('DSH plugin removed: {0}', name),
+      this.manager.requiresStoppedRuntime(name),
     )
   }
 
-  private async mutate(mutation: () => Promise<void>, successMessage: string): Promise<void> {
+  async setEnabled(name: string, enabled: boolean): Promise<void> {
+    await this.mutate(() => this.manager.setEnabled(name, enabled), vscode.l10n.t('Plugin state updated.'))
+  }
+
+  private async mutate(mutation: () => Promise<void>, successMessage: string, stopRuntime = false): Promise<void> {
     this.update(pendingSnapshot(this.snapshot))
     try {
-      await this.gateway.mutateRuntime(mutation)
-      void vscode.window.showInformationMessage(successMessage)
+      await this.gateway.ensureStarted()
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+        title: vscode.l10n.t('Updating DSH plugins…'), cancellable: !stopRuntime,
+      }, async (_progress, token) => {
+        const subscription = token.onCancellationRequested(() => { void this.manager.cancelInstall().catch((error: unknown) => { this.update({ ...this.snapshot, error: errorText(error) }) }) })
+        try {
+          if (stopRuntime) await this.gateway.mutateRuntime(mutation)
+          else await mutation()
+        } finally { subscription.dispose() }
+      })
+      void vscode.window.showInformationMessage(this.manager.takeNotice() ?? successMessage)
       await this.load(false)
     } catch (cause) {
       this.update({ ...this.snapshot, busy: false, error: errorText(cause) })

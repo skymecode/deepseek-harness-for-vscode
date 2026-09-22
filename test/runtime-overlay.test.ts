@@ -11,7 +11,7 @@ describe('Harness Web profile overlay', () => {
     const overlay = renderOverlay({
       model: 'deepseek-v4-pro',
       reasoningEffort: 'max',
-      agentPreset: 'code',
+      agentPreset: 'ptc',
       provider: 'packycode',
       permissionMode: 'workspace-write',
       webSearch: true,
@@ -25,8 +25,8 @@ describe('Harness Web profile overlay', () => {
     expect(overlay).toContain(`name: ${JSON.stringify(pathToFileURL('/extension/dist/runtime/gateway-runtime.mjs').href)}`)
     expect(overlay).toContain('reasoningEffort: max')
     expect(overlay).toContain('provider: "packycode"')
-    expect(overlay).toContain('model: deepseek-v4-pro')
-    expect(overlay).toContain('default: code')
+    expect(overlay).toContain('model: "deepseek-v4-pro"')
+    expect(overlay).toContain('default: ptc')
     expect(overlay).toContain('defaultPreset: workspace-write')
     expect(overlay).not.toContain('llm-pi-ai')
     expect(overlay).not.toContain('web-search-deepseek')
@@ -70,4 +70,17 @@ describe('Harness Web profile overlay', () => {
     expect(overlay).toContain('defaultPreset: read-only')
     expect(() => load(overlay)).not.toThrow()
   })
+  it('quotes malicious model text and disables both extra-request reporting plugins', () => {
+    const model = 'x\n- id: session-log-deepseek\n  config:\n    enabled: true\n# !!js (() => globalThis.pwned = true)()'
+    const parsed = load(renderOverlay({ model, provider: 'deepseek-official', reasoningEffort: 'high',
+      agentPreset: 'minimal', permissionMode: 'read-only', webSearch: false, autoAttachSelection: false,
+      experimentalAutoEffort: false, worktreeAutoMerge: 'never',
+    }, '/extension/gateway.mjs')) as { id?: string; config?: Record<string, unknown> }[]
+    expect(parsed.find((row) => row.id === 'agent-default-model')?.config?.model).toBe(model)
+    for (const id of ['session-log-deepseek', 'plugin-package-inventory-deepseek']) {
+      expect(parsed.filter((row) => row.id === id)).toHaveLength(1)
+      expect(parsed.find((row) => row.id === id)?.config?.enabled).toBe(false)
+    }
+  })
+
 })

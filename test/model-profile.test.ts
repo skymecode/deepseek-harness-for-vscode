@@ -97,7 +97,7 @@ describe('pickAutoModel', () => {
   })
 
   it('never switches an image prompt onto a text-only model', () => {
-    const vision = { id: 'deepseek-v4-flash-vision-exp', reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } }
+    const vision = { id: 'deepseek-v4-flash-vision-exp', inputModalities: ['text', 'image'], reasoning: { efforts: [{ id: 'low' }, { id: 'high' }] } }
     const withImage = { ...heavy, attachmentCount: 1, imageCount: 1 }
     // Heavy image prompt: without the guard this would escalate to v4-pro,
     // whose text-only route the admission check then rejects.

@@ -2938,7 +2938,10 @@ body.vscode-light .markdown-body .hljs-deletion {
   grid-template-columns: minmax(0, 44%) minmax(0, 1fr);
   gap: 6px;
   align-items: stretch;
-  max-height: 280px;
+  /* Fixed height (not max-height) so the panel does not resize when a
+     provider tab with fewer models is selected, or grow past the viewport
+     when a tab with many models (e.g. a local relay's full catalog) opens. */
+  height: 280px;
   overflow: hidden;
 }
 .configuration-provider-rail {
@@ -2946,17 +2949,22 @@ body.vscode-light .markdown-body .hljs-deletion {
   gap: 3px;
   align-content: start;
   min-height: 0;
-  max-height: 280px;
+  height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 .configuration-provider-models {
   display: grid;
-  gap: 4px;
-  align-content: start;
   min-height: 0;
-  max-height: 280px;
+  height: 100%;
+  /* The model list below is the single scroll container for this pane; this
+     wrapper only sizes it, so there is never a nested double scrollbar. */
+  overflow: hidden;
+}
+.configuration-provider-models .configuration-model-list {
+  height: 100%;
+  max-height: none;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;

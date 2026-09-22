@@ -1,3 +1,5 @@
+import type { JsonValue as DshJsonValue } from '@deepseek-ai/dsh-util-values'
+import type { SettingsPathOpView as DshSettingsPathOpView } from '@deepseek-ai/dsh-settings/types'
 /**
  * Adapts the upstream DSH settings/credentials/LLM control plane to the
  * extension's deliberately small DeepSeek-source form.
@@ -12,6 +14,7 @@ import {
   DEEPSEEK_OFFICIAL_BASE_URL,
   DEEPSEEK_OFFICIAL_PROVIDER,
   isDeepSeekOfficialBaseUrl,
+  isLegacyOfficialRoot,
   providerKeyEnv,
   providerRoute,
 } from '../domain/provider.js'
@@ -28,10 +31,9 @@ import {
   deepSeekRelayProfile,
   normalizeInput,
   providerView,
-  relayCompat,
+  KEYLESS_AUTHORIZATION,
   relayModels,
   valueAt,
-  valueOf,
   type ProviderControlClient,
 } from './connection-settings/mapping.js'
 import { runMigrations } from './connection-settings/migrations.js'
@@ -50,6 +52,7 @@ const EMPTY_STATE: ConnectionSettingsState = {
     name: 'DeepSeek Official',
     baseUrl: DEEPSEEK_OFFICIAL_BASE_URL,
     models: [],
+    modelContextWindows: {},
     apiKeyConfigured: false,
     credentialWritable: false,
     removable: false,
@@ -100,27 +103,15 @@ export class ConnectionSettingsService {
 
   async refresh(): Promise<ConnectionSettingsState> {
     const client = this.requireClient()
-    const [configurable, described, models, live] = await Promise.all([
+    const [configurable, described, live] = await Promise.all([
       client.llmListConfigurableProviders(),
       client.settingsDescribe(),
-      client.sessionModelCatalog(),
       client.llmListProviders(),
     ])
     const liveIds = new Set(live.map((provider) => provider.id))
     const namespaces = new Map(described.namespaces.map((namespace) => [namespace.ns, namespace]))
-    // A custom relay is compatible when it exposes at least one model — its
-    // ids need not be the built-in DeepSeek pair (e.g. Volcengine Ark model
-    // ids or endpoint ids). The official route is always compatible.
-    const groupsByProvider = new Map(models.groups.map((group) => [group.id, group]))
-    const compatible = new Set<string>([DEEPSEEK_OFFICIAL_PROVIDER])
-    for (const entry of configurable) {
-      if (entry.settingsNs !== DEEPSEEK_SETTINGS_NS && entry.settingsNs !== PI_AI_SETTINGS_NS) continue
-      if (groupsByProvider.get(entry.provider)?.models.length) compatible.add(entry.provider)
-    }
-
     const entries = configurable.filter((entry) => (
-      compatible.has(entry.provider)
-      && (entry.provider === DEEPSEEK_OFFICIAL_PROVIDER || liveIds.has(entry.provider))
+      (entry.provider === DEEPSEEK_OFFICIAL_PROVIDER || liveIds.has(entry.provider) || entry.declared === true)
       && (entry.settingsNs === DEEPSEEK_SETTINGS_NS || entry.settingsNs === PI_AI_SETTINGS_NS)
     ))
     const references = [...new Set(entries.map((entry) => credentialRef(entry, namespaces.get(entry.settingsNs))))] as string[]
@@ -141,6 +132,7 @@ export class ConnectionSettingsService {
     return this.stateValue
   }
 
+  /** Persists a normalized provider profile and optional credentials; returns the provider id. */
   async apply(input: ConnectionSettingsInput): Promise<string> {
     const normalized = normalizeInput(input)
     if (normalized.provider === DEEPSEEK_OFFICIAL_PROVIDER) {
@@ -158,23 +150,36 @@ export class ConnectionSettingsService {
     }
     const existing = this.stateValue.providers.find((provider) => provider.id === route)
     if (input.provider === '__new__' && existing !== undefined) throw new Error('A provider with this name already exists.')
-    if (input.provider === '__new__' && normalized.apiKey === '') throw new Error('The provider API key cannot be empty.')
-
     const client = this.requireClient()
     const namespace = await this.namespace(PI_AI_SETTINGS_NS)
-    const keyRef = providerKeyEnv(route)
-    const profile = deepSeekRelayProfile(normalized.name, normalized.baseUrl, keyRef, normalized.models) as unknown as import('@deepseek-ai/dsh-util-values').JsonValue
+    const oldProfile = valueAt(namespace.value, ['providers', route])
+    const keyRef = existing === undefined ? providerKeyEnv(route) : credentialRefForProfile(oldProfile, route)
+    // A new provider submitted with a blank key is deliberately keyless: omit
+    // `apiKeyEnv` so the pi-ai adapter resolves it as unauthenticated instead
+    // of failing every request on an unset credential ref (MISSING_CREDENTIAL).
+    const profile = deepSeekRelayProfile(
+      normalized.name,
+      normalized.baseUrl,
+      normalized.apiKey === '' ? undefined : keyRef,
+      normalized.models,
+      normalized.modelContextWindows,
+      normalized.api,
+    ) as unknown as DshJsonValue
     const ops: SettingsPathOpView[] = existing === undefined
       ? [{ op: 'set', path: ['providers', route], value: profile }]
       : [
           { op: 'set', path: ['providers', route, 'displayName'], value: normalized.name },
           { op: 'set', path: ['providers', route, 'baseURL'], value: normalized.baseUrl },
-          { op: 'set', path: ['providers', route, 'api'], value: 'openai-completions' },
-          { op: 'set', path: ['providers', route, 'compat'], value: relayCompat() as unknown as import('@deepseek-ai/dsh-util-values').JsonValue },
-          { op: 'set', path: ['providers', route, 'models'], value: relayModels(normalized.models) as unknown as import('@deepseek-ai/dsh-util-values').JsonValue },
+          { op: 'set', path: ['providers', route, 'models'], value: relayModels(normalized.models, input.modelContextWindows === undefined ? undefined : normalized.modelContextWindows, valueAt(oldProfile, ['models'])) as unknown as DshJsonValue },
           ...(normalized.apiKey === '' ? [] : [{ op: 'set' as const, path: ['providers', route, 'apiKeyEnv'], value: keyRef }]),
         ]
-    await client.settingsMutate(PI_AI_SETTINGS_NS, ops as import('@deepseek-ai/dsh-settings/types').SettingsPathOpView[], namespace.revision)
+    if (existing && normalized.api !== undefined && normalized.api !== valueAt(oldProfile, ['api'])) {
+      ops.push({ op: 'set', path: ['providers', route, 'api'], value: normalized.api })
+    }
+    if (normalized.apiKey !== '' && valueAt(oldProfile, ['headers', 'authorization']) === KEYLESS_AUTHORIZATION) {
+      ops.push({ op: 'unset', path: ['providers', route, 'headers', 'authorization'] })
+    }
+    await client.settingsMutate(PI_AI_SETTINGS_NS, ops as DshSettingsPathOpView[], namespace.revision)
     if (normalized.apiKey !== '') await client.credentialsSet(keyRef, normalized.apiKey)
     await this.refresh()
     return route
@@ -215,7 +220,7 @@ export class ConnectionSettingsService {
       throw new Error('Third-party endpoints must be added as a custom provider.')
     }
     const namespace = await this.namespace(DEEPSEEK_SETTINGS_NS)
-    const normalizedBase = baseUrl === DEEPSEEK_OFFICIAL_BASE_URL ? '' : baseUrl
+    const normalizedBase = baseUrl === DEEPSEEK_OFFICIAL_BASE_URL || isLegacyOfficialRoot(baseUrl) ? '' : baseUrl
     const ops: SettingsPathOpView[] = normalizedBase === ''
       ? [{ op: 'unset', path: ['baseURL'] }]
       : [{ op: 'set', path: ['baseURL'], value: normalizedBase }]

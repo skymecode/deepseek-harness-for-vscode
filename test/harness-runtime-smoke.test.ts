@@ -10,12 +10,28 @@ import { bootSmokeRuntime } from './helpers/runtime-smoke.js'
 
 // Opt-in: starts the bundled native runtime, never an installed user profile.
 describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('bundled Harness end-to-end', () => {
-  it('authenticates, streams reasoning, settles and reloads V3 history through the headless Gateway', async () => {
+  it('authenticates, streams reasoning, settles and reloads V4 history through the headless Gateway', async () => {
     const requests: string[] = []
     const server = createServer((request, response) => {
       requests.push(request.url ?? '')
       request.resume()
       response.writeHead(200, { 'content-type': 'text/event-stream' })
+      if (request.url?.endsWith('/v1/messages') === true) {
+        const event = (type: string, value: object): void => {
+          response.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`)
+        }
+        event('message_start', { message: { id: 'smoke', type: 'message', role: 'assistant', content: [], model: 'deepseek-v4-flash', usage: { input_tokens: 10, output_tokens: 0 } } })
+        event('content_block_start', { index: 0, content_block: { type: 'thinking', thinking: '' } })
+        event('content_block_delta', { index: 0, delta: { type: 'thinking_delta', thinking: 'Thinking incrementally.' } })
+        event('content_block_stop', { index: 0 })
+        event('content_block_start', { index: 1, content_block: { type: 'text', text: '' } })
+        event('content_block_delta', { index: 1, delta: { type: 'text_delta', text: 'Smoke passed.' } })
+        event('content_block_stop', { index: 1 })
+        event('message_delta', { delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 8 } })
+        event('message_stop', {})
+        response.end()
+        return
+      }
       const delta = (value: object): void => { response.write(`data: ${JSON.stringify({ id: 'smoke', object: 'chat.completion.chunk', created: 1, model: 'deepseek-v4-flash', choices: [{ index: 0, delta: value, finish_reason: null }] })}\n\n`) }
       delta({ role: 'assistant', reasoning_content: 'Thinking' })
       const next = setTimeout(() => {
@@ -31,7 +47,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('bundled Harness end-to-en
     const abort = new AbortController()
     const deadline = setTimeout(() => abort.abort(), 40_000)
     try {
-      runtime = await bootSmokeRuntime(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
+      runtime = await bootSmokeRuntime(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, { protocol: 'messages' })
       const { client } = runtime
       await client.probe()
       const created = await client.sessionCreate({ cwd: runtime.home, agentPreset: 'minimal' })
@@ -56,7 +72,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('bundled Harness end-to-en
       }
       expect(settled).toBe(true)
       expect(liveReasoning).toBe(true)
-      expect(requests).toContain('/chat/completions')
+      expect(requests).toContain('/v1/messages')
       const projected = projectConversation(presentationHistory(history)).messages
       expect(projected.some((item) => item.blocks?.some((block) => block.text === 'Smoke passed.'))).toBe(true)
       expect(projected.some((item) => item.blocks?.some((block) => block.kind === 'reasoning' && block.duration?.endedAt !== undefined))).toBe(true)

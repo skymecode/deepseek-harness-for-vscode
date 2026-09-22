@@ -5,7 +5,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**'],
+    ignores: ['dist/**', 'coverage/**', 'node_modules/**', '.dsh-worktrees/**'],
   },
   {
     files: ['esbuild.mjs', 'scripts/**/*.mjs'],

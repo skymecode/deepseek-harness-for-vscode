@@ -55,15 +55,15 @@ describe('automatic recovery entry points', () => {
     vi.spyOn(runtime as unknown as BootSeam, 'spawnGateway').mockResolvedValue({ url: 'http://127.0.0.1:1234' })
     await runtime.start()
     expect(runtime.sharedHistory).toBe(false)
-    expect(await readFile(join(state.home, 'vscode.patch.yml'), 'utf8')).toContain(JSON.stringify(join(state.home, 'sessions')))
+    expect(await readFile(join(state.home, 'vscode.patch.yml'), 'utf8')).toContain(JSON.stringify(join(state.home, 'history-recovery', 'sessions')))
     await runtime.stop()
   })
-  it('repairs before Gateway spawn and retries a newly reported conflict only once', async () => {
+  it('tries the official resolver first and repairs only a reported legacy conflict', async () => {
     const f = await fixture()
     const runtime = new HarnessHostRuntime(f.context, f.configuration, f.resolver, f.output)
     let attempts = 0
     const spawn = vi.spyOn(runtime as unknown as BootSeam, 'spawnGateway').mockImplementation(async () => {
-      expect(existsSync(f.obstruction)).toBe(false)
+      expect(existsSync(f.obstruction)).toBe(attempts === 0)
       if (++attempts === 1) { await f.plant(); return { exitCode: 1, diagnostics: conflict } }
       return { url: 'http://127.0.0.1:1234' }
     })
@@ -85,10 +85,10 @@ describe('automatic recovery entry points', () => {
     await runtime.stop()
   })
 
-  it('repairs before invoking a community-plugin installation, without replaying the mutation', async () => {
+  it('leaves package resolution to the official CLI for retained legacy recipes', async () => {
     const f = await fixture()
     state.spawn.mockImplementation(() => {
-      expect(existsSync(f.obstruction)).toBe(false)
+      expect(existsSync(f.obstruction)).toBe(true)
       const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter() })
       queueMicrotask(() => child.emit('exit', 0, null))
       return child
@@ -96,7 +96,7 @@ describe('automatic recovery entry points', () => {
     const plugins = new DshPluginManager(f.context, f.resolver, f.output)
     await plugins.install('example-plugin')
     expect(state.spawn).toHaveBeenCalledOnce()
-    expect(f.output.appendLine).toHaveBeenCalledWith(expect.stringContaining('Backed up incompatible module'))
+    expect(f.output.appendLine).not.toHaveBeenCalledWith(expect.stringContaining('Backed up incompatible module'))
     expect(await readFile(join(f.context.asAbsolutePath('node_modules/@deepseek-ai/dsh'), 'package.json'), 'utf8')).toContain('1.0.0')
   })
 })

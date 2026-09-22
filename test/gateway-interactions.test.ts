@@ -71,8 +71,8 @@ function fixture() {
   state.activeSessionId = 'foreground'
   for (const id of ['foreground', 'background', 'child-session']) {
     state.summaries.set(id, {
-      sessionId: id as SessionSummary['sessionId'], running: true, blank: false, updatedAt: 1,
-      projections: { asOfSeq: 0, values: { title: id } },
+      sessionId: id as SessionSummary['sessionId'], agentAvailable: true, running: true, blank: false, updatedAt: 1,
+      projections: { kind: 'sequenced', asOfSeq: 0, values: { title: id } },
     })
   }
   const nextQueue = (): RemoteEventQueue => {

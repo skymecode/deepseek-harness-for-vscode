@@ -96,6 +96,10 @@ export interface WorkbenchViewActions {
         optionalHttpUrl(value.repositoryUrl),
       )
       break
+    case 'setPluginEnabled':
+      if (typeof value.enabled !== 'boolean') throw new Error('Invalid plugin enablement.')
+      await ctx.pluginCenter.setEnabled(requiredString(value, 'name'), value.enabled)
+      break
     case 'removePlugin':
       await ctx.pluginCenter.remove(requiredString(value, 'name'))
       break
@@ -350,30 +354,20 @@ export interface WorkbenchViewActions {
       break
     }
     case 'sessionChangesReview': {
-      // Open a real unified-diff document for the latest turn's edits —
-      // the worktree diff when the session is isolated, else the main
-      // checkout's uncommitted diff. Falls back to VS Code's Source
-      // Control review when no diff text is available.
-      const diff = await ctx.gateway.recentTurnDiff(ctx.gateway.openSessionId())
-      if (diff !== undefined && diff.trim() !== '') {
-        const document = await vscode.workspace.openTextDocument({ language: 'diff', content: diff })
-        await vscode.window.showTextDocument(document, { preview: true })
+      const sessionId = optionalString(value.sessionId)
+      const seq = numberValue(value.seq)
+      const index = numberValue(value.index)
+      const diff = sessionId === undefined || seq === undefined ? undefined
+        : await ctx.gateway.officialTurnDiff(sessionId, seq, index)
+      if (diff === undefined) {
+        void vscode.window.showInformationMessage(vscode.l10n.t('The historical comparison is no longer available in this Harness runtime.'))
         break
       }
-      await vscode.commands.executeCommand('workbench.view.scm')
+      const document = await vscode.workspace.openTextDocument({ language: 'diff', content: diff })
+      await vscode.window.showTextDocument(document, { preview: true })
       break
     }
-    case 'sessionChangesUndo': {
-      const sessionId = ctx.gateway.openSessionId()
-      if (sessionId !== undefined && (await ctx.gateway.worktreeDiscard(sessionId)).ok) {
-        void vscode.window.showInformationMessage(vscode.l10n.t('The session worktree changes were discarded.'))
-      } else {
-        void vscode.window.showInformationMessage(
-          vscode.l10n.t('Undo of the last turn is only available for isolated sessions.'),
-        )
-      }
-      break
-    }
+
   }
   }
 

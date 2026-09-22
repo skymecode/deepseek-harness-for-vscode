@@ -109,5 +109,6 @@ components.pluginCenter = createPluginCenterComponent({
     ...(repositoryUrl === undefined ? {} : { repositoryUrl }),
   }),
   onRemove: (name) => post('removePlugin', { name }),
+  onSetEnabled: (name, enabled) => post('setPluginEnabled', { name, enabled }),
   onOpenExternal: (url) => post('openExternal', { url }),
 })

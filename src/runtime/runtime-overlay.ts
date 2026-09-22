@@ -37,10 +37,18 @@ ${webSearchRow}- id: llm-deepseek
   config:
     reasoningEffort: ${configuration.reasoningEffort}
 
+- id: session-log-deepseek
+  config:
+    enabled: false
+
+- id: plugin-package-inventory-deepseek
+  config:
+    enabled: false
+
 - id: agent-default-model
   config:
     provider: ${JSON.stringify(configuration.provider)}
-    model: ${configuration.model}
+    model: ${JSON.stringify(configuration.model)}
 
 - id: agent-presets
   config:

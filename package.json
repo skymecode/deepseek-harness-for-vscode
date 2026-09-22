@@ -2,7 +2,7 @@
   "name": "deepseek-harness-for-vscode",
   "displayName": "DeepSeek Harness for Visual Studio Code",
   "description": "%extension.description%",
-  "version": "0.6.0",
+  "version": "0.6.1-dev",
   "type": "module",
   "publisher": "skymecode",
   "license": "MIT",
@@ -31,8 +31,7 @@
   "l10n": "./l10n",
   "scripts": {
     "patch:dsh-pi-ai": "node scripts/patch-dsh-llm-pi-ai.mjs",
-    "patch:dsh-projcache": "node scripts/patch-dsh-session-projection-cache.mjs",
-    "patch:dsh": "npm run patch:dsh-pi-ai && npm run patch:dsh-projcache",
+    "patch:dsh": "npm run patch:dsh-pi-ai",
     "postinstall": "npm run patch:dsh",
     "check-types": "npm run patch:dsh && tsc --noEmit",
     "compile": "npm run check-types && node esbuild.mjs",
@@ -164,15 +163,7 @@
         },
         "deepseekHarness.model": {
           "type": "string",
-          "enum": [
-            "deepseek-v4-flash",
-            "deepseek-v4-pro"
-          ],
-          "enumDescriptions": [
-            "%config.model.flash%",
-            "%config.model.pro%"
-          ],
-          "default": "deepseek-v4-flash",
+          "default": "deepseek-flash",
           "description": "%config.model%"
         },
         "deepseekHarness.reasoningEffort": {
@@ -196,7 +187,7 @@
           "type": "string",
           "enum": [
             "standard",
-            "code",
+            "ptc",
             "minimal",
             "cordis"
           ],
@@ -275,7 +266,7 @@
     "vitest": "^4.0.0"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.1.5-alpha.1",
+    "@deepseek-ai/dsh": "0.1.7-alpha.1",
     "dompurify": "3.4.13",
     "highlight.js": "^11.12.0",
     "markdown-it": "15.0.0",
@@ -288,10 +279,10 @@
     "node@22.22.3": true,
     "esbuild@0.25.12": true,
     "node-pty@1.2.0-beta.15": true,
-    "koffi@3.2.1": true,
+    "koffi@3.3.1": true,
     "keytar@7.9.0": true,
     "protobufjs@7.6.6": true,
-    "@deepseek-ai/dsh-subprocess-local@0.1.5-alpha.1": true,
+    "@deepseek-ai/dsh-subprocess-local@0.1.7-alpha.1": true,
     "@vscode/vsce-sign@2.0.9": true,
     "@google/genai@1.52.0": true
   }

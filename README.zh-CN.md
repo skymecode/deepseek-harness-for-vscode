@@ -4,11 +4,11 @@
 
 在 VS Code 中原生运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 AI 编码助手扩展。无需克隆上游仓库、安装 Node/npm 或手动部署 Harness；安装匹配平台的 VSIX 即可使用。
 
-> 当前为社区维护版本 `0.6.0`。DeepSeek Harness 仍处于 Developer Preview，本扩展固定使用官方 npm 包 `@deepseek-ai/dsh@0.1.5-alpha.1`（Typert Remote 协议）。
+> 当前为社区维护版本 `0.6.1-dev`。DeepSeek Harness 仍处于 Developer Preview，本扩展固定使用官方 npm 包 `@deepseek-ai/dsh@0.1.7-alpha.1`（Typert Remote 协议）。
 
-> **运行时升级提示：** Harness 已采用 V3 会话格式。恢复受支持的旧日志时会生成新一代文件，原文件仍保留；旧运行时无法读取新增的 V3 日志。建议升级前备份 `~/.dsh/vscode/harness-home`，不要对正在使用的配置目录直接降级。依赖已移除的 `ctx.agent` 或运行时 `Inbox` API 的第三方插件需要自行适配。本扩展继续使用原生 VS Code 界面，不嵌套官方 Web UI。
+> **运行时升级提示：** Harness 已采用 V4 会话格式。恢复受支持的旧日志时会生成新一代文件，原文件仍保留；旧运行时无法读取新增的 V4 日志。建议升级前备份 `~/.dsh/vscode/harness-home`，不要对正在使用的配置目录直接降级。依赖已移除的 `ctx.agent` 或运行时 `Inbox` API 的第三方插件需要自行适配。本扩展继续使用原生 VS Code 界面，不嵌套官方 Web UI。
 
-旧安装可能在 Harness 需要托管链接的位置留下普通包目录。启动或安装插件时，扩展现在会自动修复共享 `profiles/node_modules` 中的这类冲突：先将冲突项移入 Harness 数据目录内的 `module-fallback-backup-*`，再由 Harness 重建链接。备份路径记录在输出日志中，正常链接／代理、`profiles/web` 下的插件、会话历史及密钥都会保留，不需要用户执行终端清理命令。如果系统拒绝访问或文件被占用，恢复会安全停止，不删除原数据。
+启动优先使用官方运行时包解析器。仅在确认是旧版模块冲突时执行一次有备份的修复，不再在每次启动或安装插件前搬动普通配置包。
 
 ## 内核更新策略
 
@@ -25,15 +25,15 @@
 - **Markdown 流式回复**：支持标题、列表、表格、代码块、一键复制、安全外链及可点击跳转的工作区文件引用。
 - **稳定增量渲染**：流式更新保留推理/工具卡展开状态和用户滚动位置。
 - **渐进式推理时间线**：推理步骤出现时才创建节点，只连接同一轮已出现的推理步骤；结束后的时间线保留在可展开的过程区内。
-- **会话自动命名**：新会话根据首条用户消息自动生成单行标题（去 Markdown 符号、超长截断），手动重命名后不再覆盖。
-- **逐轮文件更改**：已编辑卡片跟随各自的结论，恢复历史和继续对话时仍保留正确位置。
+- **会话标题**：自动标题与手动重命名统一由官方会话服务管理。
+- **逐轮文件更改**：优先展示官方快照与历史差异，覆盖 shell 产生的改动；旧历史或快照不可用时标明仅有工具统计，不用当前工作区差异代替历史。
 - **简洁的已完成轮次**：思考、工具调用和中间说明收进“用时”折叠行，最终结论与文件更改保持可见。
 - **阅读友好的流式输出**：对话流式推进时仍可自由上滑查看历史内容——自动跟随会让位于你的滚动，仅在回到最底部后恢复。最终结论通过分隔线与思考块（无思考时位于消息顶部）清晰隔开。
 - **DeepSeek Harness 原生推理**：推理以原生 reasoning 块呈现——分片到达时自动展开并跟随最新内容，块完成后自动收起为摘要行。
 - **编辑器上下文**：选中代码会显示为可移除的上下文卡片；在输入框键入 `@` 可模糊检索并附加工作区文件。
 - **斜杠命令**：支持 Harness 官方命令及 `/model`、`/reasoning`、`/preset` 扩展命令。
 - **Harness 原生能力**：推理过程、工具调用、审批、结构化问题、Todo、Skills、Goal、Plan 和后台任务。
-- **模型与 Agent 设置**：DeepSeek V4 Flash / Pro、`off` / `low` / `high` / `max` 推理等级和四种官方 Agent Preset。
+- **模型与 Agent 设置**：模型能力和推理选项来自官方目录，新会话默认使用 `deepseek-flash`；PTC 预设使用 `ptc`，旧 `code` 会话保留兼容预设。
 - **Token 用量**：在输入区显示当前会话输入和输出 Token。
 - **原生 DSH 插件中心**：搜索精选目录、按分类筛选、查看已安装插件，或安装 npm/GitHub/本地/tarball 插件包。
 - **自动本地化**：根据 VS Code 显示语言自动切换英文或简体中文。
@@ -98,7 +98,7 @@
 
 打开 VS Code 的历史面板会刷新列表；官方 Web UI 可刷新页面发现另一端新建的会话。VS Code 默认按当前项目过滤，官方界面可能将 worktree 会话列在独立工作区或未分组列表中。共享的是**已保存的历史**，不是跨进程转发实时 token。同一会话仍受系统写锁保护：关闭持有它的后端后再从另一端继续，或新建分支；两边的模型密钥和插件分别配置。
 
-两个运行时必须支持相同日志格式：本版使用 **V3／DSH 0.1.5-alpha.1**。旧官方 CLI 无法读取新增的 V3 日志，需升级后使用共享功能；保留 V2 原文件不代表支持降级双向同步。这不是云端、跨设备或 Windows／WSL 跨内核同步，请勿通过网络盘／同步盘同时运行共享日志。大版本升级前建议备份共享目录和原私有目录。
+两个运行时必须支持相同日志格式：本版使用 **V4／DSH 0.1.7-alpha.1**。旧官方 CLI 无法读取新增的 V4 日志，需升级后使用共享功能；保留 V2/V3 原文件不代表支持降级双向同步。这不是云端、跨设备或 Windows／WSL 跨内核同步，请勿通过网络盘／同步盘同时运行共享日志。大版本升级前建议备份共享目录和原私有目录。
 
 ## DSH 插件
 
@@ -112,7 +112,7 @@
   <sub>0.5.9 插件中心 —— 展示内置目录示例，并非完整的实时 GitHub 市场</sub>
 </p>
 
-扩展严格使用官方 `dsh plugin --profile web add/remove` 流程。插件配置保存在 `~/.dsh/vscode/harness-home/profiles/web`；pnpm 修改配置期间 Harness 会安全停止，完成后自动重启。pnpm 已随 VSIX 内置，无需安装系统包管理器。
+普通插件包改用运行中的官方 Plugin Manager 安装、取消、启停和卸载，并显示只读、被覆盖或需要重启的结果。Node/pnpm 随包提供，无需系统包管理器。可选 Routing Suite 保留预设安装编排及停机 CLI 流程。Super Injector 不再自动安装，用户已有安装仍保留。
 
 插件提供的宿主工具、策略和运行时服务可以在本扩展中工作。部分插件还包含专门面向上游 DSH 浏览器应用的客户端 UI，这些界面无法由原生 VS Code 工作台通用渲染，因此会标记为 **官方 Web UI**。
 
@@ -120,18 +120,28 @@
 
 ## 配置
 
+官方 DeepSeek 默认使用 Messages 协议及 `https://api.deepseek.com/anthropic`。升级迁移旧官方根地址时保留显式 Chat Completions 设置，第三方端点与协议不批量改写。
+
+默认关闭 OTel、请求附带会话日志 `dsh_session_log` 和插件清单 `dsh_plugin_packages`。正常模型请求仍包含用户提交的消息、上下文和附件。
+
+工作区文件使用官方持久上传凭据提交，支持任意文件类型（每个 20 MiB、每次总计 40 MiB、最多 8 个）；选区文本继续由 VS Code 提供。交付文件可打开到 VS Code 编辑器或已安装的格式查看器。子代理会话暂不接收二进制附件。
+
+官方 Office 浏览器预览、会话终端恢复、SSH/Browser Use/Computer Use 专用界面没有自动移植到本扩展，现有 VS Code 编辑器和终端入口继续保留。实验性权限不会因升级自动开启。
+
 | 设置 | 默认值 | 说明 |
 |---|---|---|
-| `deepseekHarness.model` | `deepseek-v4-flash` | 新会话默认模型 |
+| `deepseekHarness.model` | `deepseek-flash` | 新会话默认模型 |
 | `deepseekHarness.reasoningEffort` | `high` | `off` / `low` / `high` / `max` |
 | `deepseekHarness.agentPreset` | `standard` | 新会话默认 Agent Preset |
 | `deepseekHarness.provider` | `deepseek-official` | 在扩展“连接设置”面板中选择的默认来源 |
 | `deepseekHarness.permissionMode` | `workspace-write` | `read-only` / `workspace-write` / `danger-full-access` |
 | `deepseekHarness.autoAttachSelection` | `true` | 发送时自动附加当前编辑器选区 |
 
-提供商端点与只写凭据引用统一交给内置 Harness 设置/凭据服务管理。API Key 保存在扩展私有的 Harness Home 中，不会回传给 Webview，也不会写入项目 `.vscode/settings.json`。旧版 `deepseekHarness.apiKey`、`baseUrl` 和 `providers` 会在首次连接时迁移并清除。
+提供商端点与只写凭据引用统一交给内置 Harness 设置/凭据服务管理。API Key 保存在扩展私有的 Harness Home 中，不会回传给 Webview，也不会写入项目 `.vscode/settings.json`。本地 OpenAI 兼容端点可以不填写 API Key。旧版 `deepseekHarness.apiKey`、`baseUrl` 和 `providers` 会在首次连接时迁移并清除。
 
-可在“连接设置”面板中新增、编辑、测试或移除 DeepSeek 中转来源。自定义来源通过上游 `llm-pi-ai` 适配器实时注册，并在模型面板中提供相同的 Flash/Pro 选择。
+可在“连接设置”面板中新增、编辑、测试或移除 OpenAI 兼容或 Anthropic Messages 来源。自定义来源通过上游 `llm-pi-ai` 适配器实时注册；测试连接可导入其公布的模型 ID，也可手动填写。本地端点（如 llama-server、llama-swap、Ollama 兼容服务）可以不填写 API Key。已配置的来源及其模型会按提供商分组显示在模型面板中。
+
+模型输入能力、上下文窗口与推理选项来自官方 LLM 解析器。端点未公布上下文大小时，可填写 `model-id:32k` 等显式覆盖。编辑提供商保留已有模型声明，新建空目录不会虚构 DeepSeek 模型；扩展不再维护独立容量表或视觉名称猜测。
 
 自动附加的选区最长为 16 KB，超出部分会截断。手动附加同一文件选区后，宿主不会再次自动附加。
 

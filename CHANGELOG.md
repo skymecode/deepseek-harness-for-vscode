@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Upgrade the pinned runtime to `@deepseek-ai/dsh@0.1.7-alpha.1`. Adopt V4 session logs, Messages-only DeepSeek transport, native job and preset contracts, and the new runtime plugin/configuration model. Preserve old credentials, model declarations, V2/V3 history and legacy session records; retain only the saved-credential endpoint probe adapter.
+- Disable both request-attached session logs and plugin-package inventory, in addition to OTel. Use the official package resolver and a self-contained bundled pnpm shim compatible with Plugin Manager's scrubbed environment. Keep VS Code-specific UI, worktrees and unsupported upstream Web UI features separate; see the [upgrade record](docs/DSH_0_1_6_UPGRADE_PLAN.zh-CN.md) for compatibility boundaries.
+
 - Fix workspace file links with root-level filenames and line/column/range suffixes across file types, rather than only Markdown files. Parse locations before URI detection, preserve native Windows/UNC and POSIX paths and Unicode names, and keep external URLs excluded. Preserve literal underscores and backslashes in prose file references so Markdown cannot split `__init__.py` or alter Windows paths. Keep Host existence validation and keyboard navigation, with parser, rendered-link and cross-platform path regression tests.
 
 ## 0.6.0

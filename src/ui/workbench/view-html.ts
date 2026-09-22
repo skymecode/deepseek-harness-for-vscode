@@ -289,9 +289,13 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
           <span class="settings-label">${text('providerName')}</span>
           <input id="settings-name" type="text" spellcheck="false" autocomplete="off" placeholder="${text('providerNamePlaceholder')}">
         </div>
+        <label class="settings-field" id="settings-api-field">
+          <span class="settings-label">${text('providerProtocol')}</span>
+          <select id="settings-api"><option value="openai-completions">OpenAI Chat Completions</option><option value="anthropic-messages">Anthropic Messages</option></select>
+        </label>
         <div class="settings-field" id="settings-base-url-field">
           <span class="settings-label">${text('baseUrl')}</span>
-          <input id="settings-base-url" type="text" spellcheck="false" autocomplete="off" aria-label="${text('baseUrl')}" placeholder="https://api.deepseek.com">
+          <input id="settings-base-url" type="text" spellcheck="false" autocomplete="off" aria-label="${text('baseUrl')}" placeholder="https://api.deepseek.com/anthropic">
           <span id="settings-base-url-error" class="settings-error hidden"></span>
         </div>
         <label class="settings-field">

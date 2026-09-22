@@ -4,11 +4,11 @@
 
 A native VS Code coding-agent extension powered by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Install the platform-specific VSIX and start working—there is no upstream repository to clone, no Node/npm setup, and no local Harness deployment to manage.
 
-> This is the community-maintained `0.6.0` release. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.1.5-alpha.1` package (Typert Remote protocol).
+> This is the community-maintained `0.6.1-dev` release. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.1.7-alpha.1` package (Typert Remote protocol).
 
-> **Runtime upgrade:** Harness now uses session format V3. Supported older logs are migrated on resume into a new generation while their original files are preserved. Old runtimes cannot read the new V3 generation; back up `~/.dsh/vscode/harness-home` before upgrading, and do not downgrade an active profile. Third-party plugins using the removed `ctx.agent` or runtime `Inbox` APIs need their own compatibility updates. The extension keeps its native VS Code interface rather than embedding the official Web UI.
+> **Runtime upgrade:** Harness now uses session format V4. Supported older logs are migrated on resume into a new generation while their original files are preserved. Old runtimes cannot read the new V4 generation; back up `~/.dsh/vscode/harness-home` before upgrading, and do not downgrade an active profile. Third-party plugins using the removed `ctx.agent` or runtime `Inbox` APIs need their own compatibility updates. The extension keeps its native VS Code interface rather than embedding the official Web UI.
 
-Older installations can leave ordinary package directories where Harness expects managed links. Startup and plugin installation now recover these shared `profiles/node_modules` conflicts automatically: incompatible entries move into `module-fallback-backup-*` inside the Harness home, then Harness rebuilds its links. Backup paths appear in the output log. Existing links/proxies, `profiles/web` plugins, conversation history and credentials are preserved; no terminal cleanup is required for this conflict. Permission or sharing errors stop recovery without deleting the original data.
+Startup uses the official runtime package resolver. Only a recognized legacy module conflict triggers one bounded backup-and-repair attempt; ordinary profile packages are no longer moved on every startup or installation.
 
 ## Runtime update policy
 
@@ -25,15 +25,15 @@ Stability and the upgrade experience for existing users take priority over alway
 - **Streaming Markdown** — headings, lists, tables, code blocks, copy controls, safe external links, and clickable workspace file references.
 - **Stable incremental rendering** — streamed updates preserve disclosure state and the reader's scroll position.
 - **Progressive reasoning timeline** — nodes appear as thinking steps arrive, connecting only existing steps within the same turn. Completed turns retain their timeline inside the expandable process section.
-- **Session auto-naming** — new conversations get a concise single-line title derived from the first message; manual renames are never overwritten.
-- **Per-turn file changes** — edited-file cards stay with their own conclusions, including restored history and follow-up conversations.
+- **Session titles** — automatic titles and manual renames are owned by the official session service.
+- **Per-turn file changes** — official snapshots and historical diffs include shell-driven edits. Old or unavailable snapshots fall back to labeled tool statistics; current workspace changes never stand in for a historical diff.
 - **Compact completed turns** — reasoning, tool calls and interim updates fold into a duration row; the final answer and file changes remain visible.
 - **Reader-friendly streaming** — while a turn streams you can scroll up through earlier messages freely; auto-follow yields to your scroll and only resumes at the very bottom. The finished conclusion is set off by a divider between the thinking and the final answer (or above the message when there is no thinking).
 - **DeepSeek Harness-native reasoning** — thinking is presented in a native reasoning block that opens as deltas stream, follows the newest content, and collapses to a summary row once the block completes.
 - **Editor context** — selected code appears as a removable context card; type `@` to fuzzy-search and attach workspace files without leaving the composer.
 - **Slash commands** — use official Harness commands plus `/model`, `/reasoning`, and `/preset` extension commands.
 - **Harness-native capabilities** — reasoning, tool calls, approvals, structured questions, Todos, Skills, Goals, Plan mode, and background jobs.
-- **Model and agent controls** — DeepSeek V4 Flash / Pro, `off` / `low` / `high` / `max` reasoning effort, and four official Agent Presets.
+- **Model and agent controls** — official catalogs provide model capabilities and reasoning choices; new sessions default to `deepseek-flash`. The PTC preset uses `ptc`; legacy `code` sessions keep a compatible preset.
 - **Token usage** — see current input and output token counts in the composer.
 - **Native DSH plugin center** — search a curated catalog, filter by category, inspect installed plugins, or install an npm/GitHub/local/tarball package.
 - **Automatic localization** — follows the VS Code display language with English and Simplified Chinese support.
@@ -98,7 +98,7 @@ Old private/globalStorage histories are migrated through the official session co
 
 Open the VS Code history panel to refresh its list; refresh the official Web UI page to discover externally created history. VS Code filters by the current project, while official DSH may show worktree sessions under their own workspace or as ungrouped sessions. This shares **saved history**, not another process's transient token stream. Kernel locks prevent simultaneous writes to one session: close the owning backend before continuing on the other side, or create a fork. Model credentials and installed plugins are configured independently.
 
-Both runtimes must support the same log format (this build uses **V3, DSH 0.1.5-alpha.1**). An older official CLI cannot read new V3 logs and must be updated to use this sharing feature; original V2 files are retained, but are not a downgrade-sync mechanism. This is not cloud, cross-device, or Windows/WSL cross-kernel synchronization; do not run live shared stores through a network/sync drive. Back up both the shared home and the old private home before a major runtime upgrade.
+Both runtimes must support the same log format (this build uses **V4, DSH 0.1.7-alpha.1**). An older official CLI cannot read new V4 logs and must be updated to use this sharing feature; original V2/V3 files are retained, but are not a downgrade-sync mechanism. This is not cloud, cross-device, or Windows/WSL cross-kernel synchronization; do not run live shared stores through a network/sync drive. Back up both the shared home and the old private home before a major runtime upgrade.
 
 ## DSH plugins
 
@@ -112,7 +112,7 @@ Open the **⊞ Plugins** button in the workbench header to browse repositories r
   <sub>0.5.9 plugin center — built-in catalog example, not the complete live GitHub marketplace</sub>
 </p>
 
-The extension uses the official `dsh plugin --profile web add/remove` workflow. Plugin profile files live under `~/.dsh/vscode/harness-home/profiles/web`; Harness is stopped while pnpm changes that profile and is then restarted automatically. The bundled pnpm means no system package manager is required.
+Ordinary bundles use the running official Plugin Manager for installation, cancellation, enable/disable and removal. The UI reports read-only, overridden and restart-required results. Bundled Node/pnpm are used without a system package manager. The optional Routing Suite keeps its preset-installation recipe and stopped-runtime CLI path. Super Injector is no longer installed automatically; existing installations are retained.
 
 Host tools, policies, and runtime services contributed by a plugin work in this extension. A plugin may also contain client UI designed specifically for the upstream DSH browser application; those UI contributions cannot be rendered generically by this native VS Code workbench and are marked **Official Web UI**.
 
@@ -120,9 +120,17 @@ Marketplace cards classify known entries as **Agent compatible**, **Agent works 
 
 ## Configuration
 
+DeepSeek Official defaults to Messages at `https://api.deepseek.com/anthropic`. Migration removes obsolete official-root overrides while preserving explicit Chat Completions and custom-provider protocols.
+
+OTel, request-attached session logs (`dsh_session_log`) and plugin inventories (`dsh_plugin_packages`) are disabled by default. Normal model requests still contain submitted messages, context and attachments.
+
+Workspace files use official persistent upload receipts for any file type (20 MiB per file, 40 MiB and eight files per submission). Editor selections stay native. Delivered files open in VS Code or an installed format viewer; binary attachments in subagent conversations are not yet supported.
+
+The official browser's Office preview, restored session terminals and dedicated SSH/Browser Use/Computer Use interfaces are not embedded. Existing VS Code editor and terminal integration remains, and experimental permissions are not enabled by upgrading.
+
 | Setting                               | Default             | Description                                                            |
 | ------------------------------------- | ------------------- | ---------------------------------------------------------------------- |
-| `deepseekHarness.model`               | `deepseek-v4-flash` | Default model for new sessions                                         |
+| `deepseekHarness.model`               | `deepseek-flash` | Default model for new sessions                                         |
 | `deepseekHarness.reasoningEffort`     | `high`              | `off` / `low` / `high` / `max`                                                 |
 | `deepseekHarness.agentPreset`         | `standard`          | Default Agent Preset for new sessions                                  |
 | `deepseekHarness.provider`            | `deepseek-official` | Default source selected from the extension's Connection settings panel |
@@ -131,7 +139,9 @@ Marketplace cards classify known entries as **Agent compatible**, **Agent works 
 
 Provider endpoints and write-only credential references are managed through the bundled Harness settings and credentials services. API keys are stored in the extension's private Harness home, are never returned to the webview, and are not written to project-level `.vscode/settings.json`. Legacy `deepseekHarness.apiKey`, `baseUrl`, and `providers` values are imported once and then removed.
 
-Use the Connection settings panel to add, edit, test, or remove DeepSeek relay sources. Custom sources are registered live through the upstream `llm-pi-ai` adapter and expose the same Flash/Pro choices in the model panel.
+Use the Connection settings panel to add, edit, test, or remove OpenAI-compatible or Anthropic Messages sources. Custom sources are registered live through the upstream `llm-pi-ai` adapter; test the endpoint to import its advertised model ids, or enter them manually. API keys are optional for local endpoints such as llama-server, llama-swap, and Ollama-compatible servers. Configured providers and their models appear in the model panel grouped by provider.
+
+Model modalities, context windows and reasoning options come from the official LLM resolver. For endpoints that omit context size, enter an explicit override such as `model-id:32k` in Model IDs. Existing model declarations are preserved when editing a provider; an empty new catalog does not invent DeepSeek models. The extension no longer maintains a parallel capacity or vision table.
 
 Automatically attached selections are limited to 16 KB and are truncated when necessary. If the same file selection is already embedded manually, the host will not attach it again.
 

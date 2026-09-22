@@ -1,3 +1,4 @@
+import type { LlmResolvedModelInfo as DshLlmResolvedModelInfo } from '@deepseek-ai/dsh-llm/types'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 /**
@@ -12,7 +13,7 @@ interface GatewayConnectionService {
 
 interface GatewayIndexRoute {
   readonly kind: 'exact'
-  readonly path: '/'
+  readonly path: string
   handler(req: IncomingMessage, res: ServerResponse): void
 }
 
@@ -97,6 +98,30 @@ function announceAuthenticated(
   connection: GatewayConnectionService,
   base: string,
 ): void {
+  // session/modelCatalog omits capabilities. Forward the official LLM service's
+  // resolved metadata without inventing a second capability catalog.
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/api/vscode.models',
+    handler: (req, res) => {
+      if (!connection.authorizeIndex(req, res)) return
+      const provider = new URL(req.url ?? '/', base).searchParams.get('provider')
+      const llm = ctx.get('llm') as {
+        listModels(provider: string): Promise<readonly { id: string }[]>
+        resolveModelInfo(provider: string, model: string): Promise<DshLlmResolvedModelInfo>
+      } | undefined
+      if (!provider || !llm) { res.writeHead(400); res.end(); return }
+      void llm.listModels(provider).then(async (models) => {
+        const resolved = await Promise.allSettled(models.map((model) => llm.resolveModelInfo(provider, model.id)))
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+        res.end(JSON.stringify(resolved.flatMap((result) => {
+          if (result.status !== 'fulfilled') return []
+          const { id, inputModalities, context, reasoning, defaultMaxTokens } = result.value
+          return [{ id, inputModalities, context, reasoning, defaultMaxTokens }]
+        })))
+      }).catch(() => { res.writeHead(502); res.end() })
+    },
+  })
   ctx.webServer.register({
     kind: 'exact',
     path: '/',

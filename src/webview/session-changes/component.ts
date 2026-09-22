@@ -11,8 +11,7 @@ interface ComponentOptions {
   readonly document: Document
   readonly translate: Translate
   readonly onOpenFile: (path: string) => void
-  readonly onReview: () => void
-  readonly onUndo: () => void
+  readonly onReview: (changes?: SessionChangesView, index?: number) => void
 }
 
 /** Files listed before the "show N more" fold. */
@@ -35,7 +34,6 @@ export function createSessionChangesCard(options: ComponentOptions): SessionChan
   const root = node(options.document, 'div', 'changes-bar turn-changes-card hidden')
   let current: SessionChangesView | undefined
   let signature = ''
-  const dismissedSignature = ''
   let showAll = false
 
   const stats = (added: number, removed: number): HTMLElement[] => [
@@ -65,23 +63,20 @@ export function createSessionChangesCard(options: ComponentOptions): SessionChan
     })
     card.append(summary)
     const actions = node(options.document, 'div', 'changes-actions')
-    const undo = node(options.document, 'button', 'changes-undo', options.translate('changesUndo')) as HTMLButtonElement
-    undo.type = 'button'
-    undo.setAttribute('aria-label', options.translate('changesUndo'))
-    undo.addEventListener('click', () => options.onUndo())
     const review = node(options.document, 'button', 'changes-review', options.translate('changesReview')) as HTMLButtonElement
     review.type = 'button'
-    review.addEventListener('click', () => options.onReview())
-    actions.append(undo, review)
+    review.addEventListener('click', () => options.onReview(current))
+    actions.append(review)
     card.append(actions)
     root.append(card)
+    if (!current.official) root.append(node(options.document, 'p', 'changes-detail-header', options.translate('historicalChangesLimited')))
 
     // File list: always inline, folded past the visible limit.
     const detail = node(options.document, 'div', 'changes-detail')
     detail.append(node(options.document, 'div', 'changes-detail-header',
       `${current.files.length} ${options.translate('changesFiles')}`))
     const visible = showAll ? current.files : current.files.slice(0, VISIBLE_FILE_LIMIT)
-    for (const file of visible) detail.append(fileRow(options, file))
+    for (const file of visible) detail.append(fileRow({ ...options, onOpenFile: (path) => current?.official ? options.onReview(current, file.index) : options.onOpenFile(path) }, file))
     if (!showAll && current.files.length > VISIBLE_FILE_LIMIT) {
       const more = node(options.document, 'button', 'changes-more', `${options.translate('changesShowMore')} ${current.files.length - VISIBLE_FILE_LIMIT} ${options.translate('changesFiles')}`) as HTMLButtonElement
       more.type = 'button'
@@ -102,7 +97,7 @@ export function createSessionChangesCard(options: ComponentOptions): SessionChan
       if (nextSignature === signature) return
       signature = nextSignature
       current = changes ?? undefined
-      if (current === undefined || signature === dismissedSignature) {
+      if (current === undefined) {
         showAll = false
         root.classList.add('hidden')
         return

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ConfigurationService } from '../src/config/configuration.js'
 import { ConnectionSettingsService } from '../src/services/connection-settings-service.js'
+import { KEYLESS_AUTHORIZATION } from '../src/services/connection-settings/mapping.js'
 import type { CredentialStore } from '../src/security/credential-store.js'
 
 interface HarnessDocument {
@@ -10,6 +11,45 @@ interface HarnessDocument {
 }
 
 describe('ConnectionSettingsService', () => {
+  it('preserves official Anthropic model metadata and credentials when editing the endpoint', async () => {
+    const model = { name: 'Custom vision', input: ['text', 'image'], contextWindow: 128000, maxTokens: 8000, reasoning: true }
+    const harness = fakeHarness({ relay: { displayName: 'Relay', api: 'anthropic-messages', baseURL: 'https://relay.example/anthropic', apiKeyEnv: 'SAVED_KEY', models: { custom: model } } }, { SAVED_KEY: 'synthetic-secret' })
+    const service = serviceFor()
+    await service.connect(harness.client as never)
+    await service.apply({ provider: 'relay', name: 'Relay edited', baseUrl: 'https://relay.example/new', apiKey: '', models: ['custom'] })
+    expect(harness.document.piAi.value.providers.relay).toMatchObject({ api: 'anthropic-messages', apiKeyEnv: 'SAVED_KEY', models: [{ id: 'custom', ...model }] })
+    expect(harness.document.credentials.SAVED_KEY).toBe('synthetic-secret')
+    expect(JSON.stringify(service.state)).not.toContain('synthetic-secret')
+  })
+
+  it('removes the keyless sentinel when adding a real credential', async () => {
+    const harness = fakeHarness({ relay: { displayName: 'Relay', api: 'openai-completions', baseURL: 'https://relay.example/v1', headers: { authorization: KEYLESS_AUTHORIZATION, 'x-custom': 'keep' }, models: [] } })
+    const service = serviceFor()
+    await service.connect(harness.client as never)
+    await service.apply({ provider: 'relay', name: 'Relay', baseUrl: 'https://relay.example/v1', apiKey: 'synthetic-secret', models: [] })
+    expect(harness.document.piAi.value.providers.relay).toMatchObject({ apiKeyEnv: 'PROVIDER_RELAY_API_KEY', headers: { 'x-custom': 'keep' } })
+    expect(harness.document.piAi.value.providers.relay?.headers).not.toHaveProperty('authorization')
+  })
+
+  it.each([undefined, 'chat-completions'])('migrates old official roots while respecting explicit protocol %s', async (protocol) => {
+    const harness = fakeHarness()
+    const saved = { baseURL: 'https://api.deepseek.com/v1', ...(protocol === undefined ? {} : { protocol }) }
+    Object.assign(harness.document.deepseek.user, saved)
+    Object.assign(harness.document.deepseek.value, saved)
+    await serviceFor().connect(harness.client as never)
+    expect(harness.document.deepseek.user.baseURL).toBe(protocol === undefined ? undefined : saved.baseURL)
+  })
+
+  it('creates Anthropic providers without fabricating models or DeepSeek compatibility flags', async () => {
+    const harness = fakeHarness()
+    const service = serviceFor()
+    await service.connect(harness.client as never)
+    await service.apply({ provider: '__new__', name: 'Anthropic relay', baseUrl: 'https://relay.example/anthropic', apiKey: 'synthetic-secret', api: 'anthropic-messages', models: [] })
+    expect(harness.document.piAi.value.providers['anthropic-relay']).toMatchObject({ api: 'anthropic-messages', models: [] })
+    expect(harness.document.piAi.value.providers['anthropic-relay']).not.toHaveProperty('compat')
+    expect(service.state.providers.some((provider) => provider.id === 'anthropic-relay')).toBe(true)
+  })
+
   it('creates a live pi-ai route and stores its key write-only', async () => {
     const harness = fakeHarness()
     const service = serviceFor()
@@ -39,13 +79,45 @@ describe('ConnectionSettingsService', () => {
     expect(service.state.providers.find((provider) => provider.id === 'packycode')).toEqual({
       id: 'packycode',
       name: 'PackyCode',
+      api: 'openai-completions',
       baseUrl: 'https://relay.example.com/v1',
       models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+      modelContextWindows: {},
       apiKeyConfigured: true,
       credentialWritable: true,
       removable: true,
     })
     expect(JSON.stringify(service.state)).not.toContain('sk-secret')
+  })
+
+  it('creates a custom provider without requiring an API key', async () => {
+    const harness = fakeHarness()
+    const service = serviceFor()
+    await service.connect(harness.client as never)
+
+    const route = await service.apply({
+      provider: '__new__',
+      name: 'Local Llama',
+      baseUrl: 'http://127.0.0.1:8080/v1',
+      apiKey: '',
+      models: ['llama-3.1-8b'],
+    })
+
+    expect(route).toBe('local-llama')
+    const profile = harness.document.piAi.value.providers['local-llama']
+    expect(profile).toMatchObject({
+      displayName: 'Local Llama',
+      baseURL: 'http://127.0.0.1:8080/v1',
+      // The keyless transport guard requires an `authorization` header to
+      // stream at all (No API key for provider), so a keyless profile must
+      // carry one — the endpoint ignores its value.
+      headers: { authorization: KEYLESS_AUTHORIZATION },
+    })
+    // A keyless provider must not name an unset credential ref: the pi-ai
+    // adapter resolves an absent apiKeyEnv as unauthenticated instead of
+    // failing every request with MISSING_CREDENTIAL.
+    expect(profile).not.toHaveProperty('apiKeyEnv')
+    expect(harness.document.credentials.PROVIDER_LOCAL_LLAMA_API_KEY).toBeUndefined()
   })
 
   it('writes the endpoint-specific model ids a third-party provider exposes', async () => {
@@ -63,14 +135,59 @@ describe('ConnectionSettingsService', () => {
 
     expect(route).toBe('volcengine-ark')
     expect(harness.document.piAi.value.providers['volcengine-ark']!.models).toEqual([
-      { id: 'deepseek-v3.1-250828', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
-      { id: 'ep-20250417-xxxxx', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+      { id: 'deepseek-v3.1-250828' },
+      { id: 'ep-20250417-xxxxx' },
     ])
     expect(service.state.providers.find((provider) => provider.id === 'volcengine-ark')?.models)
       .toEqual(['deepseek-v3.1-250828', 'ep-20250417-xxxxx'])
   })
 
-  it('falls back to the DeepSeek defaults when a custom provider omits models', async () => {
+  it('writes a user-specified context window for a custom model, overriding the capacity table', async () => {
+    const harness = fakeHarness()
+    const service = serviceFor()
+    await service.connect(harness.client as never)
+
+    const route = await service.apply({
+      provider: '__new__',
+      name: 'Llama Swap',
+      baseUrl: 'http://127.0.0.1:8080/v1',
+      apiKey: '',
+      models: ['gemma-4-12b-heretic', 'qwen-3.8-27b'],
+      // qwen-3.8-27b has a capacity-table entry (262_144); the explicit
+      // override must still win because it reflects how the user actually
+      // configured their local endpoint.
+      modelContextWindows: { 'gemma-4-12b-heretic': 32_768, 'qwen-3.8-27b': 8_192 },
+    })
+
+    expect(route).toBe('llama-swap')
+    expect(harness.document.piAi.value.providers['llama-swap']!.models).toEqual([
+      { id: 'gemma-4-12b-heretic', contextWindow: 32_768 },
+      { id: 'qwen-3.8-27b', contextWindow: 8_192 },
+    ])
+    expect(service.state.providers.find((provider) => provider.id === 'llama-swap')?.modelContextWindows)
+      .toEqual({ 'gemma-4-12b-heretic': 32_768, 'qwen-3.8-27b': 8_192 })
+  })
+
+  it('drops context window overrides for ids the provider no longer exposes', async () => {
+    const harness = fakeHarness()
+    const service = serviceFor()
+    await service.connect(harness.client as never)
+
+    await service.apply({
+      provider: '__new__',
+      name: 'Llama Swap',
+      baseUrl: 'http://127.0.0.1:8080/v1',
+      apiKey: '',
+      models: ['gemma-4-12b-heretic'],
+      modelContextWindows: { 'gemma-4-12b-heretic': 32_768, 'stale-removed-model': 16_384 },
+    })
+
+    expect(harness.document.piAi.value.providers['llama-swap']!.models).toEqual([
+      { id: 'gemma-4-12b-heretic', contextWindow: 32_768 },
+    ])
+  })
+
+  it('keeps an empty custom catalog instead of inventing DeepSeek models', async () => {
     const harness = fakeHarness()
     const service = serviceFor()
     await service.connect(harness.client as never)
@@ -84,14 +201,11 @@ describe('ConnectionSettingsService', () => {
     })
 
     expect(route).toBe('plain-relay')
-    expect(harness.document.piAi.value.providers['plain-relay']!.models).toEqual([
-      { id: 'deepseek-v4-flash', contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
-      { id: 'deepseek-v4-pro', contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
-      { id: 'deepseek-v4-flash-vision-exp', input: ['text', 'image'], contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
-    ])
+    expect(harness.document.piAi.value.providers['plain-relay']!.models).toEqual([])
+    expect(service.state.providers.some((provider) => provider.id === route)).toBe(true)
   })
 
-  it('declares image input for vision models a custom relay exposes', async () => {
+  it('does not guess custom input capabilities from a vision model name', async () => {
     const harness = fakeHarness()
     const service = serviceFor()
     await service.connect(harness.client as never)
@@ -105,12 +219,12 @@ describe('ConnectionSettingsService', () => {
     })
 
     expect(harness.document.piAi.value.providers[route]!.models).toEqual([
-      { id: 'deepseek-v4-flash-vision-exp', input: ['text', 'image'], contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
-      { id: 'plain-text-model', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
+      { id: 'deepseek-v4-flash-vision-exp' },
+      { id: 'plain-text-model' },
     ])
   })
 
-  it('declares image input on vision relays written by older builds', async () => {
+  it('preserves old model declarations instead of guessing new capabilities', async () => {
     const harness = fakeHarness({
       'old-relay': {
         displayName: 'Old Relay',
@@ -125,22 +239,16 @@ describe('ConnectionSettingsService', () => {
         ],
       },
     })
+    const before = structuredClone(Object.values(harness.document.piAi.value.providers)[0]!.models)
     const service = serviceFor()
     await service.connect(harness.client as never)
 
     const models = harness.document.piAi.user.providers['old-relay']!['models'] as unknown[]
-    expect(models).toEqual([
-      { id: 'deepseek-v4-flash-vision-exp', input: ['text', 'image'], contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
-      // pi-ai's declaredInput treats [] as undeclared, so the migration fills it.
-      { id: 'custom-vision-x', input: ['text', 'image'], reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
-      // An explicit text-only declaration is honored.
-      { id: 'declared-vision-y', input: ['text'], reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
-      { id: 'plain-model', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
-    ])
+    expect(models).toEqual(before)
   })
 
 
-  it('tops up the low reasoning effort on relays written by older builds', async () => {
+  it('preserves custom reasoning maps and migrates only the official replay compatibility flag', async () => {
     const harness = fakeHarness({
       'volcengine-ark': {
         displayName: 'Volcengine Ark',
@@ -155,15 +263,12 @@ describe('ConnectionSettingsService', () => {
         ],
       },
     })
+    const before = structuredClone(Object.values(harness.document.piAi.value.providers)[0]!.models)
     const service = serviceFor()
     await service.connect(harness.client as never)
 
     const models = harness.document.piAi.user.providers['volcengine-ark']!['models'] as unknown[]
-    expect(models).toEqual([
-      { id: 'deepseek-v4-flash', contextWindow: 1_000_000, maxTokens: 384_000, reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'max' } },
-      { id: 'custom-model', reasoningEfforts: { off: null, low: 'low', high: 'high', max: 'custom-max' } },
-      'plain-string-model',
-    ])
+    expect(models).toEqual(before)
 
     // The heal is idempotent: a second connect must not write again.
     const revision = harness.document.piAi.revision
@@ -307,7 +412,6 @@ describe('ConnectionSettingsService', () => {
       displayName: 'Imported relay.example',
       baseURL: 'https://relay.example/v1',
       api: 'openai-completions',
-      compat: { thinkingFormat: 'deepseek', supportsDeveloperRole: false },
     })
     expect(harness.document.credentials.PROVIDER_IMPORTED_RELAY_EXAMPLE_API_KEY).toBe('legacy-secret')
   })
@@ -349,7 +453,6 @@ function fakeHarness(
     },
     credentials: { ...credentials },
   }
-  const ok = <T>(value: T) => Promise.resolve({ rpcId: 'test', result: { ok: true as const, value } })
   const describeSettings = () => ({
     writable: true,
     hasDocument: true,
@@ -360,7 +463,8 @@ function fakeHarness(
   })
   const client = {
     settingsDescribe: () => Promise.resolve(describeSettings() as never),
-    settingsMutate: (ns: string, ops: { op: 'set' | 'unset'; path: string[]; value?: unknown }[], expectedRevision?: number) => {
+    settingsMutate: (ns: string, ops: { op: 'set' | 'unset'; path: string[]; value?: unknown }[], _expectedRevision?: number) => {
+      void _expectedRevision
       const section = ns === 'llm-pi-ai' ? document.piAi : document.deepseek
       for (const op of ops) {
         mutate(section.value, op.path, op.op, op.value)

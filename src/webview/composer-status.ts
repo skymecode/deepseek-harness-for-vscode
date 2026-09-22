@@ -1,6 +1,6 @@
 export interface ComposerStatusInput {
   readonly running: boolean
-  readonly subagentMode?: 'one-shot' | 'continuable'
+  readonly subagentMode?: 'one-shot' | 'continuable' | 'unknown'
 }
 
 export interface ComposerStatusLabels {

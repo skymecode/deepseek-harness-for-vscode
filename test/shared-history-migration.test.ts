@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -89,6 +89,41 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('lossless shared history m
     expect(await migrateSharedHistory(f.request)).toMatchObject({ skipped: 1, copied: 0, forked: 0 })
   })
 
+  it('reads a mixed plain/Zstandard legacy home through separate official codecs', async () => {
+    const f = await fixture()
+    await seed(f.source, f.root, 'session-plain')
+    const zstdHome = join(f.root, 'zstd-source')
+    const zstd = await openHistoryStore(zstdHome, 'zstd')
+    try {
+      const handle = await zstd.context.sessionPersistence.create({
+        version: 4,
+        id: SessionId('session-zstd'),
+        createdAt: 1000,
+        cwd: f.root,
+        isSeeded: false,
+        agentPreset: 'minimal',
+      })
+      try {
+        await handle.append([
+          { type: 'turn/start', seq: SessionSeq(0), time: 1000, data: { turn: 1 } },
+          { type: 'turn/end', seq: SessionSeq(1), time: 1001, data: { turn: 1, reason: { kind: 'completed' } } },
+        ])
+        await handle.flush()
+      } finally { await handle.close() }
+    } finally { await zstd.fiber.dispose() }
+    await cp(
+      join(zstdHome, 'sessions', legacyProjectKey(f.root)),
+      join(f.source, 'sessions', legacyProjectKey(f.root)),
+      { recursive: true },
+    )
+
+    await expect(migrateSharedHistory(f.request)).resolves.toMatchObject({ copied: 2, deferred: 0 })
+    const target = await openHistoryStore(f.destination)
+    try {
+      expect(await target.context.sessionPersistence.list()).toHaveLength(2)
+    } finally { await target.fiber.dispose() }
+  })
+
   it.each(['source', 'destination'] as const)('fast-forwards only when %s has a strictly newer prefix', async (side) => {
     const f = await fixture()
     await seed(f.source, f.root, 'session-prefix')
@@ -98,7 +133,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('lossless shared history m
       const handle = await store.context.sessionPersistence.open(SessionId('session-prefix'), 'write')
       try {
         const records = (await handle.read()).events
-        await handle.append([{ type: 'session/title', seq: SessionSeq(records.length), time: 2000, data: { title: 'Newer title', messageSeqs: [], source: { kind: 'fallback' } } }])
+        await handle.append([{ type: 'session/title', seq: SessionSeq(records.length), time: 2000, data: { title: 'Newer title', messageSeqs: [], source: { kind: 'user' } } }])
         await handle.flush()
       } finally { await handle.close() }
     } finally { await store.fiber.dispose() }
@@ -128,7 +163,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('lossless shared history m
     const handle = await source.context.sessionPersistence.open(SessionId('session-busy-target'), 'write')
     try {
       const events = (await handle.read()).events
-      await handle.append([{ type: 'session/title', seq: SessionSeq(events.length), time: 2001, data: { title: 'Private additions', messageSeqs: [], source: { kind: 'fallback' } } }])
+      await handle.append([{ type: 'session/title', seq: SessionSeq(events.length), time: 2001, data: { title: 'Private additions', messageSeqs: [], source: { kind: 'user' } } }])
       await handle.flush()
     } finally { await handle.close(); await source.fiber.dispose() }
     const target = await openHistoryStore(f.destination)

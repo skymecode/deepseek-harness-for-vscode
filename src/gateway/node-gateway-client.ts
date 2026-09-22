@@ -1,3 +1,13 @@
+import type { LlmResolvedModelInfo as DshLlmResolvedModelInfo } from '@deepseek-ai/dsh-llm/types'
+import type { ChangesSummary as DshChangesSummary } from './workspace-changes.js'
+import type { WorkspaceFileDiff as DshWorkspaceFileDiff } from '@deepseek-ai/dsh-workspace-changes/types'
+import type { EncodedFileUploadRequest as DshEncodedFileUploadRequest } from '@deepseek-ai/dsh-client-file-upload/types'
+import type { FileUploadValue as DshFileUploadValue } from '@deepseek-ai/dsh-client-file-upload/types'
+import type { BundleInfo as DshBundleInfo } from '@deepseek-ai/dsh-plugin-manager/types'
+import type { PluginInfo as DshPluginInfo } from '@deepseek-ai/dsh-plugin-manager/types'
+import type { ChangeResult as DshChangeResult } from '@deepseek-ai/dsh-plugin-manager/types'
+import type { PluginInstallCancellation as DshPluginInstallCancellation } from '@deepseek-ai/dsh-plugin-manager/types'
+import type { ModelCatalog as DshModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
 /**
  * Node transport for the Harness Gateway (dsh 0.1.2 Typert Remote protocol).
  *
@@ -16,15 +26,15 @@ import WebSocket from 'ws'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { Agent as UndiciAgent, fetch as undiciFetch } from 'undici'
-import { RpcId, serverResponseSchema, type ClientRequest, type ConnectionRpcResult, type ServerResponse } from '@deepseek-ai/dsh-client-connection'
+import { RpcId, serverResponseSchema, type ClientRequest, type ServerResponse } from '@deepseek-ai/dsh-client-connection'
 import type { SessionPage } from '@deepseek-ai/dsh-api-session-controller/types'
-import type { AgentPresetRoster } from '@deepseek-ai/dsh-agent-presets/types'
+import type { AgentPresetRoster } from '@deepseek-ai/dsh-agent-preset-registry/types'
 import type { CommandDescriptor as WireCommandDescriptor } from '@deepseek-ai/dsh-commands/types'
 import type { CredentialInfo } from '@deepseek-ai/dsh-credentials/types'
 import type { CreateGoalRequest, CreateGoalResult } from '@deepseek-ai/dsh-goal/types'
 import type { LlmConfigurableProvider, LlmDiscoveredModel, LlmModelDiscoveryRequest, LlmProviderInfo } from '@deepseek-ai/dsh-llm/types'
 import type { SettingsDescribeValue, SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-settings/types'
-import type { SubagentCatalog, SubagentInterruptReceipt, SubagentPromptReceipt, SubagentPromptRequest } from '@deepseek-ai/dsh-subagent/client'
+import type { SubagentInterruptReceipt, SubagentPromptReceipt, SubagentPromptRequest } from '@deepseek-ai/dsh-subagent/client'
 import type {
   SessionControlFrame,
   SessionCreateRequest,
@@ -47,16 +57,21 @@ import type {
 } from './domain-api.js'
 import { parseImportDiscoverResult, parseImportResult, type ImportDiscoverRequest, type ImportDiscoverResult, type ImportRequest, type ImportResult } from '../import/types.js'
 import { parseRemoteEvent, type RemoteEvent, type RemoteEventOutcome } from './remote-event-protocol.js'
+import type { SubagentListEntry } from './gateway-wire.js'
+
+interface SubagentCatalog {
+  readonly entries: readonly SubagentListEntry[]
+  readonly parentAvailable: boolean
+}
 
 /** A host-registered slash command descriptor, as served by `commands/list`. */
-export interface HostCommandDescriptor extends WireCommandDescriptor {}
+export type HostCommandDescriptor = WireCommandDescriptor
 
 export interface HostCommandExecution {
   readonly commandId: string
   readonly result?: { readonly kind: 'success' | 'error'; readonly text?: string }
 }
 
-type RemoteValue<T> = ConnectionRpcResult<T>
 
 /**
  * Node transport for the Harness Gateway. Unary calls use a typed fetch
@@ -68,6 +83,8 @@ export class NodeGatewayClient {
   private readonly token: string | undefined
   private cookie: string | undefined
   private rpcCounter = 0
+  private readonly pendingRequests = new Set<AbortController>()
+  private closed = false
 
   constructor(
     url: string,
@@ -76,8 +93,13 @@ export class NodeGatewayClient {
     const parsed = new URL(url)
     this.token = parsed.searchParams.get('token') ?? undefined
     parsed.searchParams.delete('token')
-    parsed.search = parsed.search
     this.baseUrl = parsed.origin
+  }
+
+  /** Abort unary calls before this transport is replaced during a restart. */
+  abortPendingRequests(): void {
+    this.closed = true
+    for (const controller of this.pendingRequests) controller.abort()
   }
 
   /**
@@ -88,6 +110,7 @@ export class NodeGatewayClient {
    * request reads the `set-cookie` exchange directly.
    */
   private async ensureAuthenticated(): Promise<void> {
+    if (this.closed) throw new Error('Gateway client is closed.')
     if (this.cookie !== undefined || this.token === undefined) return
     const url = new URL('/', this.baseUrl)
     url.searchParams.set('token', this.token)
@@ -106,6 +129,84 @@ export class NodeGatewayClient {
       req.end()
     })
     this.cookie = cookie
+  }
+
+  async modelCapabilities(provider: string): Promise<readonly DshLlmResolvedModelInfo[]> {
+    await this.ensureAuthenticated()
+    const url = new URL('/api/vscode.models', this.baseUrl)
+    url.searchParams.set('provider', provider)
+    const response = await this.doFetch(url, { signal: AbortSignal.timeout(this.importTimeoutMs) })
+    if (!response.ok) throw new Error(`Model metadata unavailable: HTTP ${response.status}`)
+    return await response.json() as DshLlmResolvedModelInfo[]
+  }
+
+  async changesSummary(sessionId: string, seq: number): Promise<DshChangesSummary | undefined> {
+    return await this.getChanges('/api/changes.summary', sessionId, seq)
+  }
+
+  async changesDiff(sessionId: string, seq: number, index: number): Promise<DshWorkspaceFileDiff | undefined> {
+    return await this.getChanges('/api/changes.diff', sessionId, seq, index)
+  }
+
+  private async getChanges<T>(pathname: string, sessionId: string, seq: number, index?: number): Promise<T | undefined> {
+    await this.ensureAuthenticated()
+    const url = new URL(pathname, this.baseUrl)
+    url.searchParams.set('sessionId', sessionId)
+    url.searchParams.set('seq', String(seq))
+    if (index !== undefined) url.searchParams.set('index', String(index))
+    const response = await this.doFetch(url, { signal: AbortSignal.timeout(this.importTimeoutMs) })
+    if (response.status === 404) return undefined
+    if (!response.ok) throw new Error(`Workspace changes unavailable: HTTP ${response.status}`)
+    return await response.json() as T
+  }
+
+  async uploadFile(agentId: string, request: DshEncodedFileUploadRequest): Promise<DshFileUploadValue> {
+    await this.ensureAuthenticated()
+    const url = new URL('/api/session/uploadFileBinary', this.baseUrl)
+    url.searchParams.set('sessionId', agentId)
+    if (request.name) url.searchParams.set('name', request.name)
+    const response = await this.doFetch(url, {
+      method: 'POST', headers: { 'content-type': 'application/octet-stream' },
+      body: Uint8Array.from(Buffer.from(request.data, 'base64')).buffer, signal: AbortSignal.timeout(120_000),
+    })
+    if (!response.ok) throw new Error(`File upload failed: HTTP ${response.status}`)
+    const result = await response.json() as { ok: true; value: DshFileUploadValue }
+      | { ok: false; error: { message: string } }
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value
+  }
+
+  /** Official copy keeps legacy code sessions resumable without rewriting their logs. */
+  async ensureLegacyCodePreset(): Promise<void> {
+    const roster = await this.agentPresetList()
+    // DSH 0.1.7 moves preset composition into plugin bundles and removes the
+    // old copy endpoint. Existing `code` rows remain usable; new installs use
+    // the official `ptc` preset instead of attempting a private copy.
+    void roster
+  }
+
+  async pluginListBundles(): Promise<DshBundleInfo[]> {
+    return await this.callRaw('pluginManager/listBundles', {})
+  }
+
+  async pluginListPlugins(): Promise<DshPluginInfo[]> {
+    return await this.callRaw('pluginManager/listPlugins', {})
+  }
+
+  async pluginInstall(spec: string, requestId: string): Promise<DshChangeResult> {
+    return await this.callRaw('pluginManager/installBundle', { spec, options: { requestId } }, 600_000)
+  }
+
+  async pluginCancelInstall(requestId: string): Promise<DshPluginInstallCancellation> {
+    return await this.callRaw('pluginManager/cancelInstall', { requestId })
+  }
+
+  async pluginRemove(name: string): Promise<DshChangeResult> {
+    return await this.callRaw('pluginManager/removeBundle', { name }, 600_000)
+  }
+
+  async pluginSetEnabled(name: string, enabled: boolean): Promise<DshChangeResult> {
+    return await this.callRaw('pluginManager/setBundleEnabled', { name, enabled })
   }
 
   /** Lists the slash commands the active Harness deployment registers for one session. */
@@ -200,8 +301,8 @@ export class NodeGatewayClient {
   }
 
   /** Session model catalog (Typert `session/modelCatalog`). */
-  async sessionModelCatalog(): Promise<import('@deepseek-ai/dsh-api-session-controller/types').ModelCatalog> {
-    return await this.callRaw<import('@deepseek-ai/dsh-api-session-controller/types').ModelCatalog>('session/modelCatalog', {})
+  async sessionModelCatalog(): Promise<DshModelCatalog> {
+    return await this.callRaw<DshModelCatalog>('session/modelCatalog', {})
   }
 
   /** Session queue mutation (Typert `session/updateQueue`). */
@@ -250,6 +351,10 @@ export class NodeGatewayClient {
   }
 
   /** Workspace/browse state stream (Typert `workspace/follow`). */
+  async workspaceUnarchiveSession(request: { readonly sessionId: unknown }): Promise<WorkspaceArchiveValue> {
+    return await this.callRaw<WorkspaceArchiveValue>('workspace/unarchiveSession', { request })
+  }
+
   workspaceFollow(signal: AbortSignal): AsyncGenerator<WorkspaceFollowFrame> {
     return this.openStream<WorkspaceFollowFrame>('workspace/follow', {}, signal)
   }
@@ -397,28 +502,31 @@ export class NodeGatewayClient {
   }
 
   /** Generic unary call: Connection envelope POST to `/api/<endpoint>`. */
-  private async callRaw<T>(method: string, args: Record<string, unknown>): Promise<T> {
-    await this.ensureAuthenticated()
-    const started = Date.now()
-    const rpcId = RpcId(`vscode-${Date.now().toString(36)}-${(++this.rpcCounter).toString(36)}`)
-    const message: ClientRequest = { type: 'client-request', rpcId, method, payload: { args } }
-    this.onEnvelope(message)
-    const response = await this.doFetch(new URL(`/api/${method}`, this.baseUrl), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(message),
-      signal: AbortSignal.timeout(this.importTimeoutMs),
-    })
-    if (!response.ok) {
-      console.error(`[gateway-rpc] ${method} HTTP ${response.status} after ${Date.now() - started}ms`)
-      throw new Error(`transport failure for ${method}: HTTP ${response.status}`)
+  private async callRaw<T>(method: string, args: Record<string, unknown>, timeoutMs = this.importTimeoutMs): Promise<T> {
+    if (this.closed) throw new Error('Gateway client is closed.')
+    const controller = new AbortController()
+    this.pendingRequests.add(controller)
+    const timeout = AbortSignal.timeout(timeoutMs)
+    try {
+      await this.ensureAuthenticated()
+      const rpcId = RpcId(`vscode-${Date.now().toString(36)}-${(++this.rpcCounter).toString(36)}`)
+      const message: ClientRequest = { type: 'client-request', rpcId, method, payload: { args } }
+      this.onEnvelope(message)
+      const response = await this.doFetch(new URL(`/api/${method}`, this.baseUrl), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(message),
+        signal: AbortSignal.any([controller.signal, timeout]),
+      })
+      if (!response.ok) throw new Error(`transport failure for ${method}: HTTP ${response.status}`)
+      const full = serverResponseSchema.parse(await response.json()) as ServerResponse
+      this.onEnvelope(full)
+      if (full.rpcId !== rpcId) throw new Error(`rpcId mismatch for ${method}: sent ${rpcId}, got ${full.rpcId}`)
+      if (!full.result.ok) throw new Error(`RPC ${method} failed: ${full.result.error.code}: ${full.result.error.message}`)
+      return full.result.value as T
+    } finally {
+      this.pendingRequests.delete(controller)
     }
-    const full = serverResponseSchema.parse(await response.json()) as ServerResponse
-    this.onEnvelope(full)
-    if (full.rpcId !== rpcId) throw new Error(`rpcId mismatch for ${method}: sent ${rpcId}, got ${full.rpcId}`)
-    if (!full.result.ok) throw new Error(`RPC ${method} failed: ${full.result.error.code}: ${full.result.error.message}`)
-    if (Date.now() - started > 1_000) console.error(`[gateway-rpc] ${method} took ${Date.now() - started}ms`)
-    return full.result.value as T
   }
 
   /** Domain stream: one logical stream on the shared `/api/remote.mux` WebSocket. */
@@ -495,7 +603,7 @@ export class NodeGatewayClient {
 
   /** Pre-write hook for the envelope lifecycle (kept for test parity). */
   protected onEnvelope(_message: ClientRequest | ServerResponse): void {
-    // Transport instrumentation seam.
+    void _message // Transport instrumentation seam.
   }
 
   protected doFetch(input: URL, init?: RequestInit): Promise<Response> {

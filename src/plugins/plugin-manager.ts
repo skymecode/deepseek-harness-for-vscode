@@ -1,10 +1,12 @@
+import { randomUUID } from 'node:crypto'
+import type { NodeGatewayClient } from '../gateway/node-gateway-client.js'
+import type { ChangeResult } from '@deepseek-ai/dsh-plugin-manager/types'
 import { spawn } from 'node:child_process'
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
 import * as vscode from 'vscode'
 import type { BundledRuntimeResolver } from '../runtime/bundled-runtime.js'
 import { harnessHomePath } from '../runtime/harness-home.js'
-import { prepareModuleFallback } from '../runtime/prepare-module-fallback.js'
 import { DEFAULT_BUILTIN_PLUGINS } from './default-plugins.js'
 import { isNpmPackageName, normalizePluginSpec } from './plugin-spec.js'
 import { RoutingSuiteInstaller } from './routing-suite/installer.js'
@@ -13,17 +15,20 @@ import type { InstalledDshPlugin } from './types.js'
 
 const PROFILE = 'web'
 const DEFAULT_PLUGINS_SEED_FILE = 'default-plugins-seeded.json'
-const DEFAULT_PLUGINS_SEED_VERSION = 2
+const DEFAULT_PLUGINS_SEED_VERSION = 3
 const MAX_ERROR_OUTPUT = 12_000
 
 /** Manages the exact `web` profile booted by this extension through DSH's CLI. */
 export class DshPluginManager {
+  private installRequestId: string | undefined
+  private noticeValue: string | undefined
   private readonly routingSuite: RoutingSuiteInstaller
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly resolver: BundledRuntimeResolver,
     private readonly output: vscode.OutputChannel,
+    private readonly client?: () => NodeGatewayClient,
   ) {
     this.routingSuite = new RoutingSuiteInstaller(this.harnessHome(), {
       installPackage: async (spec) => { await this.run(['add', spec]) },
@@ -32,6 +37,61 @@ export class DshPluginManager {
   }
 
   async listInstalled(): Promise<readonly InstalledDshPlugin[]> {
+    if (this.client === undefined) return await this.listLegacyInstalled()
+    const bundles = await this.client().pluginListBundles()
+    const rows: InstalledDshPlugin[] = bundles.map((bundle) => ({
+      name: bundle.name, version: bundle.version ?? '', source: bundle.installed ? 'profile' : 'DSH',
+      ...(bundle.description === undefined ? {} : { description: bundle.description }),
+      enabled: bundle.enabled, removable: bundle.removable,
+      ...(bundle.readOnlyReason === undefined ? {} : { readOnlyReason: bundle.readOnlyReason }),
+      includesWebClient: bundle.rows.some((row) => row.moduleName.includes('client-ui')),
+    }))
+    const suite = await this.routingSuite.status(await this.profileDependencies())
+    if (suite) rows.push({ name: ROUTING_SUITE_MANIFEST.installedName, version: suite.version,
+      source: 'built-in managed suite', includesWebClient: true, removable: true })
+    return rows.sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  requiresStoppedRuntime(value: string): boolean {
+    return this.routingSuite.matches(value) || value === ROUTING_SUITE_MANIFEST.installedName
+  }
+
+  takeNotice(): string | undefined {
+    const notice = this.noticeValue
+    this.noticeValue = undefined
+    return notice
+  }
+
+  async setEnabled(name: string, enabled: boolean): Promise<void> {
+    if (!this.client) throw new Error('Plugin management requires a connected runtime.')
+    this.acceptResult(await this.client().pluginSetEnabled(name, enabled))
+  }
+
+  async cancelInstall(): Promise<void> {
+    if (this.installRequestId && this.client) await this.client().pluginCancelInstall(this.installRequestId)
+  }
+
+  private acceptResult(result: ChangeResult): void {
+    if (result.packageResult?.output) this.output.append(result.packageResult.output)
+    if (result.application === 'failed' || result.application === 'cancelled' || result.error) {
+      throw new Error(result.error?.diagnostic ?? result.error?.code ?? result.application)
+    }
+    this.noticeValue = result.application === 'restart-required'
+      ? vscode.l10n.t('The plugin change was saved. Reload Harness to apply it.')
+      : result.application === 'overridden'
+        ? vscode.l10n.t('The plugin change was saved but overridden by a higher-priority profile layer.') : undefined
+  }
+
+  private async installBundle(spec: string): Promise<void> {
+    if (!this.client) { await this.run(['add', spec]); return }
+    const client = this.client()
+    const requestId = randomUUID()
+    this.installRequestId = requestId
+    try { this.acceptResult(await client.pluginInstall(spec, requestId)) }
+    finally { if (this.installRequestId === requestId) this.installRequestId = undefined }
+  }
+
+  private async listLegacyInstalled(): Promise<readonly InstalledDshPlugin[]> {
     const profileDir = this.profileDirectory()
     const profile = await readJson(path.join(profileDir, 'package.json'))
     if (!isRecord(profile)) return []
@@ -82,7 +142,7 @@ export class DshPluginManager {
     if (await this.defaultPluginsSeedVersion() >= DEFAULT_PLUGINS_SEED_VERSION) return
     const installed = await this.listInstalled()
     const installedNames = new Set(installed.map((item) => item.name))
-    for (const plugin of DEFAULT_BUILTIN_PLUGINS) {
+    for (const plugin of DEFAULT_BUILTIN_PLUGINS.filter((entry) => entry.installedName !== ROUTING_SUITE_MANIFEST.injector.name)) {
       if (installedNames.has(plugin.installedName) || (plugin.npmPackage !== undefined && installedNames.has(plugin.npmPackage))) continue
       // The managed routing suite already provides the Super Injector.
       if (plugin.installedName === ROUTING_SUITE_MANIFEST.injector.name && installedNames.has(ROUTING_SUITE_MANIFEST.installedName)) continue
@@ -117,14 +177,14 @@ export class DshPluginManager {
     await mkdir(vendorDir, { recursive: true })
     const filename = path.basename(source)
     await copyFile(source, path.join(vendorDir, filename))
-    await this.run(['add', './vendor/' + filename], profileDir)
+    await this.installBundle(path.join(vendorDir, filename))
   }
 
   async install(value: string): Promise<readonly InstalledDshPlugin[]> {
     if (this.routingSuite.matches(value)) {
       const dependencies = await this.profileDependencies()
       await this.routingSuite.install(dependencies[ROUTING_SUITE_MANIFEST.injector.name] !== undefined)
-      return await this.listInstalled()
+      return await this.listLegacyInstalled()
     }
     let spec: string
     try {
@@ -132,19 +192,20 @@ export class DshPluginManager {
     } catch {
       throw new Error(vscode.l10n.t('Invalid DSH plugin package specification.'))
     }
-    await this.run(['add', spec])
+    await this.installBundle(spec)
     return await this.listInstalled()
   }
 
   async remove(name: string): Promise<readonly InstalledDshPlugin[]> {
     if (name === ROUTING_SUITE_MANIFEST.installedName) {
       await this.routingSuite.remove()
-      return await this.listInstalled()
+      return await this.listLegacyInstalled()
     }
     if (!isNpmPackageName(name)) throw new Error(vscode.l10n.t('Invalid DSH plugin package name.'))
     const installed = await this.listInstalled()
     if (!installed.some((item) => item.name === name)) throw new Error(vscode.l10n.t('DSH plugin is not installed: {0}', name))
-    await this.run(['remove', name])
+    if (this.client) this.acceptResult(await this.client().pluginRemove(name))
+    else await this.run(['remove', name])
     return await this.listInstalled()
   }
 
@@ -152,7 +213,6 @@ export class DshPluginManager {
     const launch = await this.resolver.resolve()
     const args = [...launch.args, 'plugin', '--profile', PROFILE, ...pnpmArguments]
     const env = { ...launch.environment, DSH_HOME: this.harnessHome() }
-    await prepareModuleFallback(env.DSH_HOME, this.context.asAbsolutePath(path.join('node_modules', '@deepseek-ai', 'dsh', 'package.json')), this.output)
     this.output.appendLine(`[plugin] dsh plugin --profile ${PROFILE} ${pnpmArguments.map(diagnosticArgument).join(' ')}`)
     await new Promise<void>((resolve, reject) => {
       const child = spawn(launch.command, args, {

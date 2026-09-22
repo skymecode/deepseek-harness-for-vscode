@@ -8,7 +8,6 @@ import type { HistoryEntry, QueuedInboxItem, SubagentListEntry } from './gateway
 import type { PromptContentPart } from './gateway-wire.js'
 import type { PromptAttachment } from '../domain/prompt-context.js'
 import type {
-  PendingApprovalView,
   PendingQuestionView,
   QueuedPromptView,
   SubagentView,
@@ -46,7 +45,7 @@ export function lastAssistantSeqForTurn(
   return latest
 }
 
-export function attachmentPart(attachment: PromptAttachment): PromptContentPart {
+export function attachmentPart(attachment: Exclude<PromptAttachment, { kind: 'binary-file' }>): PromptContentPart {
   if (attachment.kind === 'image') {
     return {
       type: 'image',
@@ -88,7 +87,7 @@ export function queuedPromptView(item: QueuedInboxItem): QueuedPromptView {
   const text = blocks.filter((block) => block.type === 'text').map((block) => block.text).join('\n')
   return {
     id: String(item.id),
-    placement: item.placement,
+    placement: item.placement === 'next-step' ? 'steering' : 'queued',
     text,
     hasMedia: blocks.some((block) => block.type === 'image'),
   }

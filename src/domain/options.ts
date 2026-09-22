@@ -1,8 +1,8 @@
 /** Stable option catalogs mirrored from the official DeepSeek Harness Web UI. */
 export const MODEL_OPTIONS = [
   {
-    id: 'deepseek-v4-flash',
-    label: 'DeepSeek V4 Flash',
+    id: 'deepseek-flash',
+    label: 'DeepSeek V41 Flash',
     description: 'Faster responses for everyday coding and rapid iteration.',
   },
   {
@@ -10,11 +10,7 @@ export const MODEL_OPTIONS = [
     label: 'DeepSeek V4 Pro',
     description: 'Stronger capabilities for complex tasks and long reasoning chains.',
   },
-  {
-    id: 'deepseek-v4-flash-vision-exp',
-    label: 'DeepSeek V4 Flash Vision (Exp)',
-    description: 'Image understanding: describe pictures, read screenshots, and analyse charts.',
-  },
+
 ] as const
 
 export const REASONING_OPTIONS = [
@@ -31,7 +27,7 @@ export const AGENT_PRESET_OPTIONS = [
     description: 'Full coding agent with the standard tools and workflows.',
   },
   {
-    id: 'code',
+    id: 'ptc',
     label: 'PTC',
     description: 'Compose multi-step tool operations through the Code Mode SDK.',
   },
@@ -52,7 +48,7 @@ export type ReasoningEffort = typeof REASONING_OPTIONS[number]['id']
 export type AgentPresetId = typeof AGENT_PRESET_OPTIONS[number]['id']
 
 export function modelId(value: string | undefined): ModelId {
-  return optionId(MODEL_OPTIONS, value, 'deepseek-v4-flash')
+  return optionId(MODEL_OPTIONS, value, 'deepseek-flash')
 }
 
 export function reasoningEffort(value: string | undefined): ReasoningEffort {
@@ -60,7 +56,7 @@ export function reasoningEffort(value: string | undefined): ReasoningEffort {
 }
 
 export function agentPresetId(value: string | undefined): AgentPresetId {
-  return optionId(AGENT_PRESET_OPTIONS, value, 'standard')
+  return optionId(AGENT_PRESET_OPTIONS, value === 'code' ? 'ptc' : value, 'standard')
 }
 
 function optionId<const Options extends readonly { readonly id: string }[]>(

@@ -1,4 +1,3 @@
-import { supportsImageInput } from './model-modalities.js'
 import type { AutoEffortSignals } from './session-effort.js'
 
 /**
@@ -16,6 +15,7 @@ export type ModelSpeed = 'fast' | 'balanced' | 'powerful'
 
 export interface ModelProfileInput {
   readonly id: string
+  readonly inputModalities?: readonly string[]
   readonly reasoning?: { readonly efforts?: readonly { readonly id: string }[] }
 }
 
@@ -91,7 +91,7 @@ export function pickAutoModel(
   // admission check rejects image content on text-only routes, so an auto
   // switch to one would break the prompt the user just sent.
   const candidates = (signals.imageCount ?? 0) > 0
-    ? models.filter((model) => supportsImageInput(model.id))
+    ? models.filter((model) => model.inputModalities?.includes('image') === true)
     : models
   if (candidates.length === 0) return currentId
 

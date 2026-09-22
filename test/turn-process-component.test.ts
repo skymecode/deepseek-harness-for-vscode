@@ -80,7 +80,7 @@ describe('per-turn process disclosure and message ownership', () => {
 
   it('keeps edit cards outside both answer and tool-only process groups', () => {
     const f = fixture()
-    const cards = new TurnChangesController(() => createSessionChangesCard({ document, translate: key => key, onOpenFile: vi.fn(), onReview: vi.fn(), onUndo: vi.fn() }))
+    const cards = new TurnChangesController(() => createSessionChangesCard({ document, translate: key => key, onOpenFile: vi.fn(), onReview: vi.fn() }))
     for (const finalId of ['answer', 'tool']) {
       f.render(finalId === 'answer' ? [tool, ended] : [tool])
       cards.reconcile(f.root, 's1', [{ seq: 3, turn: 1, conclusionId: finalId, changes: { added: 1, removed: 0, files: [{ path: 'a.ts', added: 1, removed: 0 }] } }])

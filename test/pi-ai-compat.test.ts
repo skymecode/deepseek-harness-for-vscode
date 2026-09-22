@@ -20,6 +20,7 @@ const relayModel: Model<'openai-completions'> = {
   maxTokens: 32_768,
   compat: {
     thinkingFormat: 'deepseek',
+    requiresReasoningContentOnAssistantMessages: true,
     supportsReasoningEffort: true,
     supportsDeveloperRole: false,
   },
@@ -35,6 +36,7 @@ describe('pi-ai relay compatibility', () => {
           baseURL: 'https://relay.example.com/v1',
           compat: {
             thinkingFormat: 'deepseek',
+    requiresReasoningContentOnAssistantMessages: true,
             supportsReasoningEffort: true,
             supportsDeveloperRole: false,
           },
@@ -46,14 +48,29 @@ describe('pi-ai relay compatibility', () => {
       },
     })
 
-    expect(parsed.providers?.packycode?.compat?.supportsDeveloperRole).toBe(false)
+    const providers = (parsed.providers as unknown as { get?: () => Record<string, { compat?: { supportsDeveloperRole?: boolean } }> }).get?.()
+    expect(providers?.packycode?.compat?.supportsDeveloperRole).toBe(false)
   })
 
-  it('installs the guarded DeepSeek cross-provider tool replay normalization', () => {
-    const packageJson = require.resolve('@deepseek-ai/dsh-llm-pi-ai/package.json')
-    const source = readFileSync(join(dirname(packageJson), 'lib', 'index.js'), 'utf8')
-    expect(source).toContain('normalize only those tool-call messages')
-    expect(source).toContain('thinkingSignature: "reasoning_content"')
+  it('replays cross-provider tools with the official reasoning-content compatibility flag', async () => {
+    const controller = new AbortController()
+    let payload: unknown
+    const context: Context = {
+      messages: [{
+        role: 'assistant', api: 'openai-completions', provider: 'other-provider', model: 'other-model',
+        content: [{ type: 'toolCall', id: 'call-1', name: 'read_file', arguments: { path: 'package.json' } }],
+        stopReason: 'toolUse', timestamp: 1,
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      }, { role: 'toolResult', toolCallId: 'call-1', toolName: 'read_file', content: [{ type: 'text', text: '{}' }], isError: false, timestamp: 2 }],
+    }
+    await stream(relayModel, context, {
+      apiKey: 'test-only', signal: controller.signal,
+      onPayload: (request) => { payload = request; controller.abort() },
+    }).result()
+    expect(payload).toMatchObject({ messages: expect.arrayContaining([
+      expect.objectContaining({ role: 'assistant', reasoning_content: '', tool_calls: expect.any(Array) }),
+      expect.objectContaining({ role: 'tool', content: '{}' }),
+    ]) })
   })
 
   it('uses an explicit baseURL to probe a saved provider instead of returning its cached catalog', () => {

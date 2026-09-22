@@ -8,8 +8,6 @@ import type { LlmConfigurableProvider as ConfigurableProviderView } from '@deeps
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-settings/types'
 import type { NodeGatewayClient } from '../../gateway/node-gateway-client.js'
 import { validateBaseUrl } from '../../domain/base-url.js'
-import { modelCapacity } from '../../domain/model-capacity.js'
-import { supportsImageInput } from '../../domain/model-modalities.js'
 import {
   DEEPSEEK_OFFICIAL_BASE_URL,
   DEEPSEEK_OFFICIAL_PROVIDER,
@@ -59,6 +57,7 @@ export function credentialRef(entry: ConfigurableProviderView, namespace: Settin
   return credentialRefForProfile(valueAt(namespace?.value, entry.settingsPath), entry.provider)
 }
 
+/** Validates raw form input and fills derived fields (relay models, context overrides) before it is persisted. */
 export function normalizeInput(input: ConnectionSettingsInput): ConnectionSettingsInput {
   const name = input.name.trim()
   const baseUrl = input.baseUrl.trim()
@@ -66,7 +65,7 @@ export function normalizeInput(input: ConnectionSettingsInput): ConnectionSettin
   if (input.provider !== DEEPSEEK_OFFICIAL_PROVIDER && name === '') throw new Error('The provider name cannot be empty.')
   if (baseUrl === '') {
     if (input.provider === DEEPSEEK_OFFICIAL_PROVIDER) {
-      return { ...input, name, baseUrl: DEEPSEEK_OFFICIAL_BASE_URL, apiKey }
+      return { ...input, name, baseUrl: DEEPSEEK_OFFICIAL_BASE_URL, apiKey, modelContextWindows: {} }
     }
     throw new Error('The provider base URL cannot be empty.')
   }
@@ -74,13 +73,16 @@ export function normalizeInput(input: ConnectionSettingsInput): ConnectionSettin
   const models = input.provider === DEEPSEEK_OFFICIAL_PROVIDER
     ? []
     : normalizeRelayModels(input.models)
-  return { ...input, name, baseUrl, apiKey, models }
+  const modelContextWindows = input.provider === DEEPSEEK_OFFICIAL_PROVIDER
+    ? {}
+    : normalizeModelContextWindows(input.modelContextWindows, models)
+  return { ...input, name, baseUrl, apiKey, models, modelContextWindows }
 }
 
 /**
  * A custom relay endpoint is addressed by the model ids it actually exposes
- * (e.g. a Volcengine Ark model id or endpoint). Empty input keeps the
- * extension's DeepSeek defaults so existing behavior is preserved.
+ * (e.g. a Volcengine Ark model id or endpoint). Empty input leaves discovery
+ * and model defaults to the official provider adapter.
  */
 export function normalizeRelayModels(models: readonly string[] | undefined): readonly string[] {
   const ids = (models ?? [])
@@ -89,53 +91,96 @@ export function normalizeRelayModels(models: readonly string[] | undefined): rea
   return [...new Set(ids)]
 }
 
-/** Reasoning effort wire map the extension writes for custom relay models. */
-export const RELAY_REASONING_EFFORTS = { off: null, low: 'low', high: 'high', max: 'max' } as const
-
-/** Map shape written by builds before the low tier existed (pre rc.7). */
-const LEGACY_RELAY_REASONING_EFFORTS = { off: null, high: 'high', max: 'max' } as const
-
-export function isLegacyRelayReasoningEfforts(efforts: object): boolean {
-  const entries = Object.entries(efforts)
-  const legacy = Object.entries(LEGACY_RELAY_REASONING_EFFORTS) as [string, unknown][]
-  return entries.length === legacy.length
-    && legacy.every(([key, value]) => (efforts as Record<string, unknown>)[key] === value)
+/**
+ * Keeps only positive-integer overrides for ids the provider actually
+ * exposes; anything else (a stale override for a removed model, a
+ * non-numeric or non-positive value) is dropped rather than persisted.
+ */
+export function normalizeModelContextWindows(
+  contextWindows: Readonly<Record<string, number>> | undefined,
+  models: readonly string[],
+): Readonly<Record<string, number>> {
+  if (contextWindows === undefined) return {}
+  const known = new Set(models)
+  const normalized: Record<string, number> = {}
+  for (const [id, value] of Object.entries(contextWindows)) {
+    if (!known.has(id)) continue
+    if (!Number.isFinite(value)) continue
+    const contextWindow = Math.round(value)
+    if (contextWindow <= 0) continue
+    normalized[id] = contextWindow
+  }
+  return normalized
 }
 
-/** Wire model entries carrying the extension's effort map, modalities and capacity. */
-export function relayModels(models: readonly string[]): { id: string; reasoningEfforts: object; input?: readonly string[]; contextWindow?: number; maxTokens?: number }[] {
-  const ids = models.length > 0 ? models : ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-v4-flash-vision-exp']
-  return ids.map((id) => {
-    const capacity = modelCapacity(id)
-    return {
-      id,
-      reasoningEfforts: { ...RELAY_REASONING_EFFORTS },
-      // The pi-ai adapter serves an entry without `input` as text-only, so a
-      // vision route must declare its modalities or image prompts are rejected
-      // at admission even after the session switched to it.
-      ...(supportsImageInput(id) ? { input: ['text', 'image'] } : {}),
-      ...(capacity === undefined ? {} : {
-        contextWindow: capacity.contextWindow,
-        ...(capacity.maxTokens === undefined ? {} : { maxTokens: capacity.maxTokens }),
-      }),
-    }
+/** Preserve official declarations; only explicit form overrides are written. */
+export function relayModels(
+  models: readonly string[],
+  contextWindows?: Readonly<Record<string, number>>,
+  existing?: unknown,
+): Record<string, unknown>[] {
+  const records = Array.isArray(existing) ? existing : (isObject(existing)
+    ? Object.entries(existing).map(([id, value]) => ({ ...(isObject(value) ? value : {}), id })) : [])
+  return models.map((id) => {
+    const previous = records.find((entry) => isObject(entry) && entry.id === id)
+    const next: Record<string, unknown> = { ...(isObject(previous) ? previous : {}), id }
+    if (contextWindows?.[id] !== undefined) next.contextWindow = contextWindows[id]
+    else if (contextWindows !== undefined) delete next.contextWindow
+    return next
   })
 }
 
-export function deepSeekRelayProfile(displayName: string, baseURL: string, apiKeyEnv: string, models?: readonly string[]): object {
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * The `authorization` header a keyless relay profile carries. pi-ai's
+ * openai-completions transport refuses to stream when it is given neither an
+ * apiKey nor an `authorization` header (`No API key for provider`); a
+ * non-empty header satisfies that check and lets the request go out
+ * unauthenticated. Keyless endpoints ignore the header's value, so this fixed
+ * sentinel only exists to pass the transport's guard — it is not a credential.
+ */
+export const KEYLESS_AUTHORIZATION = 'Bearer keyless'
+
+/**
+ * Assembles the wire profile a custom relay provider is written with.
+ *
+ * Omit `apiKeyEnv` (pass `undefined`) for a deliberately keyless provider.
+ * That omits the credential ref entirely, so the pi-ai adapter resolves the
+ * route to no credential instead of failing every request with
+ * `MISSING_CREDENTIAL` (only a ref that names an unset credential throws). For
+ * a keyless profile it also writes `headers.authorization` with
+ * {@link KEYLESS_AUTHORIZATION}: the transport's `getClientApiKey` throws
+ * `No API key for provider` unless an `apiKey` or an `authorization` header is
+ * present, so omitting `apiKeyEnv` alone would still break every completion.
+ * A keyed profile writes `apiKeyEnv` and no placeholder header.
+ */
+export function deepSeekRelayProfile(
+  displayName: string,
+  baseURL: string,
+  apiKeyEnv?: string,
+  models?: readonly string[],
+  contextWindows?: Readonly<Record<string, number>>,
+  api = 'openai-completions',
+): object {
+  const keyless = apiKeyEnv === undefined
   return {
     displayName,
-    apiKeyEnv,
-    api: 'openai-completions',
+    ...(!keyless ? { apiKeyEnv } : {}),
+    ...(keyless ? { headers: { authorization: KEYLESS_AUTHORIZATION } } : {}),
+    api,
     baseURL,
-    compat: relayCompat(),
-    models: relayModels(models ?? []),
+    ...(api === 'openai-completions' && (models ?? []).some((id) => id.startsWith('deepseek-')) ? { compat: relayCompat() } : {}),
+    models: relayModels(models ?? [], contextWindows),
   }
 }
 
 export function relayCompat(): object {
   return {
     thinkingFormat: 'deepseek',
+    requiresReasoningContentOnAssistantMessages: true,
     supportsReasoningEffort: true,
     supportsDeveloperRole: false,
   }
@@ -154,7 +199,9 @@ export function providerView(
     id: entry.provider,
     name: entry.displayName,
     baseUrl,
+    ...(stringField(profile, 'api') === undefined ? {} : { api: stringField(profile, 'api')! }),
     models: modelsField(profile),
+    modelContextWindows: modelContextWindowsField(profile),
     apiKeyConfigured: credential?.configured === true,
     credentialWritable: credential?.writable === true,
     removable: entry.settingsPath.length > 0 && valueAt(namespace?.user, entry.settingsPath) !== undefined,
@@ -183,10 +230,28 @@ function stringField(value: unknown, key: string): string | undefined {
 function modelsField(value: unknown): readonly string[] {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return []
   const models = (value as Record<string, unknown>)['models']
+  if (isObject(models)) return Object.keys(models)
   if (!Array.isArray(models)) return []
   return models
     .map((model) => (typeof model === 'object' && model !== null
       ? stringField(model, 'id')
       : typeof model === 'string' ? model : undefined))
     .filter((model): model is string => model !== undefined)
+}
+
+/** Read explicit persisted declarations, including those retained from older builds. */
+function modelContextWindowsField(value: unknown): Readonly<Record<string, number>> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  const models = (value as Record<string, unknown>)['models']
+  const entries = Array.isArray(models) ? models : isObject(models) ? Object.entries(models).map(([id, value]) => ({ ...(isObject(value) ? value : {}), id })) : []
+  const result: Record<string, number> = {}
+  for (const model of entries) {
+    if (typeof model !== 'object' || model === null || Array.isArray(model)) continue
+    const record = model as Record<string, unknown>
+    const id = record['id']
+    const contextWindow = record['contextWindow']
+    if (typeof id !== 'string' || id === '' || typeof contextWindow !== 'number' || contextWindow <= 0) continue
+    result[id] = contextWindow
+  }
+  return result
 }

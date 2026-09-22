@@ -7,8 +7,8 @@ import type { OpenWorkspaceFileRequest, WorkspaceFileView } from './types.js'
 
 const MAX_INDEXED_FILES = 5_000
 const MAX_ATTACHED_FILES = 8
-const MAX_FILE_CHARS = 80_000
-const MAX_TOTAL_FILE_CHARS = 240_000
+const MAX_FILE_BYTES = 20 * 1024 * 1024
+const MAX_TOTAL_FILE_BYTES = 40 * 1024 * 1024
 const FILE_INDEX_TTL_MS = 20_000
 const FILE_EXCLUDE = '**/{.git,node_modules,.pnpm-store,.yarn,dist,out,build,coverage,.next,.cache}/**'
 
@@ -60,26 +60,16 @@ export class WorkspaceFileService implements vscode.Disposable {
   async attachments(ids: readonly string[]): Promise<readonly PromptAttachment[]> {
     const uniqueIds = [...new Set(ids)].slice(0, MAX_ATTACHED_FILES)
     const attachments: PromptAttachment[] = []
-    let remaining = MAX_TOTAL_FILE_CHARS
+    let remaining = MAX_TOTAL_FILE_BYTES
     for (const id of uniqueIds) {
-      if (remaining <= 0) break
       const indexed = this.filesById.get(id)
       if (indexed === undefined || vscode.workspace.getWorkspaceFolder(indexed.uri) === undefined) continue
+      const size = (await vscode.workspace.fs.stat(indexed.uri)).size
+      if (size > Math.min(MAX_FILE_BYTES, remaining)) throw new Error(vscode.l10n.t('The selected files exceed the attachment size limit.'))
       const bytes = await vscode.workspace.fs.readFile(indexed.uri)
-      const raw = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
-      if (raw.slice(0, 8_192).includes('\0')) {
-        throw new Error(vscode.l10n.t('Cannot attach binary file: {0}', indexed.view.path))
-      }
-      const limit = Math.min(MAX_FILE_CHARS, remaining)
-      const tooLong = raw.length > limit
-      const text = tooLong ? raw.slice(0, limit) : raw
-      remaining -= text.length
-      attachments.push({
-        kind: 'file',
-        file: indexed.view.path,
-        text,
-        ...(tooLong ? { tooLong: true } : {}),
-      })
+      if (bytes.byteLength > Math.min(MAX_FILE_BYTES, remaining)) throw new Error(vscode.l10n.t('The selected files exceed the attachment size limit.'))
+      remaining -= bytes.byteLength
+      attachments.push({ kind: 'binary-file', file: indexed.view.path, data: Buffer.from(bytes).toString('base64') })
     }
     return attachments
   }
@@ -97,6 +87,10 @@ export class WorkspaceFileService implements vscode.Disposable {
       if (match !== undefined && vscode.workspace.getWorkspaceFolder(match.uri) !== undefined) uri = match.uri
     }
     if (uri === undefined) return false
+    if (/\.(?:pdf|docx?|xlsx?|pptx?|png|jpe?g|webp|gif|svg)$/i.test(uri.path)) {
+      await vscode.commands.executeCommand('vscode.open', uri)
+      return true
+    }
     const document = await vscode.workspace.openTextDocument(uri)
     const editor = await vscode.window.showTextDocument(document, { preview: true })
     const requestedLine = Math.max(1, request.line ?? 1)

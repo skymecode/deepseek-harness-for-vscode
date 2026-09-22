@@ -14,8 +14,6 @@
   "command.importSession": "DeepSeek Harness: Import Sessions",
   "view.chat": "Chat",
   "config.model": "Default model for new Harness sessions.",
-  "config.model.flash": "DeepSeek V4 Flash for faster responses.",
-  "config.model.pro": "DeepSeek V4 Pro for complex coding and long reasoning chains.",
   "config.reasoning": "DeepSeek Harness reasoning effort.",
   "config.reasoning.off": "Disable explicit reasoning.",
   "config.reasoning.low": "Low reasoning effort for faster answers.",

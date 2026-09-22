@@ -24,7 +24,7 @@ function transcript() {
   document.body.append(root)
   const messages = new MessageReconciler()
   const factory = vi.fn(() => createSessionChangesCard({
-    document, translate: (key) => key, onOpenFile: vi.fn(), onReview: vi.fn(), onUndo: vi.fn(),
+    document, translate: (key) => key, onOpenFile: vi.fn(), onReview: vi.fn(),
   }))
   const cards = new TurnChangesController(factory)
   const create = (item: ChatItem) => {

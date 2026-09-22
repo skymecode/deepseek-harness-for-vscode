@@ -9,27 +9,7 @@
  */
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type {
-  SessionAddress,
-  SessionControlFrame,
-  SessionCreateRequest,
-  SessionCreateValue,
-  SessionFollowFrame,
-  SessionFollowRequest,
-  SessionListValue,
-  SessionPage,
-  SessionPageRequest,
-  SessionPromptRequest,
-  SessionPromptValue,
-  SessionQueuedItem,
-  SessionRenameValue,
-  SessionSearchValue,
-  SessionSelectModelValue,
-  SessionSummary,
-  SessionUpdateQueueValue,
-  SkillEntry,
-  SkillListValue,
-} from '@deepseek-ai/dsh-api-session-controller/types'
+import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/types'
 export type { WorkspaceArchiveValue, WorkspaceFollowFrame } from '@deepseek-ai/dsh-api-workspace-controller/types'
 
 export type {
@@ -44,7 +24,6 @@ export type {
   SessionPageRequest,
   SessionPromptRequest,
   SessionPromptValue,
-  SessionQueuedItem,
   SessionRenameValue,
   SessionSearchValue,
   SessionSelectModelValue,
@@ -64,6 +43,6 @@ export type SessionQueueMutation =
 export type SessionListItem = SessionSummary & { readonly agentPreset?: string }
 
 /** Session queue view (the item's content is JSON-safe wire values). */
-export type QueueInboxItem = SessionQueuedItem
+export type { QueuedInboxItem as QueueInboxItem } from './inbox-projection.js'
 
 export type { MessageId, SessionId }

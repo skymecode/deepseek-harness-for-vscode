@@ -36,8 +36,8 @@ describe('headless Gateway runtime plugin', () => {
     try {
       apply(context)
 
-      expect(register).toHaveBeenCalledTimes(1)
-      const route = register.mock.calls[0]?.[0] as {
+      expect(register).toHaveBeenCalledTimes(2)
+      const route = register.mock.calls.find(([route]) => route.path === '/')?.[0] as {
         kind: string
         path: string
         handler(req: unknown, res: { writeHead: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> }): void

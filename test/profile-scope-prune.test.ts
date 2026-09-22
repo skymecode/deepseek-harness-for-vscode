@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -38,7 +38,11 @@ describe('pruneShadowedRuntimePackages', () => {
 
     expect(removed).toEqual(['dsh-llm-deepseek'])
     expect(lines[0]).toContain('0.1.0-rc.6')
+    expect(lines[0]).toContain('Backed up')
     await expect(readVersion(profileScope, 'dsh-llm-deepseek')).resolves.toBeUndefined()
+    const backups = (await readdir(path.dirname(profileScope))).filter((name) => name.startsWith('runtime-package-backup-'))
+    expect(backups).toHaveLength(1)
+    await expect(readVersion(path.join(path.dirname(profileScope), backups[0]!), 'dsh-llm-deepseek')).resolves.toBe('0.1.0-rc.6')
   })
 
   it('keeps profile copies that match the bundled version or have no bundled counterpart', async () => {

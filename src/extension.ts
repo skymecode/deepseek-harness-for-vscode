@@ -43,7 +43,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const gateway = new HarnessGatewayService(runtime, configuration, connectionSettings, output, context.globalState, worktrees)
   const notifications = new CompletionNotifications(output)
   const connectionTest = new ConnectionTestService(() => gateway.providerControlClient())
-  const pluginManager = new DshPluginManager(context, resolver, output)
+  const pluginManager = new DshPluginManager(context, resolver, output, () => gateway.providerControlClient())
   const pluginCatalog = new DshPluginCatalogService()
   const pluginCenter = new DshPluginCenterController(pluginManager, pluginCatalog, gateway)
   const sessionImport = new SessionImportService(pluginManager, gateway)
@@ -136,22 +136,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('deepseekHarness.importSession', () => sessionImport.runInteractive()),
   )
 
-  // First-run default-plugin seeding must never block activation: installing
-  // the two built-ins (Super Injector + Chat Import) runs pnpm and downloads
-  // from GitHub/npm, which can take a minute or two on a fresh machine.
-  // Blocking left the workbench blank behind VS Code's activation progress
-  // bar. Seed in the background after the first successful connect and
-  // restart the runtime once through mutateRuntime so the profile change
-  // takes effect cleanly.
+  // Install the bundled importer through the live official Plugin Manager
+  // after connection; default seeding must not block activation.
   void seedDefaultPluginsAfterConnect(pluginManager, gateway, output)
 }
 
-/**
- * Runs the first-run default plugin seed behind a progress notification,
- * after the gateway baseline has settled. The runtime is stopped for the
- * pnpm mutation and restarted afterwards, so the newly installed plugins
- * are live without requiring a window reload.
- */
+/** Seed the importer after the gateway baseline settles. */
 async function seedDefaultPluginsAfterConnect(
   pluginManager: DshPluginManager,
   gateway: HarnessGatewayService,
@@ -165,7 +155,7 @@ async function seedDefaultPluginsAfterConnect(
       location: vscode.ProgressLocation.Notification,
       title: vscode.l10n.t('DeepSeek Harness: installing default plugins…'),
     }, async () => {
-      await gateway.mutateRuntime(() => pluginManager.ensureDefaultPlugins())
+      await pluginManager.ensureDefaultPlugins()
     })
     output.appendLine(vscode.l10n.t('[plugin] Default plugins ready.'))
   } catch (cause) {

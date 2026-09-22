@@ -14,8 +14,6 @@
   "command.importSession": "DeepSeek Harness: 导入会话",
   "view.chat": "对话",
   "config.model": "Harness 新会话默认使用的模型。",
-  "config.model.flash": "DeepSeek V4 Flash，响应更快。",
-  "config.model.pro": "DeepSeek V4 Pro，适合复杂编码与长链路推理。",
   "config.reasoning": "DeepSeek Harness 推理等级。",
   "config.reasoning.off": "关闭显式推理。",
   "config.reasoning.low": "低推理强度，回答更快。",

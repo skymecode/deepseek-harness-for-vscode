@@ -46,6 +46,9 @@ export interface DshPluginCatalogContribution {
 }
 
 export interface InstalledDshPlugin {
+  readonly enabled?: boolean
+  readonly removable?: boolean
+  readonly readOnlyReason?: string
   readonly name: string
   readonly version: string
   readonly source: string

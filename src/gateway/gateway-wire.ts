@@ -1,5 +1,9 @@
+import type { ModelSelection as DshModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { ModelProviderGroup as DshModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { ModelCatalogFailure as DshModelCatalogFailure } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { SessionAddress as DshSessionAddress } from '@deepseek-ai/dsh-api-session-controller/types'
 /**
- * Gateway wire-type mapping for the dsh 0.1.5 Typert Remote protocol.
+ * Gateway wire-type mapping for the dsh 0.1.7 Typert Remote protocol.
  *
  * dsh 0.1.2 replaced the host-apiproxy / client-connection domain clients
  * with the Typert Remote wire (unary `POST /api/<ns>/<method>` + the
@@ -13,9 +17,7 @@ import type {
   SessionControlFrame as WireControlFrame,
   SessionEventEntry,
   SessionFollowFrame as WireFollowFrame,
-  SessionJob,
   SessionPage as WirePage,
-  SessionQueuedItem,
   SessionSummary as WireSessionSummary,
   SkillEntry as WireSkillEntry,
 } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -23,7 +25,8 @@ import type {
   SubagentAddress as WireSubagentAddress,
   SubagentListEntry as WireSubagentListEntry,
 } from '@deepseek-ai/dsh-subagent/client'
-import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
+import type { JobView as DshJobView } from '@deepseek-ai/dsh-api-job-controller/types'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm/types'
 
 export type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -47,10 +50,10 @@ export interface PresentationChunkEvent {
 export type SessionSummary = WireSessionSummary & { readonly agentPreset?: string }
 
 /** Live queue row; content blocks are JSON-safe wire values. */
-export type QueuedInboxItem = SessionQueuedItem
+export type { QueuedInboxItem } from './inbox-projection.js'
 
-/** Background job row (session-controller renamed it `SessionJob`). */
-export type JobView = SessionJob
+/** Background job row exposed by the native `job` Remote namespace. */
+export type JobView = DshJobView
 
 /** Skill catalog entry (same shape, new home). */
 export type SkillEntry = WireSkillEntry
@@ -66,14 +69,14 @@ export type PromptContentPart = WirePromptContentPart
 
 /** Model catalog with the current selection carried on `current` (default + local memo). */
 export type SessionModels = {
-  readonly default: import('@deepseek-ai/dsh-api-session-controller/types').ModelSelection
-  readonly current: import('@deepseek-ai/dsh-api-session-controller/types').ModelSelection
-  readonly groups: readonly import('@deepseek-ai/dsh-api-session-controller/types').ModelProviderGroup[]
-  readonly failures: readonly import('@deepseek-ai/dsh-api-session-controller/types').ModelCatalogFailure[]
+  readonly default: DshModelSelection
+  readonly current: DshModelSelection
+  readonly groups: readonly DshModelProviderGroup[]
+  readonly failures: readonly DshModelCatalogFailure[]
   readonly routableProviders: readonly string[]
 }
 
-/** V2/V3 history embeds compact timed streams in durable assistant events. */
+/** V2/V3/V4 history embeds compact timed streams in durable assistant events. */
 export type SessionHistoryRecord = SessionEventEntry
 
 /** One session event stream frame (snapshot + delta) from `session/follow`. */
@@ -86,7 +89,7 @@ export type ControlFrame = WireControlFrame
 export type SessionPage = WirePage
 
 /** Session-address discriminator (ordinary session or direct subagent child). */
-export type SessionAddress = import('@deepseek-ai/dsh-api-session-controller/types').SessionAddress
+export type SessionAddress = DshSessionAddress
 
 export type { RemoteEvent } from './remote-event-protocol.js'
 

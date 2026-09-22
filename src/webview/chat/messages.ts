@@ -52,8 +52,7 @@ const turnChangesController = new TurnChangesController(() => createSessionChang
   document,
   translate: t,
   onOpenFile: (path) => post('openFile', { path }),
-  onReview: () => post('sessionChangesReview'),
-  onUndo: () => post('sessionChangesUndo'),
+  onReview: (changes, index) => post('sessionChangesReview', { ...changes?.official, index }),
 }))
 
 export function renderMessages(active: ActiveSessionView | undefined): void {
