@@ -4,11 +4,24 @@
 
 在 VS Code 中原生运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 AI 编码助手扩展。无需克隆上游仓库、安装 Node/npm 或手动部署 Harness；安装匹配平台的 VSIX 即可使用。
 
-> 当前为社区维护版本 `0.6.1-dev`。DeepSeek Harness 仍处于 Developer Preview，本扩展固定使用官方 npm 包 `@deepseek-ai/dsh@0.1.7-alpha.1`（Typert Remote 协议）。
+> 当前为社区维护的 **[0.6.1 预发布版](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1)**。DeepSeek Harness 仍处于 Developer Preview，本扩展固定使用官方 npm 包 `@deepseek-ai/dsh@0.1.7-alpha.1`（Typert Remote 协议）。
 
-> **运行时升级提示：** Harness 已采用 V4 会话格式。恢复受支持的旧日志时会生成新一代文件，原文件仍保留；旧运行时无法读取新增的 V4 日志。建议升级前备份 `~/.dsh/vscode/harness-home`，不要对正在使用的配置目录直接降级。依赖已移除的 `ctx.agent` 或运行时 `Inbox` API 的第三方插件需要自行适配。本扩展继续使用原生 VS Code 界面，不嵌套官方 Web UI。
+> **运行时升级提示：** Harness 已采用 V4 会话格式。恢复受支持的旧日志时会生成新一代文件，原文件仍保留；旧运行时无法读取新增的 V4 日志。建议升级前备份共享历史目录（默认 `~/.dsh`）及扩展私有目录 `~/.dsh/vscode/harness-home`，不要对正在使用的配置目录直接降级。依赖已移除的 `ctx.agent` 或运行时 `Inbox` API 的第三方插件需要自行适配。本扩展继续使用原生 VS Code 界面，不嵌套官方 Web UI。
 
 启动优先使用官方运行时包解析器。仅在确认是旧版模块冲突时执行一次有备份的修复，不再在每次启动或安装插件前搬动普通配置包。
+
+## 0.6.1 预发布版
+
+本版重点接入 DSH 0.1.7 原生能力，并精简当前工作台未使用的运行时资源：
+
+- **后台任务**：在“上下文 → 任务”查看进度、展开实时输出，并在确认后停止任务；断线续接、折叠取消订阅和流式焦点保持均已适配。
+- **会话管理**：原生置顶、工作区顺序、归档恢复，以及列出活动明细的“停止并归档”；搜索可同时找到普通和已归档会话。
+- **定时提醒**：当前 Profile 启用 Schedule 后，可在“上下文 → 定时任务”查看只读提醒卡片，创建和删除仍通过 DSH 工具完成。
+- **插件市场恢复**：在线目录失败时显示来源和错误，保留本次运行中的缓存；重新打开面板可重试，不再误把三个内置条目显示成整个市场。
+- **显示与兼容修复**：思考不足一秒时显示 `1s`，改进跨平台文件引用跳转，并保留旧 `code` 模式的兼容声明。
+- **更小的安装包**：移除未使用的 LibreOfficeKit、官方 Web 文档预览及实验性语音资源。本地 macOS arm64 包约 **88 MiB（92 MB）**，相比裁剪前约 196 MiB 减少一半以上；其他平台体积以发布附件为准。
+
+从 [v0.6.1 预发布页面](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1) 下载对应平台 VSIX，安装后重新加载 VS Code。此预发布不会自动发布到 Marketplace。完整中文变更见[更新日志](CHANGELOG.md#061)。
 
 ## 内核更新策略
 
@@ -29,7 +42,7 @@
 - **逐轮文件更改**：优先展示官方快照与历史差异，覆盖 shell 产生的改动；旧历史或快照不可用时标明仅有工具统计，不用当前工作区差异代替历史。
 - **简洁的已完成轮次**：思考、工具调用和中间说明收进“用时”折叠行，最终结论与文件更改保持可见。
 - **阅读友好的流式输出**：对话流式推进时仍可自由上滑查看历史内容——自动跟随会让位于你的滚动，仅在回到最底部后恢复。最终结论通过分隔线与思考块（无思考时位于消息顶部）清晰隔开。
-- **DeepSeek Harness 原生推理**：推理以原生 reasoning 块呈现——分片到达时自动展开并跟随最新内容，块完成后自动收起为摘要行。
+- **DeepSeek Harness 原生推理**：推理以原生 reasoning 块呈现，默认折叠并实时更新摘要，用户可手动展开；流式更新保留展开状态。已完成思考的耗时显示下限为一秒。
 - **编辑器上下文**：选中代码会显示为可移除的上下文卡片；在输入框键入 `@` 可模糊检索并附加工作区文件。
 - **斜杠命令**：支持 Harness 官方命令及 `/model`、`/reasoning`、`/preset` 扩展命令。
 - **Harness 原生能力**：推理过程、工具调用、审批、结构化问题、Todo、Skills、Goal、Plan 和后台任务。
@@ -66,7 +79,7 @@
 
 ## 安装
 
-1. 从 [Releases](https://github.com/skymecode/deepseek-harness-for-vscode/releases) 下载与你的平台匹配的 VSIX。
+1. 从 [0.6.1 预发布页面](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1) 下载与你的平台匹配的 VSIX。
 2. 打开 VS Code 扩展面板（`Cmd/Ctrl+Shift+X`）。
 3. 点击右上角 `...` → **从 VSIX 安装...**，选择下载的文件。
 4. 按提示重新加载 VS Code 窗口。
@@ -112,6 +125,8 @@
   <sub>0.5.9 插件中心 —— 展示内置目录示例，并非完整的实时 GitHub 市场</sub>
 </p>
 
+在线目录由 GitHub Topic 和精选目录合并；若网络失败，界面会报告失败来源并保留本次运行中已成功加载的结果，可点击右上角刷新重试。首次加载失败且没有缓存时，只显示三个扩展内置条目。
+
 普通插件包改用运行中的官方 Plugin Manager 安装、取消、启停和卸载，并显示只读、被覆盖或需要重启的结果。Node/pnpm 随包提供，无需系统包管理器。可选 Routing Suite 保留预设安装编排及停机 CLI 流程。Super Injector 不再自动安装，用户已有安装仍保留。
 
 插件提供的宿主工具、策略和运行时服务可以在本扩展中工作。部分插件还包含专门面向上游 DSH 浏览器应用的客户端 UI，这些界面无法由原生 VS Code 工作台通用渲染，因此会标记为 **官方 Web UI**。
@@ -126,7 +141,7 @@ DSH 0.1.7 的官方 DeepSeek 适配器仅支持 Messages，默认地址为 `http
 
 工作区文件使用官方持久上传凭据提交，支持任意文件类型（每个 20 MiB、每次总计 40 MiB、最多 8 个）；选区文本继续由 VS Code 提供。交付文件可打开到 VS Code 编辑器或已安装的格式查看器。子代理会话暂不接收二进制附件。
 
-官方 Office 浏览器预览、会话终端恢复、SSH/Browser Use/Computer Use 专用界面没有自动移植到本扩展，现有 VS Code 编辑器和终端入口继续保留。实验性权限不会因升级自动开启。
+本版不提供官方 Web 的 Office/PDF 内嵌预览和语音输入，对应的大型运行时已从 VSIX 排除，Office 转 PDF／文档预览 Profile 行已禁用。文件上传、编辑器打开和 DSH 文件 API 继续可用。会话终端恢复、SSH/Browser Use/Computer Use 专用界面尚未接入；新增这些功能需单独适配，不能只安装 Web UI 插件。实验性权限不会因升级自动开启。
 
 | 设置 | 默认值 | 说明 |
 |---|---|---|

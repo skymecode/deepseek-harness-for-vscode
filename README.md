@@ -4,11 +4,24 @@
 
 A native VS Code coding-agent extension powered by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Install the platform-specific VSIX and start working—there is no upstream repository to clone, no Node/npm setup, and no local Harness deployment to manage.
 
-> This is the community-maintained `0.6.1-dev` release. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.1.7-alpha.1` package (Typert Remote protocol).
+> This is the community-maintained **[0.6.1 pre-release](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1)**. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.1.7-alpha.1` package (Typert Remote protocol).
 
-> **Runtime upgrade:** Harness now uses session format V4. Supported older logs are migrated on resume into a new generation while their original files are preserved. Old runtimes cannot read the new V4 generation; back up `~/.dsh/vscode/harness-home` before upgrading, and do not downgrade an active profile. Third-party plugins using the removed `ctx.agent` or runtime `Inbox` APIs need their own compatibility updates. The extension keeps its native VS Code interface rather than embedding the official Web UI.
+> **Runtime upgrade:** Harness now uses session format V4. Supported older logs are migrated on resume into a new generation while their original files are preserved. Old runtimes cannot read the new V4 generation; back up the shared history home (default `~/.dsh`) and the private `~/.dsh/vscode/harness-home` before upgrading, and do not downgrade an active profile. Third-party plugins using the removed `ctx.agent` or runtime `Inbox` APIs need their own compatibility updates. The extension keeps its native VS Code interface rather than embedding the official Web UI.
 
 Startup uses the official runtime package resolver. Only a recognized legacy module conflict triggers one bounded backup-and-repair attempt; ordinary profile packages are no longer moved on every startup or installation.
+
+## 0.6.1 pre-release
+
+This version connects more of the native DSH 0.1.7 services and trims unused runtime resources:
+
+- **Background jobs:** view progress, expand live output, and confirm cancellation from Context → Jobs. Output resumes after reconnects; collapsing cancels observation while live updates retain focus and scroll position.
+- **Session management:** native pins, workspace ordering, archive/restore, and activity details before “Stop and archive.” Search includes both active and archived conversations.
+- **Schedules:** read-only reminder cards appear in Context → Schedules when the current Profile enables Schedule. DSH tools own creation and deletion.
+- **Marketplace recovery:** source failures are visible, successful results stay cached for the current extension session, and reopening retries failed loads. Three built-in recipes are no longer reported as the entire GitHub catalog.
+- **Display and compatibility fixes:** completed reasoning shows at least `1s`, cross-platform file links are more reliable, and a native declaration keeps legacy `code` sessions usable.
+- **Smaller packages:** unused LibreOfficeKit, official Web document preview and experimental voice payloads are excluded. The local macOS arm64 VSIX is about **88 MiB (92 MB)**, down from about 196 MiB before trimming; other platform sizes vary.
+
+Download a matching VSIX from the [v0.6.1 pre-release](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1) and reload VS Code after installation. This pre-release is not automatically published to Marketplace. Release notes for 0.6.1 and 0.6.0 are available in Chinese in the [changelog](CHANGELOG.md).
 
 ## Runtime update policy
 
@@ -29,7 +42,7 @@ Stability and the upgrade experience for existing users take priority over alway
 - **Per-turn file changes** — official snapshots and historical diffs include shell-driven edits. Old or unavailable snapshots fall back to labeled tool statistics; current workspace changes never stand in for a historical diff.
 - **Compact completed turns** — reasoning, tool calls and interim updates fold into a duration row; the final answer and file changes remain visible.
 - **Reader-friendly streaming** — while a turn streams you can scroll up through earlier messages freely; auto-follow yields to your scroll and only resumes at the very bottom. The finished conclusion is set off by a divider between the thinking and the final answer (or above the message when there is no thinking).
-- **DeepSeek Harness-native reasoning** — thinking is presented in a native reasoning block that opens as deltas stream, follows the newest content, and collapses to a summary row once the block completes.
+- **DeepSeek Harness-native reasoning** — reasoning blocks start collapsed with a live summary and can be expanded manually. Streaming retains the chosen disclosure state; completed reasoning shows at least one second.
 - **Editor context** — selected code appears as a removable context card; type `@` to fuzzy-search and attach workspace files without leaving the composer.
 - **Slash commands** — use official Harness commands plus `/model`, `/reasoning`, and `/preset` extension commands.
 - **Harness-native capabilities** — reasoning, tool calls, approvals, structured questions, Todos, Skills, Goals, Plan mode, and background jobs.
@@ -66,7 +79,7 @@ Screenshots use the **0.5.9** workbench UI with a demonstration conversation and
 
 ## Installation
 
-1. Download the VSIX matching your platform from [Releases](https://github.com/skymecode/deepseek-harness-for-vscode/releases).
+1. Download the VSIX matching your platform from the [0.6.1 pre-release](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1).
 2. Open the VS Code Extensions view (`Cmd/Ctrl+Shift+X`).
 3. Select `...` → **Install from VSIX...** and choose the downloaded file.
 4. Reload the VS Code window when prompted.
@@ -112,6 +125,8 @@ Open the **⊞ Plugins** button in the workbench header to browse repositories r
   <sub>0.5.9 plugin center — built-in catalog example, not the complete live GitHub marketplace</sub>
 </p>
 
+Online results merge GitHub Topic and curated metadata. A network failure names the failed source and retains successful results for the current extension session; use Refresh to retry. A first load without network access or cache shows only three built-in recipes.
+
 Ordinary bundles use the running official Plugin Manager for installation, cancellation, enable/disable and removal. The UI reports read-only, overridden and restart-required results. Bundled Node/pnpm are used without a system package manager. The optional Routing Suite keeps its preset-installation recipe and stopped-runtime CLI path. Super Injector is no longer installed automatically; existing installations are retained.
 
 Host tools, policies, and runtime services contributed by a plugin work in this extension. A plugin may also contain client UI designed specifically for the upstream DSH browser application; those UI contributions cannot be rendered generically by this native VS Code workbench and are marked **Official Web UI**.
@@ -126,7 +141,7 @@ OTel, request-attached session logs (`dsh_session_log`) and plugin inventories (
 
 Workspace files use official persistent upload receipts for any file type (20 MiB per file, 40 MiB and eight files per submission). Editor selections stay native. Delivered files open in VS Code or an installed format viewer; binary attachments in subagent conversations are not yet supported.
 
-The official browser's Office preview, restored session terminals and dedicated SSH/Browser Use/Computer Use interfaces are not embedded. Existing VS Code editor and terminal integration remains, and experimental permissions are not enabled by upgrading.
+This package excludes the official Web Office/PDF preview and experimental voice payloads, and disables the Office-to-PDF/document-preview profile rows. File uploads, editor opening and DSH file APIs remain available. Restored session terminals and dedicated SSH/Browser Use/Computer Use interfaces still require native workbench integration; installing a Web UI plugin alone does not add them. Experimental permissions are not enabled by upgrading.
 
 | Setting                               | Default             | Description                                                            |
 | ------------------------------------- | ------------------- | ---------------------------------------------------------------------- |

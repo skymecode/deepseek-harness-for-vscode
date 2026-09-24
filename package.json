@@ -2,7 +2,7 @@
   "name": "deepseek-harness-for-vscode",
   "displayName": "DeepSeek Harness for Visual Studio Code",
   "description": "%extension.description%",
-  "version": "0.6.1-dev",
+  "version": "0.6.1",
   "type": "module",
   "publisher": "skymecode",
   "license": "MIT",
@@ -285,5 +285,6 @@
     "@deepseek-ai/dsh-subprocess-local@0.1.7-alpha.1": true,
     "@vscode/vsce-sign@2.0.9": true,
     "@google/genai@1.52.0": true
-  }
+  },
+  "preview": true
 }

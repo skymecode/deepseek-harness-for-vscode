@@ -1,49 +1,58 @@
-# Changelog
+# 更新日志
 
-## Unreleased
+## 0.6.1
 
-- Trim VSIX-only payloads that the native workbench does not mount: disable the upstream Web Office document-preview host/client rows and exclude LibreOfficeKit plus the optional SenseVoice voice runtime. The macOS arm64 package drops from about 196 MB to about 88 MB; text/file APIs and native DSH plugin installation remain available.
+> **预发布版：** 本版内置 DeepSeek Harness `0.1.7-alpha.1`，会话日志升级为 V4。升级前建议备份共享历史目录（默认 `~/.dsh`）及扩展私有目录 `~/.dsh/vscode/harness-home`。受支持的 V2/V3 历史会通过官方编解码迁移并保留原文件；旧运行时不能读取新增的 V4 日志，不支持直接降级后继续写入同一会话。
 
-- Display completed reasoning durations below one second as `1s`, without changing recorded timing or other duration displays.
+### 新功能与原生 DSH 接入
 
-- Harden native job output observation: resume with DSH byte cursors after reconnects, cancel collapsed observations, bound retained output and preserve focus/scroll in keyed job rows. Replace session/subagent subscriptions atomically, keep native workspace order current after removal, and show archive activity details before stopping work.
-- Register a legacy `code` preset alias through the native registry without overwriting user declarations, and target the renamed `agent-preset-registry` default setting. Search displays active and archived matches together with the corresponding restore action.
+- 内置运行时升级至 `@deepseek-ai/dsh@0.1.7-alpha.1`，适配新版会话日志、设置、预设、任务与插件管理协议；继续保留原生 VS Code 工作台。
+- 会话置顶、取消置顶、归档和恢复使用 DSH 原生 Workspace 接口，旧的本地置顶状态逐项迁移；列表遵循原生置顶和工作区顺序。搜索结果同时展示普通和已归档会话，并提供相应的归档或恢复操作。
+- 后台任务支持查看状态、进度和实时输出，断线后按原生字节游标续接；折叠输出时停止订阅，流式更新保留按钮焦点和输出滚动位置。停止任务前显示确认框。
+- 归档运行中的会话时，逐项展示将受影响的回合、子代理、后台任务和定时提醒，用户确认后由 DSH 执行“停止并归档”。
+- 新增只读定时任务卡片，展示延时、指定时间和周期提醒。需要当前 Profile 启用 Schedule；创建和删除仍由 DSH 原生工具负责。
+- 子代理目录读取原生会话投影，结合实时会话状态显示运行情况；切换会话或子代理时原子替换订阅，避免旧输出混入新会话。
+- 普通插件包通过运行中的官方 Plugin Manager 安装、取消、启停和卸载，并展示只读、被覆盖或需要重启的结果。Super Injector 不再默认自动安装，已有插件保留。
+- 模型输入能力、上下文窗口和推理选项以官方目录为准；支持自定义 OpenAI 兼容及 Anthropic Messages 提供商，保留显式模型声明与上下文覆盖，不再维护独立容量表或按名称猜测视觉能力。
+- 工作区文件使用官方持久上传凭据提交；每轮文件变更优先展示官方快照和历史差异，覆盖 shell 改动。旧历史缺少快照时明确标注为有限工具统计。
 
-- Report failed marketplace sources instead of silently showing only the three built-in recipes. Retain each source's last successful results during the current extension session, retry degraded loads when reopening the plugin center, and show an unavailable GitHub total rather than substituting the built-in count.
+### 修复与兼容性
 
-- Upgrade the pinned runtime to `@deepseek-ai/dsh@0.1.7-alpha.1`. Adopt V4 session logs, Messages-only DeepSeek transport, native job and preset contracts, and the new runtime plugin/configuration model. Preserve old credentials, model declarations, V2/V3 history and legacy session records; retain only the saved-credential endpoint probe adapter.
-- Disable both request-attached session logs and plugin-package inventory, in addition to OTel. Use the official package resolver and a self-contained bundled pnpm shim compatible with Plugin Manager's scrubbed environment. Keep VS Code-specific UI, worktrees and unsupported upstream Web UI features separate; see the [upgrade record](docs/DSH_0_1_6_UPGRADE_PLAN.zh-CN.md) for compatibility boundaries.
-- Route session pinning and background-job cancellation through the native 0.1.7 `workspace` and `job` Remote namespaces. The workbench keeps only extension-specific tags and presentation state locally; see the [0.1.7 native capability audit](docs/DSH_0_1_7_NATIVE_GAP_ANALYSIS.zh-CN.md) for remaining Web UI features.
-- Expand background jobs from the native `job/list` roster with `job/follow` output, bounded output rendering, keyboard-accessible expansion, and the native stop action. Running-session archive requests now honor DSH's `workspace/session-active` response and offer the native `stopActivity` retry.
-- Surface the native `schedule` session projection as a read-only reminder card; creation and deletion remain owned by DSH's Schedule tools.
+- 修复插件市场在线目录失败后只剩三个内置条目、却没有错误提示的问题；刷新失败时保留本次运行中成功加载的来源，重新打开面板时重试，GitHub 总数未知时不再显示内置条目数量。
+- 修复根目录文件名、行号／列号／范围、Windows 盘符与 UNC 路径、中文路径及下划线文件名的跳转；工作区存在性检查和外部链接隔离继续保留。
+- 已完成的思考耗时不足一秒时显示为 `1s`，实际历史计时数据保持不变。
+- 通过原生预设注册接口声明旧 `code` 模式的兼容别名，保留用户已有声明；新会话使用 `ptc`，默认模式设置改用新版预设注册表配置。
+- 默认关闭 OTel、请求附带会话日志和插件清单；模型请求仍包含用户正常提交的消息、上下文及附件。
+- 启动优先使用官方运行时包解析器，仅对已识别的旧模块冲突执行一次有备份的恢复；随包 pnpm 可在插件管理器的受限环境中运行。
 
-- Fix workspace file links with root-level filenames and line/column/range suffixes across file types, rather than only Markdown files. Parse locations before URI detection, preserve native Windows/UNC and POSIX paths and Unicode names, and keep external URLs excluded. Preserve literal underscores and backslashes in prose file references so Markdown cannot split `__init__.py` or alter Windows paths. Keep Host existence validation and keyboard navigation, with parser, rendered-link and cross-platform path regression tests.
+### 安装包精简与已知边界
+
+- 移除当前工作台未使用的 LibreOfficeKit 平台引擎、官方 Web 文档预览客户端和实验性 SenseVoice／sherpa-onnx 语音资源，并禁用对应 Office 服务。本地 macOS arm64 VSIX 从约 196 MiB 降至约 88 MiB，各平台体积不同。
+- 文件上传、编辑器打开、DSH Gateway、插件管理、后台任务和原生文件接口继续可用。Office/PDF 内嵌预览、语音输入和官方 Web UI 插件界面不随本版提供；会话终端界面尚未接入。
+- 官方 DeepSeek 适配器仅支持 Messages API；旧手工配置中的 `llm-deepseek.protocol` 需删除。需要 Chat Completions 的端点请配置为自定义提供商，第三方协议不自动改写。
+- 共享范围仍限于已保存的会话和附件；凭据、插件 Profile、归档与置顶各自保存在扩展私有 Home。多根旧历史合并保留原文件，并遵循官方单写入者锁。
+- 新安装默认使用 `deepseek-flash`；第三方插件和旧目录式自定义预设需满足 DSH 0.1.7 的接口要求。具体接入边界见 [0.1.7 原生能力清单](https://github.com/skymecode/deepseek-harness-for-vscode/blob/v0.6.1/docs/DSH_0_1_7_NATIVE_GAP_ANALYSIS.zh-CN.md)。
+
+### 下载与安装
+
+本次提供 `darwin-arm64`、`win32-x64`、`linux-x64` 和 `linux-arm64` 四个平台 VSIX。在 VS Code 扩展面板选择“从 VSIX 安装…”，安装对应文件并重新加载窗口。本版为 GitHub 预发布，不自动发布到 VS Code Marketplace。
 
 ## 0.6.0
 
-> Upgrade notice: this release bundles Harness `0.1.5-alpha.1` and uses V3 session logs. Independently installed official DSH must also support V3 to share history. Original legacy logs are retained; back up the shared and private history homes before upgrading. Two backends may read saved history, but only one may own a session for writing at a time.
+> **升级提示：** 本版内置 Harness `0.1.5-alpha.1`，使用 V3 会话日志。独立安装的官方 DSH 也需支持 V3 才能共享历史。原始旧日志会保留；升级前请备份共享及私有历史目录。两个后端可读取已保存的历史，但同一时刻只有一个进程可以持有某个会话的写入权。
 
-- Keep Windows storage paths aligned with their configured spelling for session-lock identity; use canonical paths only for deduplication and containment checks. Generate platform-native history paths in runtime overlays.
-
-- Keep conversation history buttons mounted during streaming updates so clicking another session reliably switches conversations. Preserve keyboard focus and update titles, running indicators, tags and archive actions in place.
-
-- Anchor reasoning-card expansion and collapse to the activated header, and exclude folded or clipped historical content from reading anchors to prevent scroll jumps.
-
-- Fix every Host slash command (`/permission`, `/model`, `/compact`, …) failing with `RPC commands/execute failed: gateway/arguments-invalid: … missing "submittedAttachments"; unexpected "images"` after the bundled runtime moved to `dsh@0.1.3-alpha.2`: upstream renamed the third `commands/execute` parameter from `images` to `submittedAttachments` (encoded images plus staged file receipts) and the typert descriptor validates args strictly, so the legacy field name rejects the whole call. The client now sends an explicit empty list under the new name.
-
-- Share persisted conversation history with independently launched official DSH backends while retaining the extension's bundled runtime, private credentials, plugin profile and native UI. Default to `DSH_HOME` or `~/.dsh` for sessions and attachments, with an application-scoped custom history-home setting. Migrate old extension/globalStorage logs through official codecs and kernel locks: preserve originals, fast-forward compatible prefixes, keep diverged/occupied destinations as deterministic history forks, and journal completed imports. Respect plaintext and Zstandard stores, retain the private-history fallback on migration failure, refresh the list when opening history, and show a clear ownership message instead of taking over another process. Add real independent-backend and legacy-migration regression coverage; cross-device synchronization and concurrent writing of one session are not supported.
-
-- Automatically recover shared Harness module-fallback directory conflicts before Gateway startup and community-plugin installation. Resolve the bundled dependency closure, quarantine only incompatible ordinary entries under `profiles/node_modules`, and let upstream rebuild its links. Preserve symlinks/junctions, managed proxies, profile-local plugins, credentials and session logs; coordinate with upstream's writer lock, log recoverable backup paths, fail safely on I/O errors and bound Gateway recovery retries. Add cross-platform filesystem/entry-point tests and a real-runtime conflict-recovery smoke test.
-
-- Upgrade the bundled Harness to `0.1.5-alpha.1` with a pinned lockfile. Revalidate the guarded pi-ai relay/probe patches and the upstream-fixed projection-cache schema. Recognize versioned V2/V3 logs during legacy-home copying, preserve all original generations, and expose V3 system-message snapshots only in the runtime-context inspector. Add isolated real-runtime coverage for V2 migration/resume and bundled community tools alongside streaming and approval/question transport; document the V3 downgrade and third-party Agent/Inbox API limitations.
-
-- Fix dismissal of the Skills/context panel after the composer-menu redesign: add an always-visible close button, Escape handling before turn cancellation, repeated-shortcut toggling and automatic dismissal after choosing a skill or switching sessions. Keep panel navigation separate from detail rendering and preserve live updates and drafts.
-
-- Simplify the composer footer: remove the permanent keyboard-hint row and render permissions/model/effort as borderless text controls. Preserve full-access warning colors, accessible focus and existing pickers; move image-rejection feedback into a shared transient component that occupies no space when idle.
-
-- Replace the composer Context text button with a compact plus menu for workspace file references, selected code, goals, Plan mode, session skills, DSH plugins and the existing context inspector. Preserve drafts and streamed menu state, add keyboard navigation/Escape isolation and viewport-clamped positioning, and localize the new controls in English and Chinese.
-
-- Add native Windows/macOS completion notifications for local desktop sessions, replacing the in-window completion popup. Separate completion tracking, notification policy and platform adapters; suppress duplicate idle events, child-agent alerts and local Stop actions. Include bilingual settings and a test command, optional sound/title disclosure, cancellable bounded subprocesses and documented OS-permission/remote-host limitations.
+- 修复 Windows 会话锁的路径身份问题：存储路径保留用户配置的路径写法，规范化路径仅用于去重和范围检查；运行时覆盖配置使用当前平台的原生路径格式。
+- 流式更新期间保留历史会话按钮和键盘焦点，原位更新标题、运行状态、标签与归档操作，确保点击其他会话时能够可靠切换。
+- 思考卡片展开或收起时以当前标题为滚动锚点，排除已折叠或被裁剪的历史内容，减少阅读位置跳动。
+- 修复 `/permission`、`/model`、`/compact` 等宿主斜杠命令参数校验失败：适配上游将 `images` 重命名为 `submittedAttachments` 的协议变更，按新字段发送明确的空附件列表。
+- 与独立启动的官方 DSH 共享已保存的会话和附件，默认使用 `DSH_HOME` 或 `~/.dsh`，并提供应用级自定义历史目录设置。扩展继续使用随包运行时、私有凭据、插件 Profile 和原生界面。
+- 通过官方编解码器及系统锁迁移旧扩展／globalStorage 历史：保留原文件；兼容的追加历史按前缀补齐；已分叉或目标被占用的历史另存为确定性分支；记录迁移结果避免重复导入。兼容明文及 Zstandard 存储，迁移失败时保留私有历史回退，打开历史面板时刷新列表。同一会话不支持并发写入，也不提供跨设备同步。
+- 在网关启动和社区插件安装前恢复共享运行时模块目录冲突：仅将 `profiles/node_modules` 下不兼容的普通目录移到备份，再由上游重建链接；保留符号链接、junction、受管代理、Profile 内插件、凭据和会话日志。恢复过程遵循上游写锁，记录备份位置，并限制重试次数。
+- 内置 Harness 固定升级至 `0.1.5-alpha.1`，重新验证 pi-ai 中转／连接探测补丁及上游修复的投影缓存。迁移时识别 V2/V3 日志并保留所有原始代次；V3 系统消息快照仅在“运行环境”检查器中展示。补充旧会话恢复、共享历史、社区工具、流式输出、审批和问题交互的真实运行时回归覆盖。
+- 修复 Skills／上下文面板关闭不便：新增常驻关闭按钮；Escape 优先关闭面板而非中断回合；重复点击快捷入口可切换显示，选择技能或切换会话后自动关闭；保留草稿和实时更新。
+- 精简输入区底栏，移除常驻键盘提示行；权限、模型与推理等级使用无边框文本控件，同时保留完全访问警示、键盘焦点及原有选择器。图片不支持提示改为闲置时不占空间的临时反馈。
+- 将输入区“上下文”按钮替换为紧凑的加号菜单，汇集工作区文件、选中代码、目标、Plan 模式、会话技能、DSH 插件和运行环境入口；保留草稿，支持键盘导航、Escape、视口内定位及中英文本地化。
+- 新增本地 Windows/macOS 原生完成通知，替代 VS Code 窗口内完成弹窗；抑制重复空闲事件、子代理完成和主动停止带来的通知。提供中英文设置、测试命令、可选声音与标题显示，并明确系统通知权限和远程扩展宿主的限制。
 
 ## 0.5.9
 
