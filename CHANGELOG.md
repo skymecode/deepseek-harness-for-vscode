@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Trim VSIX-only payloads that the native workbench does not mount: disable the upstream Web Office document-preview host/client rows and exclude LibreOfficeKit plus the optional SenseVoice voice runtime. The macOS arm64 package drops from about 196 MB to about 88 MB; text/file APIs and native DSH plugin installation remain available.
+
 - Display completed reasoning durations below one second as `1s`, without changing recorded timing or other duration displays.
 
 - Harden native job output observation: resume with DSH byte cursors after reconnects, cancel collapsed observations, bound retained output and preserve focus/scroll in keyed job rows. Replace session/subagent subscriptions atomically, keep native workspace order current after removal, and show archive activity details before stopping work.

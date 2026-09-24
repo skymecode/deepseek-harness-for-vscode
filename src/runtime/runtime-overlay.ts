@@ -25,6 +25,14 @@ ${historyRows}
   # This bundle row mounts dsh-host-frontend-static, so disable it completely.
   disabled: true
 
+# The native VS Code workbench does not mount the official Web document
+# preview. Keep DSH's file APIs available, but do not start its Office-to-PDF
+# host service or require the platform LibreOffice engine in the VSIX.
+- id: office-to-pdf
+  disabled: true
+- id: ui-sidebar-documentpreview
+  disabled: true
+
 - insert:
     # Keep the official API transport alive by providing only the bind facts
     # consumed by dsh-client-connection. No HTTP fallback is registered.
