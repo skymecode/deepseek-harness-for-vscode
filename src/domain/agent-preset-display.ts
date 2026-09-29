@@ -2,7 +2,7 @@ import { AGENT_PRESET_OPTIONS } from './options.js'
 
 export interface PresetDisplaySource {
   readonly id: string
-  /** Kept optional for compatibility with pre-0.1.7 roster fixtures. */
+  /** Kept optional for compatibility with legacy roster fixtures. */
   readonly trust?: 'system' | 'user'
   readonly isDefault?: boolean
   readonly broken?: string

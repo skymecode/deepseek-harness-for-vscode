@@ -11,16 +11,14 @@ export class ConnectionTestService {
   constructor(private readonly client: () => ProviderControlClient) {}
 
   async test(input: ConnectionSettingsInput): Promise<ConnectionTestResult> {
-    if (input.provider === DEEPSEEK_OFFICIAL_PROVIDER) {
-      return { status: 'unsupported', detail: 'DeepSeek Official is validated when the first request is sent.' }
-    }
+    const official = input.provider === DEEPSEEK_OFFICIAL_PROVIDER
     const baseURL = input.baseUrl.trim()
     if (!validateBaseUrl(baseURL).valid) {
       return { status: 'unreachable', detail: 'The Base URL must be a valid http(s) URL.' }
     }
     try {
-      const models = await this.client().llmDiscoverModels(PI_AI_SETTINGS_NS, {
-        ...(input.provider === '__new__' ? {} : { provider: input.provider }),
+      const models = await this.client().llmDiscoverModels(official ? 'vscode-deepseek-check' : PI_AI_SETTINGS_NS, {
+        ...(official || input.provider === '__new__' ? {} : { provider: input.provider }),
         baseURL,
         api: input.api ?? 'openai-completions',
         ...(input.apiKey.trim() === '' ? {} : { apiKey: input.apiKey.trim() }),

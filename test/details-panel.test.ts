@@ -118,3 +118,20 @@ describe('Skills and context panel dismissal', () => {
     expect(f.onSelect).not.toHaveBeenCalled()
   })
 })
+
+it('keeps only the active context tab selected and focusable', () => {
+  document.body.innerHTML = '<section id="details"><div class="detail-tabs" role="tablist"><button data-detail="todos" class="active">Plan</button><button data-detail="jobs">Jobs</button></div><div id="detail-content"></div><button id="close"></button><button id="return"></button></section>'
+  const panel = document.getElementById('details')!
+  const close = document.getElementById('close') as HTMLButtonElement
+  const returnFocus = document.getElementById('return') as HTMLButtonElement
+  const select = vi.fn()
+  const details = new DetailsPanel({ panel, closeButton: close, returnFocus, onSelect: select })
+  const jobs = panel.querySelector<HTMLButtonElement>('[data-detail="jobs"]')!
+  jobs.click()
+  expect(select).toHaveBeenCalledWith('jobs')
+  expect(jobs.getAttribute('aria-selected')).toBe('true')
+  expect(jobs.tabIndex).toBe(0)
+  expect(panel.querySelector<HTMLButtonElement>('[data-detail="todos"]')?.getAttribute('aria-selected')).toBe('false')
+  expect(panel.querySelector<HTMLButtonElement>('[data-detail="todos"]')?.tabIndex).toBe(-1)
+  details.dispose()
+})

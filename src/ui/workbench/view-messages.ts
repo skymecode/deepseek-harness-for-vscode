@@ -1,3 +1,4 @@
+import type { HistoricalReview } from './historical-review.js'
 /**
  * Routes messages from the workbench webview to host capabilities. Each case
  * is one message type; heavy flows (sendPrompt, exportSession, worktree
@@ -31,6 +32,7 @@ import {
 
 /** The host capabilities one message may reach. */
 export interface WorkbenchMessageContext {
+  readonly review: HistoricalReview
   readonly gateway: HarnessGatewayService
   readonly actions: WorkbenchViewActions
   readonly configuration: ConfigurationService
@@ -65,7 +67,12 @@ export interface WorkbenchViewActions {
       await ctx.actions.setApiKey()
       break
     case 'applySettings': {
-      await ctx.actions.applySettings(settingsInput(value))
+      try {
+        await ctx.actions.applySettings(settingsInput(value))
+        ctx.postToHosts({ type: 'settingsApplyResult', requestId: optionalString(value.requestId) })
+      } catch (cause) {
+        ctx.postToHosts({ type: 'settingsApplyResult', requestId: optionalString(value.requestId), error: cause instanceof Error ? cause.message : String(cause) })
+      }
       break
     }
     case 'setExperimentalAutoEffort': {
@@ -80,7 +87,7 @@ export interface WorkbenchViewActions {
     }
     case 'testConnection': {
       const result = await ctx.actions.testConnection(settingsInput(value))
-      await ctx.postToHosts({ type: 'connectionTestResult', ...result })
+      await ctx.postToHosts({ type: 'connectionTestResult', ...result, requestId: optionalString(value.requestId) })
       break
     }
     case 'openSettings':
@@ -368,14 +375,17 @@ export interface WorkbenchViewActions {
       const sessionId = optionalString(value.sessionId)
       const seq = numberValue(value.seq)
       const index = numberValue(value.index)
-      const diff = sessionId === undefined || seq === undefined ? undefined
-        : await ctx.gateway.officialTurnDiff(sessionId, seq, index)
-      if (diff === undefined) {
+      if (sessionId === undefined || seq === undefined) break
+      const summary = await ctx.gateway.providerControlClient().changesSummary(sessionId, seq)
+      if (!summary) {
         void vscode.window.showInformationMessage(vscode.l10n.t('The historical comparison is no longer available in this Harness runtime.'))
         break
       }
-      const document = await vscode.workspace.openTextDocument({ language: 'diff', content: diff })
-      await vscode.window.showTextDocument(document, { preview: true })
+      const selected = index === undefined ? await vscode.window.showQuickPick(summary.files.map((file, index) => ({ label: file.display, index })), { title: vscode.l10n.t('Review historical file changes') }) : { index }
+      if (!selected) break
+      const diff = await ctx.gateway.providerControlClient().changesDiff(sessionId, seq, selected.index)
+      if (diff) await ctx.review.open(diff)
+      else void vscode.window.showInformationMessage(vscode.l10n.t('The historical comparison is no longer available in this Harness runtime.'))
       break
     }
 

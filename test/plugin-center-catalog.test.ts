@@ -53,3 +53,28 @@ it('shows an unavailable GitHub total and retries a degraded catalog when reopen
   document.getElementById('plugin-refresh')?.click()
   expect(f.onLoad).toHaveBeenLastCalledWith(true)
 })
+
+it('filters marketplace results by native compatibility', () => {
+  const f = fixture()
+  f.component.open()
+  f.component.update({
+    catalog: {
+      source: 'builtin+github-topic+awesome-dsh-plugin',
+      sourceUrl: 'https://example.test/catalog',
+      topicUrl: 'https://example.test/topic',
+      curatedSourceUrl: 'https://example.test/curated',
+      categories: [],
+      plugins: [
+        { id: 'native', name: 'Native', owner: 'test', description: 'native', category: 'workflow', repositoryUrl: 'https://example.test/native', installSpec: 'npm:native', stars: 1, catalogSource: 'curated', compatibility: 'agent' },
+        { id: 'web', name: 'Web', owner: 'test', description: 'web', category: 'workflow', repositoryUrl: 'https://example.test/web', installSpec: 'npm:web', stars: 1, catalogSource: 'curated', compatibility: 'official-web-ui' },
+      ],
+    },
+    installed: [],
+    busy: false,
+  })
+  const select = document.getElementById('plugin-compatibility') as HTMLSelectElement
+  select.value = 'agent'
+  select.dispatchEvent(new window.Event('change') as unknown as Event)
+  expect(document.getElementById('plugin-marketplace-list')?.textContent).toContain('Native')
+  expect(document.getElementById('plugin-marketplace-list')?.textContent).not.toContain('Web')
+})

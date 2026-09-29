@@ -36,7 +36,22 @@ export function render(): void {
   renderPhase(state)
   if (!elements.historyPanel.classList.contains('hidden')) renderSessions()
   renderSelectors(active)
-  elements.keyBanner.classList.toggle('hidden', state.hasApiKey)
+  const providerId = active?.model?.provider ?? payload.configuration.provider
+  const configured = payload.connectionSettings.providers.find(provider => provider.id === providerId)?.apiKeyConfigured === true
+  const setupVisible = state.phase === 'connected' && (!configured || (elements.keyBanner.dataset.dismissed !== 'true' && state.sessions.length === 0 && active?.blank === true))
+  elements.keyBanner.classList.toggle('hidden', !setupVisible)
+  for (const id of ['setup-model', 'setup-permission', 'setup-done']) {
+    const button = document.getElementById(id) as HTMLButtonElement
+    button.disabled = !configured || !active || active.running || (id === 'setup-permission' && !active.permissions)
+  }
+  const isolated = active?.isolated === true
+  elements.worktreeBanner.classList.toggle('hidden', !isolated)
+  if (isolated) {
+    const notice = payload.configuration.worktreeAutoMerge === 'onTurnEnd'
+      ? t('worktreeAutoMergeNotice')
+      : t('worktreeManualMergeNotice')
+    if (elements.worktreeBannerText.textContent !== notice) elements.worktreeBannerText.textContent = notice
+  }
   elements.backParent.classList.toggle('hidden', !active?.parentSessionId)
   elements.fork.disabled = !active || active.blank
   elements.loadOlder.classList.toggle('hidden', !active?.hasMore)

@@ -63,8 +63,23 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
   ${headerHtml(String(logo), text)}
 
   <section id="key-banner" class="key-banner hidden">
-    <span>${text('apiKeyRequired')}</span>
-    <button id="set-api-key">${text('configure')}</button>
+    <div class="key-banner-copy">
+      <strong>${text('setupTitle')}</strong>
+      <small>${text('setupHint')}</small>
+    </div>
+    <div class="key-banner-actions">
+      <button id="open-connection-settings" class="secondary-button">${text('openConnectionSettings')}</button>
+      <button id="set-api-key" class="secondary-button">${text('configure')}</button>
+      <button id="setup-model" class="secondary-button">${text('setupModel')}</button>
+      <button id="setup-permission" class="secondary-button">${text('setupPermission')}</button>
+      <button id="setup-done" class="primary-button">${text('setupDone')}</button>
+    </div>
+  </section>
+
+  <section id="worktree-banner" class="worktree-banner hidden" role="status">
+    <span id="worktree-banner-text"></span>
+    <button id="worktree-review" class="link-button" type="button">${text('worktreeReview')}</button>
+    <button id="worktree-open-settings" class="link-button" type="button">${text('worktreeChangeSettings')}</button>
   </section>
 
   <aside id="history-panel" class="history-panel hidden" aria-label="${text('history')}">
@@ -96,6 +111,7 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
       <div class="plugin-filter-row">
         <input id="plugin-search" class="search-input" type="search" placeholder="${text('searchPlugins')}" aria-label="${text('searchPlugins')}">
         <select id="plugin-category" class="plugin-category" aria-label="${text('allCategories')}"></select>
+        <select id="plugin-compatibility" class="plugin-category" aria-label="${text('pluginCompatibility')}"></select>
       </div>
       <p class="plugin-security-notice">${icon('warning', 12)} ${text('pluginSecurityNotice')}</p>
       <div id="plugin-marketplace-list" class="plugin-list"></div>
@@ -140,19 +156,25 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
 
       <section id="details" class="details hidden" role="region" aria-label="${text('context')}">
         <div class="detail-header">
-          <div class="detail-tabs">
-            <button data-detail="todos" class="active">${text('plan')} <span id="todo-count">0</span></button>
-            <button data-detail="goal">${text('viewGoal')}</button>
-            <button data-detail="skills">${text('skills')} <span id="skill-count">0</span></button>
-            <button data-detail="agents">${text('agents')} <span id="agent-count">0</span></button>
-            <button data-detail="jobs">${text('jobs')} <span id="job-count">0</span></button>
-            <button data-detail="schedules">${text('schedules')}</button>
-            <button data-detail="timeline">${text('timeline')}</button>
-            <button data-detail="runtime">${text('runtimeContext')}</button>
+          <div class="detail-tabs" role="tablist" aria-label="${text('context')}">
+            <div class="detail-tab-group" role="presentation">
+              <button data-detail="todos" class="active" role="tab" aria-selected="true" aria-controls="detail-content">${text('plan')} <span id="todo-count">0</span></button>
+              <button data-detail="goal" role="tab" aria-selected="false" aria-controls="detail-content">${text('viewGoal')}</button>
+              <button data-detail="timeline" role="tab" aria-selected="false" aria-controls="detail-content">${text('timeline')}</button>
+            </div>
+            <div class="detail-tab-group" role="presentation">
+              <button data-detail="agents" role="tab" aria-selected="false" aria-controls="detail-content">${text('agents')} <span id="agent-count">0</span></button>
+              <button data-detail="jobs" role="tab" aria-selected="false" aria-controls="detail-content">${text('jobs')} <span id="job-count">0</span></button>
+              <button data-detail="schedules" role="tab" aria-selected="false" aria-controls="detail-content">${text('schedules')}</button>
+            </div>
+            <div class="detail-tab-group" role="presentation">
+              <button data-detail="skills" role="tab" aria-selected="false" aria-controls="detail-content">${text('skills')} <span id="skill-count">0</span></button>
+              <button data-detail="runtime" role="tab" aria-selected="false" aria-controls="detail-content">${text('runtimeContext')}</button>
+            </div>
           </div>
           <button id="details-close" class="icon-button compact detail-close" type="button" title="${text('closeContext')}" aria-label="${text('closeContext')}">${icon('close', 16)}</button>
         </div>
-        <div id="detail-content" class="detail-content"></div>
+        <div id="detail-content" class="detail-content" role="tabpanel" tabindex="0"></div>
       </section>
 
       <div id="interactions" class="interactions"></div>

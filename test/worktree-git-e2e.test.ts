@@ -16,7 +16,13 @@ let service: WorktreeService
 
 function git(cwd: string, args: string[]): { stdout: string; stderr: string } {
   try {
-    const stdout = execFileSync('git', args, { cwd, encoding: 'utf8' })
+    // Keep expected probes of non-git folders quiet; the test converts the
+    // captured stderr into a structured assertion when needed.
+    const stdout = execFileSync('git', args, {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
     return { stdout, stderr: '' }
   } catch (cause: unknown) {
     const err = cause as { stderr?: string; message?: string }

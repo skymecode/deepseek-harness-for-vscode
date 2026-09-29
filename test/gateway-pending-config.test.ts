@@ -618,15 +618,13 @@ describe('gateway worktree auto-merge', () => {
     expect(worktrees.mergeBack).not.toHaveBeenCalled()
   })
 
-  it('defaults to onTurnEnd when the setting is not configured', async () => {
+  it('defaults to manual review when the setting is not configured', async () => {
     const { service, worktrees } = createService()
-    vi.mocked(worktrees.mergeBack!).mockResolvedValue({ ok: true, message: 'merged' })
-
     service.handleFollowFrame('s1', turnEndFrame('s1'))
     await tick()
     await tick()
 
-    expect(worktrees.mergeBack).toHaveBeenCalledTimes(1)
+    expect(worktrees.mergeBack).not.toHaveBeenCalled()
   })
 
   it('skips auto-merge for sessions without an isolated worktree', async () => {

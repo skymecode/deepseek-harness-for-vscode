@@ -34,7 +34,7 @@ body {
 body {
   margin: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   overflow: hidden;
   color: var(--vscode-foreground);
   background: var(--vscode-sideBar-background);
@@ -226,6 +226,28 @@ body.vscode-high-contrast .brand-logo {
   font-size: 11px;
   line-height: 1.35;
 }
+.key-banner-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.key-banner-copy strong { font-size: 12px; }
+.key-banner-copy small { color: var(--vscode-descriptionForeground); font-size: 11px; }
+.key-banner-actions { display: flex; flex: none; gap: 6px; align-items: center; }
+.worktree-banner {
+  grid-row: 3;
+  min-width: 0;
+  padding: 5px 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--vscode-charts-yellow, var(--vscode-foreground));
+  background: color-mix(in srgb, var(--vscode-charts-yellow, #cca700) 12%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--vscode-charts-yellow, #cca700) 35%, transparent);
+  font-size: 11px;
+}
+.worktree-banner .link-button { flex: none; font-size: 11px; }
 .key-banner button,
 .primary-button,
 .secondary-button {
@@ -512,7 +534,7 @@ body.vscode-high-contrast .brand-logo {
 .plugin-filter-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(100px, 34%);
+  grid-template-columns: minmax(0, 1fr) minmax(96px, 24%) minmax(112px, 28%);
   gap: 6px;
 }
 .plugin-category {
@@ -750,7 +772,7 @@ body.vscode-high-contrast .brand-logo {
 }
 
 .workbench {
-  grid-row: 3;
+  grid-row: 4;
   min-height: 0;
   position: relative;
   overflow: hidden;
@@ -2073,7 +2095,22 @@ body.vscode-light .markdown-body .hljs-deletion {
 .detail-tabs {
   display: flex;
   min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
+.detail-tab-group {
+  display: flex;
+  flex: 1 0 auto;
+  min-width: max-content;
+  border-right: 1px solid var(--vscode-widget-border);
+}
+.detail-tab-group:last-child { border-right: 0; }
+.detail-tab-group button { min-width: 46px; }
+.detail-tab-group button:first-child { padding-left: 7px; }
+.detail-tab-group button:last-child { padding-right: 7px; }
+.detail-tab-group button:focus-visible { outline-offset: -2px; }
+.detail-tabs::-webkit-scrollbar { height: 3px; }
+.detail-tabs::-webkit-scrollbar-thumb { background: var(--vscode-scrollbarSlider-background); }
 .detail-tabs button {
   flex: 1;
   padding: 6px 4px;
@@ -2081,7 +2118,7 @@ body.vscode-light .markdown-body .hljs-deletion {
   background: transparent;
   border: 0;
   border-bottom: 1px solid transparent;
-  font-size: 10px;
+  font-size: 11px;
 }
 .detail-tabs button.active {
   color: var(--vscode-foreground);

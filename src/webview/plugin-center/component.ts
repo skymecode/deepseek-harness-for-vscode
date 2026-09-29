@@ -29,6 +29,7 @@ export function createPluginCenterComponent(options: {
   const refresh = requiredButton(options.document, 'plugin-refresh')
   const search = requiredInput(options.document, 'plugin-search')
   const category = requiredSelect(options.document, 'plugin-category')
+  const compatibility = requiredSelect(options.document, 'plugin-compatibility')
   const market = required(options.document, 'plugin-marketplace-view')
   const installedView = required(options.document, 'plugin-installed-view')
   const marketList = required(options.document, 'plugin-marketplace-list')
@@ -45,6 +46,10 @@ export function createPluginCenterComponent(options: {
   let activeTab: 'marketplace' | 'installed' = 'marketplace'
   let resultLimit = INITIAL_RESULT_LIMIT
   let loaded = false
+  let searchTimer: ReturnType<typeof setTimeout> | undefined
+  let indexedCatalog: readonly { plugin: DshPluginCatalogItem; haystack: string }[] = []
+  let filterCacheKey = ''
+  let filterCache: readonly DshPluginCatalogItem[] = []
 
   const setTab = (tab: 'marketplace' | 'installed'): void => {
     activeTab = tab
@@ -62,9 +67,14 @@ export function createPluginCenterComponent(options: {
   refresh.addEventListener('click', () => options.onLoad(true))
   search.addEventListener('input', () => {
     resultLimit = INITIAL_RESULT_LIMIT
-    renderMarketplace()
+    if (searchTimer !== undefined) clearTimeout(searchTimer)
+    searchTimer = setTimeout(() => { searchTimer = undefined; renderMarketplace() }, 100)
   })
   category.addEventListener('change', () => {
+    resultLimit = INITIAL_RESULT_LIMIT
+    renderMarketplace()
+  })
+  compatibility.addEventListener('change', () => {
     resultLimit = INITIAL_RESULT_LIMIT
     renderMarketplace()
   })
@@ -105,6 +115,11 @@ export function createPluginCenterComponent(options: {
     },
     update(value) {
       snapshot = value
+      indexedCatalog = (value.catalog?.plugins ?? []).map((plugin) => ({
+        plugin,
+        haystack: `${plugin.name} ${plugin.owner} ${plugin.description}`.toLowerCase(),
+      }))
+      filterCacheKey = ''
       if (!snapshot.busy) loaded = snapshot.catalog !== undefined
         && (snapshot.catalog.sourceIssues?.length ?? 0) === 0 && snapshot.error === undefined
       render()
@@ -126,14 +141,21 @@ export function createPluginCenterComponent(options: {
   function renderMarketplace(): void {
     const catalog = snapshot.catalog
     replaceCategories(category, catalog?.categories ?? [], options.translate('allCategories'))
+    replaceCompatibility(compatibility, options.translate)
     const query = search.value.trim().toLowerCase()
     const selectedCategory = category.value
+    const selectedCompatibility = compatibility.value
     const installed = snapshot.installed
-    const filtered = (catalog?.plugins ?? []).filter((plugin) => {
-      const matchesCategory = selectedCategory === '' || plugin.category === selectedCategory
-      const haystack = `${plugin.name} ${plugin.owner} ${plugin.description}`.toLowerCase()
-      return matchesCategory && (query === '' || haystack.includes(query))
-    })
+    const cacheKey = `${catalog?.updated ?? ''}\u0000${query}\u0000${selectedCategory}\u0000${selectedCompatibility}`
+    if (cacheKey !== filterCacheKey) {
+      filterCache = indexedCatalog.filter(({ plugin, haystack }) => {
+        const matchesCategory = selectedCategory === '' || plugin.category === selectedCategory
+        const matchesCompatibility = selectedCompatibility === '' || plugin.compatibility === selectedCompatibility
+        return matchesCategory && matchesCompatibility && (query === '' || haystack.includes(query))
+      }).map(({ plugin }) => plugin)
+      filterCacheKey = cacheKey
+    }
+    const filtered = filterCache
     const visible = filtered.slice(0, resultLimit)
     const fragment = options.document.createDocumentFragment()
     for (const plugin of visible) fragment.append(pluginCard(plugin, installed))
@@ -291,6 +313,26 @@ function replaceCategories(
   }
   select.replaceChildren(fragment)
   select.value = categories.some((item) => item.id === selected) ? selected : ''
+}
+
+function replaceCompatibility(select: HTMLSelectElement, translate: Translator): void {
+  const selected = select.value
+  const values: readonly [string, string][] = [
+    ['', translate('allCompatibility')],
+    ['agent', translate('agentCompatible')],
+    ['partial', translate('partialCompatibility')],
+    ['official-web-ui', translate('webUiOnly')],
+    ['unknown', translate('unknownCompatibility')],
+  ]
+  const fragment = select.ownerDocument.createDocumentFragment()
+  for (const [value, label] of values) {
+    const option = select.ownerDocument.createElement('option')
+    option.value = value
+    option.textContent = label
+    fragment.append(option)
+  }
+  select.replaceChildren(fragment)
+  select.value = values.some(([value]) => value === selected) ? selected : ''
 }
 
 function required(document: Document, id: string): HTMLElement {

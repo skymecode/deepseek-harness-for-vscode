@@ -1,7 +1,32 @@
 import { describe, expect, it, vi } from 'vitest'
 import { apply, gatewayUrl, registerLegacyCodePreset } from '../src/runtime/gateway-runtime-plugin.js'
+import { registerOfficialConnectionCheck } from '../src/runtime/official-connection-check.js'
 
 describe('headless Gateway runtime plugin', () => {
+  it('registers an official draft connection probe without persisting credentials', async () => {
+    let handler: ((request: { baseURL?: string; api?: string }, signal?: AbortSignal) => Promise<unknown>) | undefined
+    const discoverModels = vi.fn(async () => [{ id: 'deepseek-flash' }])
+    const dispose = vi.fn()
+    const ctx = {
+      get: (name: string) => name === 'llm'
+        ? { registerModelDiscovery: vi.fn((_ns: string, callback: typeof handler) => { handler = callback; return dispose }) }
+        : name === 'settings'
+          ? { describe: () => [{ ns: 'llm-deepseek', value: { apiKeyEnv: 'DEEPSEEK_API_KEY' } }] }
+          : name === 'credentials' ? { resolve: vi.fn(async () => ({ value: 'secret' })) } : undefined,
+      on: vi.fn(),
+    }
+    // The helper delegates the actual HTTP operation back to DSH's discovery.
+    const llm = { discoverModels: discoverModels as unknown as (ns: string, request: unknown, signal?: AbortSignal) => Promise<unknown[]> }
+    const original = ctx.get
+    ctx.get = (name: string) => name === 'llm' ? { ...llm, registerModelDiscovery: vi.fn((_ns: string, callback: typeof handler) => { handler = callback; return dispose }) } : original(name)
+    registerOfficialConnectionCheck(ctx)
+    await handler?.({ baseURL: 'https://api.deepseek.com/anthropic', api: 'openai-completions' }, AbortSignal.timeout(10))
+    expect(discoverModels).toHaveBeenCalledWith('llm-pi-ai', {
+      baseURL: 'https://api.deepseek.com', api: 'openai-completions', apiKey: 'secret',
+    }, expect.any(AbortSignal))
+    expect(ctx.on).toHaveBeenCalledWith('dispose', expect.any(Function))
+  })
+
   it('keeps a user-declared code preset and releases an extension alias on disposal', async () => {
     const register = vi.fn().mockResolvedValue(vi.fn())
     const presets = { list: vi.fn().mockResolvedValue([{ id: 'code' }]), register }

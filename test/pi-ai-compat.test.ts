@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { Config as PiAiConfig } from '@deepseek-ai/dsh-llm-pi-ai'
 import { stream } from '@earendil-works/pi-ai/api/openai-completions'
+import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import type { Context, Model } from '@earendil-works/pi-ai'
 
 const relayModel: Model<'openai-completions'> = {
@@ -63,7 +64,7 @@ describe('pi-ai relay compatibility', () => {
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
       }, { role: 'toolResult', toolCallId: 'call-1', toolName: 'read_file', content: [{ type: 'text', text: '{}' }], isError: false, timestamp: 2 }],
     }
-    await stream(relayModel, context, {
+    await stream(relayModel, normalizeContext(context), {
       apiKey: 'test-only', signal: controller.signal,
       onPayload: (request) => { payload = request; controller.abort() },
     }).result()
@@ -98,7 +99,7 @@ describe('pi-ai relay compatibility', () => {
     }
     const controller = new AbortController()
     let payload: unknown
-    const response = stream(relayModel, context, {
+    const response = stream(relayModel, normalizeContext(context), {
       apiKey: 'test-only',
       reasoningEffort: 'high',
       signal: controller.signal,

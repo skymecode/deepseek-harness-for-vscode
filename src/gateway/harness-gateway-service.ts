@@ -111,6 +111,9 @@ export class HarnessGatewayService implements vscode.Disposable {
   private readonly followSnapshotWaiters = new Map<string, (value: void) => void>()
   private summaries = new Map<string, SessionSummary>()
   private entries: HistoryEntry[] = []
+  /** Cached transcript projection; job/queue/status updates do not rebuild history. */
+  private historyProjectionDirty = true
+  private projectedConversationCache: ReturnType<typeof projectConversation> | undefined
   private hasMore = false
   private activeSessionId: string | undefined
   private readonly officialChanges = new Map<string, Map<number, SessionChangesView | undefined>>()
@@ -417,7 +420,11 @@ export class HarnessGatewayService implements vscode.Disposable {
 
     const activeSummary = this.activeSessionId === undefined ? undefined : this.summaries.get(this.activeSessionId)
     const subagents = this.currentSubagentRows()
-    const projected = projectConversation(presentationHistory(this.entries, this.assistantStream.entries()), this.labels)
+    if (this.historyProjectionDirty || this.projectedConversationCache === undefined) {
+      this.projectedConversationCache = projectConversation(presentationHistory(this.entries, this.assistantStream.entries()), this.labels)
+      this.historyProjectionDirty = false
+    }
+    const projected = this.projectedConversationCache
     const permissions = projectionPermissions(this.projections.permissions)
     const plan = projectionPlan(this.projections.plan)
     const goal = projectionGoal(this.projections.goal)
@@ -435,6 +442,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     const stats = projectionSessionStats(this.projections.sessionStats) ?? projectSessionStats(this.entries)
     const effortIntent = activeSummary === undefined ? undefined : this.metaStore.effortIntentFor(String(activeSummary.sessionId))
     const active = activeSummary === undefined ? undefined : {
+      ...this.sessionListItemWithIsolation(activeSummary),
       id: String(activeSummary.sessionId),
       title: sessionListItem(activeSummary, this.labels).title,
       running: activeSummary.running,
@@ -814,6 +822,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.jobOutput.stop()
     this.subagentAddress = undefined
     this.entries = []
+    this.historyProjectionDirty = true
     this.assistantStream.reset()
     this.hasMore = false
     this.models = undefined
@@ -903,6 +912,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     const records = NodeGatewayClient.expandRecords(page.records as unknown[]) as HistoryEntry[]
     const existing = new Set(this.entries.map((entry) => entry.event.seq))
     this.entries = [...records.filter((entry) => !existing.has(entry.event.seq)), ...this.entries]
+    this.historyProjectionDirty = true
     this.hasMore = page.hasMore
     this.fireChange()
   }
@@ -1222,6 +1232,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.activeSessionId = childSessionId
     this.followCursor.set(childSessionId, 0)
     this.entries = []
+    this.historyProjectionDirty = true
     this.assistantStream.reset()
     this.hasMore = false
     this.models = undefined
@@ -1700,7 +1711,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     }
   }
 
-  /** Keeps the active session's native DSH 0.1.7 background-job roster current. */
+  /** Keeps the active session's native DSH 0.2.0 background-job roster current. */
   private async pumpActiveJobs(signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
       if (this.activeSessionId === undefined) {
@@ -1748,6 +1759,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   private handleFollowFrame(sessionId: string, frame: FollowFrame): void {
     if (frame.type === 'assistant-stream') {
       this.assistantStream.accept(frame.frame)
+      this.historyProjectionDirty = true
       this.fireChange()
       return
     }
@@ -1756,6 +1768,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       this.followCursor.set(sessionId, frame.cursor)
       // Merging keeps events received during the read (and repair re-reads).
       this.entries = mergeHistory(records, this.entries)
+      this.historyProjectionDirty = true
       this.assistantStream.reset(frame.assistantStream)
       for (const { event } of this.entries) this.assistantStream.settle(event)
       this.hasMore = frame.hasMore
@@ -1961,7 +1974,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     return { workspaceId: record.workspaceId, path: record.path, sessionIds: record.sessionIds.filter((id): id is string => typeof id === 'string') }
   }
 
-  /** Moves pre-0.1.7 local pins into DSH once the native baseline is known. */
+  /** Moves legacy local pins into DSH once the native baseline is known. */
   private async migrateLegacyPins(): Promise<void> {
     const client = this.client
     if (client === undefined) return
@@ -1996,6 +2009,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     const existing = this.entries.findIndex((value) => value.event.seq === entry.event.seq)
     if (existing >= 0) this.entries[existing] = entry
     else this.entries.push(entry)
+    this.historyProjectionDirty = true
   }
 
   private resolveFollowSnapshotWaiter(sessionId: string): void {
@@ -2042,6 +2056,7 @@ export class HarnessGatewayService implements vscode.Disposable {
           maxMessages: 80,
         })
         this.entries = NodeGatewayClient.expandRecords(page.records as unknown[]) as HistoryEntry[]
+        this.historyProjectionDirty = true
         this.hasMore = page.hasMore
       }
       this.fireChange()

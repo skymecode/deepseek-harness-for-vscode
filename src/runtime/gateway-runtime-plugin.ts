@@ -1,3 +1,4 @@
+import { registerOfficialConnectionCheck } from './official-connection-check.js'
 import type { LlmResolvedModelInfo as DshLlmResolvedModelInfo } from '@deepseek-ai/dsh-llm/types'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AgentPresetRegistry, PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
@@ -95,6 +96,7 @@ export function apply(ctx: GatewayPluginContext, config: GatewayRuntimeConfig = 
   if (settled === undefined) announce()
   else void settled.then(async () => {
     await registerLegacyCodePreset(ctx)
+    registerOfficialConnectionCheck(ctx)
     announce()
   }).catch((cause: unknown) => {
     process.stderr.write(`dsh gateway preparation failed: ${cause instanceof Error ? cause.message : String(cause)}\n`)

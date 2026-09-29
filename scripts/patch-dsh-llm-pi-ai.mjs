@@ -7,7 +7,7 @@ const packageJsonPath = require.resolve('@deepseek-ai/dsh-llm-pi-ai/package.json
 const packageRoot = dirname(packageJsonPath)
 const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'))
 
-const SUPPORTED_VERSIONS = ['0.1.6-alpha.2', '0.1.7-alpha.1']
+const SUPPORTED_VERSIONS = ['0.1.6-alpha.2', '0.1.7-alpha.1', '0.2.0-rc.2']
 
 if (!SUPPORTED_VERSIONS.includes(packageJson.version)) {
   throw new Error(

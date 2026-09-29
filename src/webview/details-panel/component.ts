@@ -12,6 +12,11 @@ export class DetailsPanel {
 
   constructor(private readonly options: Options) {
     this.tabs = Array.from(options.panel.querySelectorAll<HTMLButtonElement>('[data-detail]'))
+    for (const tab of this.tabs) {
+      tab.setAttribute('role', 'tab')
+      tab.setAttribute('aria-controls', 'detail-content')
+    }
+    this.syncAccessibility(this.currentTab())
     options.closeButton.addEventListener('click', this.onClose)
     for (const tab of this.tabs) tab.addEventListener('click', this.onTab)
   }
@@ -19,6 +24,7 @@ export class DetailsPanel {
   get opened(): boolean { return !this.options.panel.classList.contains('hidden') }
 
   open(tab = this.currentTab()): void {
+    this.syncAccessibility(tab)
     this.options.onSelect(tab)
     this.options.panel.classList.remove('hidden')
     this.tabs.find((button) => button.dataset.detail === tab)?.focus({ preventScroll: true })
@@ -60,8 +66,17 @@ export class DetailsPanel {
   }
 
   private currentTab(): string { return this.tabs.find((tab) => tab.classList.contains('active'))?.dataset.detail ?? 'todos' }
+  private syncAccessibility(active: string): void {
+    for (const tab of this.tabs) {
+      const selected = tab.dataset.detail === active
+      tab.setAttribute('aria-selected', String(selected))
+      tab.tabIndex = selected ? 0 : -1
+    }
+  }
   private readonly onClose = (): void => { this.close(true) }
   private readonly onTab = (event: Event): void => {
-    this.options.onSelect((event.currentTarget as HTMLButtonElement).dataset.detail ?? 'todos')
+    const tab = (event.currentTarget as HTMLButtonElement).dataset.detail ?? 'todos'
+    this.syncAccessibility(tab)
+    this.options.onSelect(tab)
   }
 }

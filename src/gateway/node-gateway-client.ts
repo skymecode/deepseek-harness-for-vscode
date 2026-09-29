@@ -11,7 +11,7 @@ import type { ModelCatalog as DshModelCatalog, SessionProjectionsRequest, Sessio
 import type { JobFollowFrame, JobFollowRequest, JobKillRequest, JobKillValue, JobListFrame, JobListRequest } from '@deepseek-ai/dsh-api-job-controller/types'
 import type { SessionId as DshSessionId } from '@deepseek-ai/dsh-session/types'
 /**
- * Node transport for the Harness Gateway (dsh 0.1.7 Typert Remote protocol).
+ * Node transport for the Harness Gateway (dsh 0.2.0 Typert Remote protocol).
  *
  * Unary calls POST a Connection `client-request` envelope to `/api/<endpoint>`
  * with the endpoint's named `{ args }` payload; event and domain streams run
@@ -195,7 +195,7 @@ export class NodeGatewayClient {
   /** Verify the declarative preset roster before loading saved sessions. */
   async ensureLegacyCodePreset(): Promise<void> {
     const roster = await this.agentPresetList()
-    // DSH 0.1.7 moves preset composition into plugin bundles and removes the
+    // DSH 0.2.0 moves preset composition into plugin bundles and removes the
     // old copy endpoint. The gateway plugin declares the compatibility `code`
     // alias using the native registry; new sessions use the official `ptc` id.
     void roster
@@ -395,7 +395,7 @@ export class NodeGatewayClient {
     return this.openStream<WorkspaceFollowFrame>('workspace/follow', {}, signal)
   }
 
-  /** Native DSH 0.1.7 background-job roster for one session. */
+  /** Native DSH 0.2.0 background-job roster for one session. */
   jobList(request: JobListRequest, signal: AbortSignal): AsyncGenerator<JobListFrame> {
     return this.openStream<JobListFrame>('job/list', { request }, signal)
   }

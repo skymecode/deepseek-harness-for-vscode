@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Model } from '@earendil-works/pi-ai'
 import { streamSimple } from '@earendil-works/pi-ai/api/openai-completions'
+import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import {
   KEYLESS_AUTHORIZATION,
   deepSeekRelayProfile,
@@ -92,7 +93,7 @@ describe('keyless relay transport', () => {
 
     const stream = streamSimple(
       model,
-      { messages: [{ role: 'user', content: 'hi', timestamp: 0 }] },
+      normalizeContext({ messages: [{ role: 'user', content: 'hi', timestamp: 0 }] }),
       // Mirror dsh's keyless path: no apiKey, profile headers as options headers.
       { headers: profile.headers!, fetch },
     )

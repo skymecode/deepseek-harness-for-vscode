@@ -122,6 +122,10 @@ export interface ActiveSessionView {
   readonly title: string
   readonly running: boolean
   readonly blank: boolean
+  /** Whether this session is fenced in a dedicated Git worktree. */
+  readonly isolated?: boolean
+  /** Whether this session shares the current workspace directly. */
+  readonly shared?: boolean
   readonly agentPreset?: string
   readonly hasMore: boolean
   readonly model?: { readonly provider: string; readonly model: string; readonly reasoningEffort?: string }

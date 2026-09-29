@@ -1,3 +1,4 @@
+import { HistoricalReview } from './workbench/historical-review.js'
 /**
  * The native Codex/Cline-style workbench host: owns the webview view/panel
  * lifecycle and the publish queue, and forwards webview messages to
@@ -29,6 +30,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
   private panel: vscode.WebviewPanel | undefined
   private viewSubscription: vscode.Disposable | undefined
   private readonly subscriptions: vscode.Disposable[]
+  private readonly review = new HistoricalReview()
   private publishing: Promise<void> | undefined
   private publishPending = false
 
@@ -44,6 +46,8 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
   ) {
     this.subscriptions = [gateway.onDidChange(() => {
       void this.publishState().catch(() => undefined)
+    }), vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('deepseekHarness.worktreeAutoMerge')) void this.publishState().catch(() => undefined)
     }), connectionSettings.onDidChange(() => {
       void this.publishState().catch(() => undefined)
     }), pluginCenter.onDidChange((snapshot) => {
@@ -95,6 +99,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     this.viewSubscription?.dispose()
     for (const subscription of this.subscriptions) subscription.dispose()
     this.panel?.dispose()
+    this.review.dispose()
   }
 
   /** Opens the workbench in a detachable editor-area panel, like Claude Code. */
@@ -141,6 +146,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     try {
       await handleWorkbenchMessage({
         gateway: this.gateway,
+        review: this.review,
         actions: this.actions,
         configuration: this.configuration,
         pluginCenter: this.pluginCenter,

@@ -55,6 +55,10 @@ window.addEventListener('message', (event) => {
     components.fileMention.acceptSuggestions(event.data.requestId, event.data.query, event.data.files || [])
     return
   }
+  if (event.data?.type === 'settingsApplyResult') {
+    components.connectionSettings.renderApplyResult(event.data)
+    return
+  }
   if (event.data?.type === 'connectionTestResult') {
     components.connectionSettings.renderTestResult(event.data)
     return
@@ -131,7 +135,19 @@ elements.fork.addEventListener('click', () => {
 elements.importSession.addEventListener('click', () => post('importSession'))
 elements.historyImport.addEventListener('click', () => post('importSession'))
 elements.exportSession.addEventListener('click', () => post('exportSession'))
-elements.setApiKey.addEventListener('click', () => post('setApiKey'))
+elements.setApiKey.addEventListener('click', () => components.connectionSettings.open())
+elements.openConnectionSettings.addEventListener('click', () => components.connectionSettings.open())
+document.getElementById('worktree-review')?.addEventListener('click', () => {
+  if (payload?.state.active) post('worktreeAction', { sessionId: payload.state.active.id })
+})
+document.getElementById('setup-model')?.addEventListener('click', () => components.composerConfiguration.open('model'))
+document.getElementById('setup-permission')?.addEventListener('click', () => togglePermissionPopup())
+document.getElementById('setup-done')?.addEventListener('click', () => {
+  elements.keyBanner.dataset.dismissed = 'true'
+  render()
+  elements.prompt.focus()
+})
+elements.worktreeOpenSettings.addEventListener('click', () => post('openSettings'))
 elements.openSettings.addEventListener('click', () => components.connectionSettings.open())
 elements.retry.addEventListener('click', () => post('retry'))
 elements.showLogs.addEventListener('click', () => post('showLogs'))

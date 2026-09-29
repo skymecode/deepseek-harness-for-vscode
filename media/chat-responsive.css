@@ -378,3 +378,15 @@ body {
     max-width: 100%;
   }
 }
+
+@media (max-width: 680px) {
+  .key-banner { flex-wrap: wrap; }
+  .key-banner-actions { flex-wrap: wrap; flex: 1 1 100%; }
+  .key-banner-actions button { white-space: normal; }
+  .worktree-banner { flex-wrap: wrap; }
+  .plugin-filter-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  #plugin-search { grid-column: 1 / -1; }
+}
+@media (max-width: 360px) {
+  .plugin-filter-row { grid-template-columns: minmax(0, 1fr); }
+}

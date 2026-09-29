@@ -9,13 +9,13 @@ import { describe, expect, it } from 'vitest'
 import type { SessionPromptRequest } from '../src/gateway/domain-api.js'
 import { bootSmokeRuntime } from './helpers/runtime-smoke.js'
 
-describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('DSH 0.1.7 official contracts', () => {
+describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('DSH 0.2.0 official contracts', () => {
   it('installs, toggles and removes a local bundle through the running official plugin manager', async () => {
     const name = 'dsh-vscode-upgrade-fixture'
     let fixture = ''
     let importer = ''
     const runtime = await bootSmokeRuntime('http://127.0.0.1:1', { prepare: async (home, extensionRoot) => {
-      importer = join(extensionRoot, 'vendor/plugins/dsh-chat-import-0.6.2.tgz')
+      importer = join(extensionRoot, 'vendor/plugins/dsh-chat-import-0.22.2.tgz')
       fixture = join(home, 'fixture-bundle')
       await mkdir(fixture)
       await writeFile(join(fixture, 'package.json'), JSON.stringify({ name, version: '1.0.0', type: 'module', main: './index.js', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
@@ -83,7 +83,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('DSH 0.1.7 official contra
       const metadata = await client.modelCapabilities('deepseek-official')
       expect(metadata.find((model) => model.id === 'deepseek-flash')?.context?.contextWindow).toBeGreaterThan(0)
       await client.ensureLegacyCodePreset()
-      // 0.1.7 removes the old preset-copy endpoint; legacy sessions retain
+      // 0.2.0 removes the old preset-copy endpoint; legacy sessions retain
       // their recorded preset, while new sessions use a declared preset.
       expect((await client.agentPresetList()).presets.some((preset) => preset.id === 'minimal' && !preset.broken)).toBe(true)
       expect((await client.agentPresetList()).presets.some((preset) => preset.id === 'code' && !preset.broken)).toBe(true)

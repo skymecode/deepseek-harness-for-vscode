@@ -17,7 +17,8 @@ export interface ConnectionSettingsComponent {
   open(): void
   close(): void
   update(state: ConnectionSettingsState, selectedProvider: string, activeProvider?: string, experimentalAutoEffort?: boolean): void
-  renderTestResult(result: ConnectionTestResult): void
+  renderTestResult(result: ConnectionTestResult & { requestId?: string }): void
+  renderApplyResult(result: { requestId?: string; error?: string }): void
 }
 
 /** Connection settings behavior kept out of the webview entrypoint. */
@@ -50,6 +51,9 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
   // cleared on every renderFields) and makes the provider select flicker, so
   // updates only repaint when the underlying provider data actually changed.
   let updateSignature = ''
+  let pendingTest: string | undefined
+  let pendingApply: string | undefined
+  const requestId = (): string => `settings-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
   const selected = (): ConnectionProviderView | undefined => state.providers.find((item) => item.id === providerSelect.value)
   const input = (): Record<string, unknown> => {
@@ -66,7 +70,8 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
   }
 
   const resetTest = (): void => {
-    test.disabled = false
+    pendingTest = undefined
+    test.disabled = !state.writable
     test.textContent = t('testConnection')
     testResult.textContent = ''
     testResult.classList.add('hidden')
@@ -118,7 +123,7 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
       ? formatModelsField(provider!.models, provider!.modelContextWindows)
       : ''
     apply.disabled = !state.writable
-    test.classList.toggle('hidden', official)
+    test.classList.remove('hidden')
     baseUrl.classList.remove('invalid')
     baseUrlError.classList.add('hidden')
     resetTest()
@@ -166,7 +171,8 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
     test.disabled = true
     test.textContent = t('testingConnection')
     testResult.classList.add('hidden')
-    post('testConnection', input())
+    pendingTest = requestId()
+    post('testConnection', { ...input(), requestId: pendingTest })
   })
   remove.addEventListener('click', () => {
     const provider = selected()
@@ -184,8 +190,10 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
   apply.addEventListener('click', () => {
     if (!validateUrl()) return
     if (providerSelect.value !== DEEPSEEK_OFFICIAL_PROVIDER && name.value.trim() === '') return
-    post('applySettings', input())
-    panel.classList.add('hidden')
+    pendingApply = requestId()
+    apply.disabled = true
+    apply.textContent = t('savingSettings')
+    post('applySettings', { ...input(), requestId: pendingApply })
   })
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape' || panel.classList.contains('hidden')) return
@@ -201,7 +209,8 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
       updateSignature = ''
       renderProviders()
       panel.classList.remove('hidden')
-      baseUrl.focus()
+      if (baseUrl.disabled) apiKey.focus()
+      else baseUrl.focus()
     },
     close: () => panel.classList.add('hidden'),
     update: (next, selectedProvider, currentProvider, isExperimentalAutoEffort) => {
@@ -217,10 +226,19 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
       if (!panel.classList.contains('hidden')) renderProviders(true)
       else if (selected() !== undefined) remove.disabled = selected()!.id === activeProvider
     },
+    renderApplyResult: (result) => {
+      if (!pendingApply || result.requestId !== pendingApply) return
+      pendingApply = undefined
+      apply.disabled = !state.writable
+      apply.textContent = t('apply')
+      testResult.classList.remove('hidden', 'success', 'error', 'warn')
+      testResult.classList.add(result.error ? 'error' : 'success')
+      testResult.textContent = result.error ?? t('settingsSaved')
+      if (!result.error) apiKey.value = ''
+    },
     renderTestResult: (result) => {
-      // A late test answer mutates fields (adopted model ids, reset button
-      // label); the next data push must repaint despite the signature gate.
-      updateSignature = ''
+      if (pendingTest === undefined || result.requestId !== pendingTest) return
+      pendingTest = undefined
       test.disabled = false
       test.textContent = t('testConnection')
       testResult.classList.remove('hidden', 'success', 'error', 'warn')
@@ -232,7 +250,8 @@ export function createConnectionSettingsComponent(options: ConnectionSettingsCom
             ? model.id
             : `${model.id}:${formatContextWindow(model.contextWindow)}`).join(', ')
         }
-        testResult.textContent = t('connectionModelsFound', { count: result.modelCount ?? 0 })
+        testResult.textContent = providerSelect.value === DEEPSEEK_OFFICIAL_PROVIDER
+          ? t('connectionVerified') : t('connectionModelsFound', { count: result.modelCount ?? 0 })
         testResult.classList.add('success')
       } else if (result.status === 'unsupported') {
         testResult.textContent = result.detail || t('connectionTestUnsupported')
