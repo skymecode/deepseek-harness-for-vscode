@@ -19,6 +19,7 @@ import {
   providerRoute,
   type CustomProvider,
 } from '../domain/provider.js'
+import { parseMcpServers, type McpServerConfiguration } from './mcp.js'
 
 export type PermissionMode = PermissionPresetId
 
@@ -47,6 +48,8 @@ export interface HarnessConfiguration {
   readonly experimentalAutoEffort: boolean
   /** Whether an isolated session merges back to the main checkout on turn end. */
   readonly worktreeAutoMerge: WorktreeAutoMergeMode
+  /** External MCP servers injected into the generated DSH profile overlay. */
+  readonly mcpServers?: readonly McpServerConfiguration[]
 }
 
 /** Reads extension settings and reports changes that require a runtime restart. */
@@ -79,6 +82,7 @@ export class ConfigurationService implements vscode.Disposable {
       autoAttachSelection: config.get<boolean>('autoAttachSelection', true),
       experimentalAutoEffort: config.get<boolean>('experimentalAutoEffort', false),
       worktreeAutoMerge: worktreeAutoMergeMode(config.get<string>('worktreeAutoMerge')),
+      mcpServers: parseMcpServers(config.get<string>('mcpServers', '[]')),
     }
   }
 
@@ -106,6 +110,11 @@ export class ConfigurationService implements vscode.Disposable {
   setExperimentalAutoEffort(value: boolean): Thenable<void> {
     return vscode.workspace.getConfiguration('deepseekHarness')
       .update('experimentalAutoEffort', value, vscode.ConfigurationTarget.Global)
+  }
+
+  setMcpServers(value: string): Thenable<void> {
+    return vscode.workspace.getConfiguration('deepseekHarness')
+      .update('mcpServers', value, vscode.ConfigurationTarget.Global)
   }
 
   setPermissionMode(value: PermissionMode): Thenable<void> {
@@ -203,6 +212,7 @@ const RUNTIME_SETTING_KEYS = [
   'deepseekHarness.webSearch',
   'deepseekHarness.autoAttachSelection',
   'deepseekHarness.experimentalAutoEffort',
+  'deepseekHarness.mcpServers',
 ] as const
 
 function nonEmpty(value: string | undefined, fallback: string): string {

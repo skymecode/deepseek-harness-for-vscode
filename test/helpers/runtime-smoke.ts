@@ -7,8 +7,10 @@ import { build } from 'esbuild'
 import { pnpmWrapper } from '../../src/runtime/bundled-runtime.js'
 import { renderOverlay } from '../../src/runtime/runtime-overlay.js'
 import { NodeGatewayClient } from '../../src/gateway/node-gateway-client.js'
+import type { McpServerConfiguration } from '../../src/config/mcp.js'
 
 interface SmokeOptions {
+  readonly mcpServers?: McpServerConfiguration[]
   readonly home?: string
   readonly historyHome?: string
   readonly officialUi?: boolean
@@ -33,10 +35,12 @@ export async function bootSmokeRuntime(modelBaseUrl: string, options: SmokeOptio
   catch (error) { if (options.home === undefined) await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); throw error }
   const messages = options.officialUi === true || options.protocol === 'messages'
   let overlay = messages ? renderOverlay({
+    mcpServers: options.mcpServers ?? [],
     model: 'deepseek-flash', provider: 'deepseek-official', reasoningEffort: 'high',
     agentPreset: 'minimal', permissionMode: options.permissionMode ?? 'read-only', webSearch: false,
     autoAttachSelection: false, experimentalAutoEffort: false, worktreeAutoMerge: 'never',
   }, gatewayPlugin, options.historyHome).replace('reasoningEffort: high', `reasoningEffort: high\n    apiKeyEnv: DSH_SMOKE_API_KEY\n    baseURL: ${JSON.stringify(modelBaseUrl)}`) : renderOverlay({
+    mcpServers: options.mcpServers ?? [],
     model: 'deepseek-v4-flash', provider: 'smoke', reasoningEffort: 'high',
     agentPreset: 'minimal', permissionMode: options.permissionMode ?? 'read-only', webSearch: false,
     autoAttachSelection: false, experimentalAutoEffort: false, worktreeAutoMerge: 'never',

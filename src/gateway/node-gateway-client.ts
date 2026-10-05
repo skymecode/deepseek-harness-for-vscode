@@ -11,7 +11,7 @@ import type { ModelCatalog as DshModelCatalog, SessionProjectionsRequest, Sessio
 import type { JobFollowFrame, JobFollowRequest, JobKillRequest, JobKillValue, JobListFrame, JobListRequest } from '@deepseek-ai/dsh-api-job-controller/types'
 import type { SessionId as DshSessionId } from '@deepseek-ai/dsh-session/types'
 /**
- * Node transport for the Harness Gateway (dsh 0.2.0 Typert Remote protocol).
+ * Node transport for the Harness Gateway (dsh 0.2.1 Typert Remote protocol).
  *
  * Unary calls POST a Connection `client-request` envelope to `/api/<endpoint>`
  * with the endpoint's named `{ args }` payload; event and domain streams run
@@ -37,6 +37,7 @@ import type { CreateGoalRequest, CreateGoalResult } from '@deepseek-ai/dsh-goal/
 import type { LlmConfigurableProvider, LlmDiscoveredModel, LlmModelDiscoveryRequest, LlmProviderInfo } from '@deepseek-ai/dsh-llm/types'
 import type { SettingsDescribeValue, SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-settings/types'
 import type { SubagentInterruptReceipt, SubagentPromptReceipt, SubagentPromptRequest } from '@deepseek-ai/dsh-subagent/client'
+import type { ScheduleCatalogEntry, ScheduleDeleteRequest, ScheduleDeleteResult, ScheduleDeliveryHistoryRequest, ScheduleDeliveryHistoryResult, ScheduleUpdateRequest, ScheduleUpdateResult } from '@deepseek-ai/dsh-schedule/client'
 import type {
   SessionControlFrame,
   SessionCreateRequest,
@@ -195,7 +196,7 @@ export class NodeGatewayClient {
   /** Verify the declarative preset roster before loading saved sessions. */
   async ensureLegacyCodePreset(): Promise<void> {
     const roster = await this.agentPresetList()
-    // DSH 0.2.0 moves preset composition into plugin bundles and removes the
+    // DSH 0.2.1 moves preset composition into plugin bundles and removes the
     // old copy endpoint. The gateway plugin declares the compatibility `code`
     // alias using the native registry; new sessions use the official `ptc` id.
     void roster
@@ -395,7 +396,7 @@ export class NodeGatewayClient {
     return this.openStream<WorkspaceFollowFrame>('workspace/follow', {}, signal)
   }
 
-  /** Native DSH 0.2.0 background-job roster for one session. */
+  /** Native DSH 0.2.1 background-job roster for one session. */
   jobList(request: JobListRequest, signal: AbortSignal): AsyncGenerator<JobListFrame> {
     return this.openStream<JobListFrame>('job/list', { request }, signal)
   }
@@ -478,6 +479,26 @@ export class NodeGatewayClient {
   /** LLM model discovery (Typert `llm/discoverModels`). */
   async llmDiscoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<readonly LlmDiscoveredModel[]> {
     return await this.callRaw<readonly LlmDiscoveredModel[]>('llm/discoverModels', { settingsNs, request })
+  }
+
+  /** Host-wide native automation catalog (DSH 0.2.1). */
+  async scheduleCatalog(): Promise<readonly ScheduleCatalogEntry[]> {
+    return await this.callRaw<readonly ScheduleCatalogEntry[]>('schedule/catalog', {})
+  }
+
+  /** Deletes one native Schedule task without activating its Session. */
+  async scheduleDelete(request: ScheduleDeleteRequest): Promise<ScheduleDeleteResult> {
+    return await this.callRaw<ScheduleDeleteResult>('schedule/delete', { request })
+  }
+
+  /** Updates one native Schedule task using its compare-and-swap record. */
+  async scheduleUpdate(request: ScheduleUpdateRequest): Promise<ScheduleUpdateResult> {
+    return await this.callRaw<ScheduleUpdateResult>('schedule/update', { request })
+  }
+
+  /** Reads saved delivery history for one native Schedule task. */
+  async scheduleHistory(request: ScheduleDeliveryHistoryRequest): Promise<ScheduleDeliveryHistoryResult> {
+    return await this.callRaw<ScheduleDeliveryHistoryResult>('schedule/history', { request })
   }
 
   /** Host-wide forwarded remote events (the `$events` logical stream). */

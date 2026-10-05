@@ -341,6 +341,43 @@ export interface WorkbenchViewActions {
     case 'worktreeAction':
       await handleWorktreeAction(ctx.gateway, requiredString(value, 'sessionId'))
       break
+    case 'deleteSchedule': {
+      const answer = await vscode.window.showWarningMessage(
+        vscode.l10n.t('Delete this scheduled task?'),
+        { modal: true },
+        vscode.l10n.t('Delete'),
+      )
+      if (answer === vscode.l10n.t('Delete')) {
+        await ctx.gateway.deleteSchedule(requiredString(value, 'sessionId'), requiredString(value, 'scheduleId'))
+      }
+      break
+    }
+    case 'scheduleHistory': {
+      const result = await ctx.gateway.scheduleHistory(requiredString(value, 'sessionId'), requiredString(value, 'scheduleId'))
+      const records = Array.isArray((result as { records?: unknown[] }).records) ? (result as { records: unknown[] }).records : []
+      const items = records.flatMap((entry, index) => {
+        if (typeof entry !== 'object' || entry === null) return []
+        const record = entry as { readonly deliveredAt?: unknown; readonly scheduledAt?: unknown; readonly prompt?: unknown }
+        const deliveredAt = typeof record.deliveredAt === 'string' ? record.deliveredAt : vscode.l10n.t('Unknown time')
+        const scheduledAt = typeof record.scheduledAt === 'string' ? record.scheduledAt : undefined
+        const prompt = typeof record.prompt === 'string' ? record.prompt : undefined
+        return [{
+          label: `${index + 1}. ${deliveredAt}`,
+          ...(scheduledAt === undefined ? {} : { description: vscode.l10n.t('Scheduled for {0}', scheduledAt) }),
+          ...(prompt === undefined ? {} : { detail: prompt }),
+        }]
+      })
+      if (items.length === 0) {
+        void vscode.window.showInformationMessage(vscode.l10n.t('Scheduled task history: {0} deliveries.', String(records.length)))
+      } else {
+        void vscode.window.showQuickPick(items, {
+          title: vscode.l10n.t('Scheduled task history'),
+          matchOnDescription: true,
+          matchOnDetail: true,
+        })
+      }
+      break
+    }
     case 'exportSession': {
       const sessionId = optionalString(value.sessionId)
       const exportId = sessionId === undefined ? (await ctx.gateway.snapshot()).active?.id : sessionId

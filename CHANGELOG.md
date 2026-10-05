@@ -1,5 +1,17 @@
 # 更新日志
 
+## 0.6.3 未发布
+
+> 本版内置 DeepSeek Harness `0.2.1-alpha.1`。这是预发布运行时，升级前请备份共享历史目录和扩展私有目录。
+
+- 升级官方 DSH 家族包至 `0.2.1-alpha.1`，适配上游最新 Remote/工具协议，并保留 0.2.1-alpha.1 的预发布标识。
+- 新增模型搜索框，使用官方实时模型目录，不维护第二套模型清单。
+- 新增 `deepseekHarness.mcpServers` 配置，将经过校验的 stdio / Streamable HTTP MCP Server 写入 DSH 运行时 Profile；工具以 `mcp__<server>__<tool>` 名称进入模型工具列表。
+- 默认 MCP 关闭；敏感值支持 `$env:NAME` 从进程环境读取，MCP 配置修改后自动重启 Gateway。
+- MCP 配置和 Profile overlay 已加入单元测试；真实外部 MCP Server 的端到端发现/调用仍需在目标环境中单独验证。
+- 0.2.1 的 Automation tasks、Creator mode、DevTools 和 Claude Code Mods 实验层尚未接入原生 VS Code 工作台；当前 Schedule 已提供删除与投递历史查看，完整目录与编辑器仍待接入。
+
+
 ## 0.6.2 未发布
 
 > 本版内置 DeepSeek Harness `0.2.0-rc.2`，仍为扩展预发布构建。升级前请备份共享历史目录和扩展私有目录；0.2.0-rc.2 与旧版运行时的协议和依赖存在变化，回滚前不要继续写入同一配置目录。

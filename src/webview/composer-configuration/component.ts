@@ -50,6 +50,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
   private readonly closeButton: HTMLButtonElement
   private readonly source: HTMLSelectElement
   private readonly models: HTMLElement
+  private readonly modelSearch: HTMLInputElement
   private readonly presets: HTMLElement
   private readonly modelsToggle: HTMLButtonElement
   private readonly presetsToggle: HTMLButtonElement
@@ -74,6 +75,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     this.closeButton = requiredElement(document, 'configuration-close')
     this.source = requiredElement(document, 'configuration-source')
     this.models = requiredElement(document, 'configuration-models')
+    this.modelSearch = requiredElement(document, 'configuration-model-search') as HTMLInputElement
     this.presets = requiredElement(document, 'configuration-presets')
     this.modelsToggle = requiredElement(document, 'configuration-models-toggle')
     this.presetsToggle = requiredElement(document, 'configuration-presets-toggle')
@@ -178,6 +180,10 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     this.source.addEventListener('change', () => {
       this.render(this.store.selectSource(this.source.value))
       this.options.onChange()
+    })
+    this.modelSearch.addEventListener('input', () => {
+      const snapshot = this.store.snapshot()
+      if (snapshot !== undefined) this.renderModels(snapshot)
     })
     this.effortSlider.addEventListener('input', () => {
       this.changeReasoning(Number(this.effortSlider.value))
@@ -403,12 +409,20 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     this.modelsCurrent.textContent = snapshot.autoActive ? this.options.translate('autoMode') : snapshot.model.label
     const fragment = this.options.document.createDocumentFragment()
     const groups = new Map<string, ModelConfigurationOption[]>()
-    for (const model of snapshot.input.models) {
+    const query = this.modelSearch.value.trim().toLowerCase()
+    const visibleModels = snapshot.input.models.filter((model) => query === ''
+      || `${model.providerName} ${model.label} ${model.id} ${model.description ?? ''}`.toLowerCase().includes(query))
+    for (const model of visibleModels) {
       const list = groups.get(model.provider)
       if (list === undefined) groups.set(model.provider, [model])
       else list.push(model)
     }
-    if (groups.size <= 1) {
+    if (visibleModels.length === 0) {
+      const empty = this.options.document.createElement('p')
+      empty.className = 'configuration-empty'
+      empty.textContent = this.options.translate('noMatchingModels')
+      fragment.append(empty)
+    } else if (groups.size <= 1) {
       // A single provider needs no extra level: list its models directly.
       for (const models of groups.values()) {
         fragment.append(this.modelList(snapshot, models))

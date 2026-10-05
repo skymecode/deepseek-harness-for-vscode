@@ -34,5 +34,12 @@
   "config.experimentalAutoEffort": "Enable experimental auto reasoning effort mode to dynamically scale reasoning tokens based on task signals.",
   "config.worktreeAutoMerge": "When an isolated session's conversation turn finishes, automatically merge its changes back into the main branch and working tree.",
   "config.worktreeAutoMerge.never": "Keep the manual Review / Merge back / Discard triage only.",
-  "config.worktreeAutoMerge.onTurnEnd": "Merge the session's worktree back into the base branch after each completed turn (safe when the main working tree is clean; a dirty main working tree is never overwritten)."
+  "config.worktreeAutoMerge.onTurnEnd": "Merge the session's worktree back into the base branch after each completed turn (safe when the main working tree is clean; a dirty main working tree is never overwritten).",
+  "config.mcpServers": "JSON array of external MCP servers. Use stdio or streamable-http entries; use $env:NAME for environment-backed secrets. Changes restart the local Harness Gateway.",
+  "Delete this scheduled task?": "Delete this scheduled task?",
+  "Delete": "Delete",
+  "Scheduled task history: {0} deliveries.": "Scheduled task history: {0} deliveries.",
+  "Scheduled task history": "Scheduled task history",
+  "Scheduled for {0}": "Scheduled for {0}",
+  "Unknown time": "Unknown time"
 }

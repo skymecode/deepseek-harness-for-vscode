@@ -44,10 +44,16 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     private readonly workspaceFiles: WorkspaceFileService,
     private readonly actions: WorkbenchViewActions,
   ) {
+    let mcpSignature = JSON.stringify(configuration.get().mcpServers ?? [])
     this.subscriptions = [gateway.onDidChange(() => {
       void this.publishState().catch(() => undefined)
     }), vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('deepseekHarness.worktreeAutoMerge')) void this.publishState().catch(() => undefined)
+    }), configuration.onDidChange((next) => {
+      const nextMcpSignature = JSON.stringify(next.mcpServers ?? [])
+      if (nextMcpSignature === mcpSignature) return
+      mcpSignature = nextMcpSignature
+      void this.gateway.restart().catch(() => undefined)
     }), connectionSettings.onDidChange(() => {
       void this.publishState().catch(() => undefined)
     }), pluginCenter.onDidChange((snapshot) => {

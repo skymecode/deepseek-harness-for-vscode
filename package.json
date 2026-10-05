@@ -2,7 +2,7 @@
   "name": "deepseek-harness-for-vscode",
   "displayName": "DeepSeek Harness for Visual Studio Code",
   "description": "%extension.description%",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "type": "module",
   "publisher": "skymecode",
   "license": "MIT",
@@ -247,6 +247,12 @@
           ],
           "default": "never",
           "description": "%config.worktreeAutoMerge%"
+        },
+        "deepseekHarness.mcpServers": {
+          "type": "string",
+          "default": "[]",
+          "scope": "application",
+          "markdownDescription": "%config.mcpServers%"
         }
       }
     }
@@ -266,7 +272,7 @@
     "vitest": "^4.0.0"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.2.0-rc.2",
+    "@deepseek-ai/dsh": "0.2.1-alpha.1",
     "dompurify": "3.4.13",
     "highlight.js": "^11.12.0",
     "markdown-it": "15.0.0",
@@ -282,7 +288,7 @@
     "koffi@3.3.1": true,
     "keytar@7.9.0": true,
     "protobufjs@7.6.6": true,
-    "@deepseek-ai/dsh-subprocess-local@0.2.0-rc.2": true,
+    "@deepseek-ai/dsh-subprocess-local@0.2.1-alpha.1": true,
     "@vscode/vsce-sign@2.0.9": true,
     "@google/genai@1.52.0": true
   },

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionPromptRequest } from '../src/gateway/domain-api.js'
 import { bootSmokeRuntime } from './helpers/runtime-smoke.js'
 
-describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('DSH 0.2.0 official contracts', () => {
+describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('DSH 0.2.1 official contracts', () => {
   it('installs, toggles and removes a local bundle through the running official plugin manager', async () => {
     const name = 'dsh-vscode-upgrade-fixture'
     let fixture = ''

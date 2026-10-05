@@ -4,15 +4,15 @@
 
 A native VS Code coding-agent extension powered by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Install the platform-specific VSIX and start working—there is no upstream repository to clone, no Node/npm setup, and no local Harness deployment to manage.
 
-> This is the community-maintained **0.6.2 development build (not published yet)**. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.2.0-rc.2` package (Typert Remote protocol).
+> This is the community-maintained **0.6.3 development build (not published yet)**. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.2.1-alpha.1` package (Typert Remote protocol).
 
 > **Runtime upgrade:** Harness now uses session format V4. Supported older logs are migrated on resume into a new generation while their original files are preserved. Old runtimes cannot read the new V4 generation; back up the shared history home (default `~/.dsh`) and the private `~/.dsh/vscode/harness-home` before upgrading, and do not downgrade an active profile. Third-party plugins using the removed `ctx.agent` or runtime `Inbox` APIs need their own compatibility updates. The extension keeps its native VS Code interface rather than embedding the official Web UI.
 
 Startup uses the official runtime package resolver. Only a recognized legacy module conflict triggers one bounded backup-and-repair attempt; ordinary profile packages are no longer moved on every startup or installation.
 
-## 0.6.2 development update
+## 0.6.3 development update
 
-This update connects the DSH 0.2.0 services and trims unused runtime resources:
+This update connects the DSH 0.2.1 services and trims unused runtime resources:
 
 - **Background jobs:** view progress, expand live output, and confirm cancellation from Context → Jobs. Output resumes after reconnects; collapsing cancels observation while live updates retain focus and scroll position.
 - **Session management:** native pins, workspace ordering, archive/restore, and activity details before “Stop and archive.” Search includes both active and archived conversations.
@@ -51,6 +51,7 @@ Stability and the upgrade experience for existing users take priority over alway
 - **Token usage** — see current input and output token counts in the composer.
 - **Native DSH plugin center** — search a curated catalog, filter by category and native compatibility, inspect installed plugins, or install an npm/GitHub/local/tarball package.
 - **Safe worktree merge default** — new installs require manual Review / Merge; automatic turn-end merging is opt-in through `deepseekHarness.worktreeAutoMerge = onTurnEnd`.
+- **External MCP servers** — configure `deepseekHarness.mcpServers` as a JSON array in VS Code Settings. The extension writes validated stdio or Streamable HTTP entries into DSH's profile and restarts the Gateway; discovered tools use names such as `mcp__github__create_issue`. `toolCallTimeoutMs`, `maxInstructionBytes`, `failOnStartupError`, and bounded `reconnect` options are passed through to the native DSH MCP client.
 - **Automatic localization** — follows the VS Code display language with English and Simplified Chinese support.
 - **Zero-deployment runtime** — official `dsh`, pnpm, and standalone Node 22.22.3 are bundled in each platform VSIX and managed by the extension.
 
@@ -114,7 +115,7 @@ Old private/globalStorage histories are migrated through the official session co
 
 Open the VS Code history panel to refresh its list; refresh the official Web UI page to discover externally created history. VS Code filters by the current project, while official DSH may show worktree sessions under their own workspace or as ungrouped sessions. This shares **saved history**, not another process's transient token stream. Kernel locks prevent simultaneous writes to one session: close the owning backend before continuing on the other side, or create a fork. Model credentials and installed plugins are configured independently.
 
-Both runtimes must support the same log format (this build uses **V4, DSH 0.2.0-rc.2**). An older official CLI cannot read new V4 logs and must be updated to use this sharing feature; original V2/V3 files are retained, but are not a downgrade-sync mechanism. This is not cloud, cross-device, or Windows/WSL cross-kernel synchronization; do not run live shared stores through a network/sync drive. Back up both the shared home and the old private home before a major runtime upgrade.
+Both runtimes must support the same log format (this build uses **V4, DSH 0.2.1-alpha.1**). An older official CLI cannot read new V4 logs and must be updated to use this sharing feature; original V2/V3 files are retained, but are not a downgrade-sync mechanism. This is not cloud, cross-device, or Windows/WSL cross-kernel synchronization; do not run live shared stores through a network/sync drive. Back up both the shared home and the old private home before a major runtime upgrade.
 
 ## DSH plugins
 
@@ -138,7 +139,23 @@ Marketplace cards classify known entries as **Agent compatible**, **Agent works 
 
 ## Configuration
 
-DSH 0.2.0 uses only Messages for DeepSeek Official, at `https://api.deepseek.com/anthropic`. Old hand-written `llm-deepseek.protocol` options must be removed; Chat Completions endpoints belong under a custom provider. Custom-provider protocols remain unchanged.
+DSH 0.2.1 uses only Messages for DeepSeek Official, at `https://api.deepseek.com/anthropic`. Old hand-written `llm-deepseek.protocol` options must be removed; Chat Completions endpoints belong under a custom provider. Custom-provider protocols remain unchanged.
+
+Example MCP configuration:
+
+```json
+[
+  {
+    "serverName": "github",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "env": { "GITHUB_TOKEN": "$env:GITHUB_TOKEN" }
+  }
+]
+```
+
+MCP servers are disabled by default. Review the server source and permissions before enabling one.
 
 OTel, request-attached session logs (`dsh_session_log`) and plugin inventories (`dsh_plugin_packages`) are disabled by default. Normal model requests still contain submitted messages, context and attachments.
 

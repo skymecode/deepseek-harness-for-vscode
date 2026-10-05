@@ -3,7 +3,7 @@ import type { ModelProviderGroup as DshModelProviderGroup } from '@deepseek-ai/d
 import type { ModelCatalogFailure as DshModelCatalogFailure } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionAddress as DshSessionAddress } from '@deepseek-ai/dsh-api-session-controller/types'
 /**
- * Gateway wire-type mapping for the dsh 0.2.0 Typert Remote protocol.
+ * Gateway wire-type mapping for the dsh 0.2.1 Typert Remote protocol.
  *
  * dsh 0.1.2 replaced the host-apiproxy / client-connection domain clients
  * with the Typert Remote wire (unary `POST /api/<ns>/<method>` + the

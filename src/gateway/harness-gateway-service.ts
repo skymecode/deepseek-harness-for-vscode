@@ -791,6 +791,27 @@ export class HarnessGatewayService implements vscode.Disposable {
       .map((item) => ({ sessionId: String(item.sessionId), snippet: item.snippet }))
   }
 
+  /** Native DSH Schedule deletion; does not resume the owning Session. */
+  async deleteSchedule(sessionId: string, scheduleId: string): Promise<void> {
+    await this.requireClient().scheduleDelete({ sessionId: sessionId as SessionId, id: scheduleId as never })
+    // `schedule/delete` changes host storage and emits `schedule/changed`; the
+    // active Session projection is not rewritten by that host mutation. Remove
+    // the row locally so the open workbench cannot keep rendering a deleted task
+    // until the next follow snapshot.
+    if (this.activeSessionId === sessionId && Array.isArray(this.projections.schedule)) {
+      this.projections = {
+        ...this.projections,
+        schedule: this.projections.schedule.filter((entry) => typeof entry !== 'object' || entry === null || (entry as { readonly id?: unknown }).id !== scheduleId),
+      }
+    }
+    this.fireChange()
+  }
+
+  /** Native DSH Schedule delivery history, kept read-only for the workbench. */
+  async scheduleHistory(sessionId: string, scheduleId: string, limit = 20): Promise<unknown> {
+    return await this.requireClient().scheduleHistory({ sessionId: sessionId as SessionId, id: scheduleId as never, limit })
+  }
+
   async selectSession(sessionId: string): Promise<void> {
     if (!this.summaries.has(sessionId)) await this.refreshSessionList()
     if (!this.summaries.has(sessionId)) throw new Error(vscode.l10n.t('Session not found.'))
@@ -1711,7 +1732,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     }
   }
 
-  /** Keeps the active session's native DSH 0.2.0 background-job roster current. */
+  /** Keeps the active session's native DSH 0.2.1 background-job roster current. */
   private async pumpActiveJobs(signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
       if (this.activeSessionId === undefined) {

@@ -141,6 +141,15 @@ export function renderDetails(): void {
         : kindLabel
       row.append(node('strong', '', schedule.prompt))
       row.append(node('small', '', `${kind} · ${formatScheduleTime(schedule.scheduledAt)}${schedule.state === 'overdue' ? ` · ${t('scheduleOverdue')}` : ''}`))
+      const actions = node('div', 'schedule-actions')
+      const history = node('button', 'secondary-button', t('scheduleHistory')) as HTMLButtonElement
+      history.type = 'button'
+      history.addEventListener('click', () => post('scheduleHistory', { sessionId: active?.id, scheduleId: schedule.id }))
+      const remove = node('button', 'danger-button', t('scheduleDelete')) as HTMLButtonElement
+      remove.type = 'button'
+      remove.addEventListener('click', () => post('deleteSchedule', { sessionId: active?.id, scheduleId: schedule.id }))
+      actions.append(history, remove)
+      row.append(actions)
       fragment.append(row)
     }
   } else if (currentDetail === 'timeline') {

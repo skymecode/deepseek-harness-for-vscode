@@ -199,6 +199,7 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
                   <span id="configuration-models-current" class="configuration-group-current"></span>
                 </button>
               </h3>
+              <input id="configuration-model-search" class="configuration-search" type="search" placeholder="${text('searchModels')}" aria-label="${text('searchModels')}">
               <div id="configuration-models" class="configuration-options" role="listbox"></div>
             </section>
             <section class="configuration-group collapsed" aria-labelledby="configuration-modes-label">

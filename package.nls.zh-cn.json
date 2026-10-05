@@ -34,5 +34,12 @@
   "config.experimentalAutoEffort": "开启实验性自动推理模式，根据任务复杂度自动调度推理深度。",
   "config.worktreeAutoMerge": "隔离会话的一轮对话结束后，自动把它的改动合并回主分支与主工作区。",
   "config.worktreeAutoMerge.never": "仅保留手动“审查 / 合并回 / 丢弃”操作。",
-  "config.worktreeAutoMerge.onTurnEnd": "每轮对话完成后自动把会话改动合并回基础分支（主工作区干净时安全同步；主工作区有未提交改动时不会覆盖，只推进分支）。"
+  "config.worktreeAutoMerge.onTurnEnd": "每轮对话完成后自动把会话改动合并回基础分支（主工作区干净时安全同步；主工作区有未提交改动时不会覆盖，只推进分支）。",
+  "config.mcpServers": "外部 MCP Server 的 JSON 数组。支持 stdio 或 streamable-http；敏感值可使用 $env:NAME 从环境变量读取。修改后会重启本地 Harness Gateway。",
+  "Delete this scheduled task?": "确定删除这个定时任务吗？",
+  "Delete": "删除",
+  "Scheduled task history: {0} deliveries.": "该定时任务已有 {0} 条投递记录。",
+  "Scheduled task history": "定时任务投递历史",
+  "Scheduled for {0}": "计划时间：{0}",
+  "Unknown time": "未知时间"
 }
