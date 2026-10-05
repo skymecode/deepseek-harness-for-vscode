@@ -4,24 +4,24 @@
 
 A native VS Code coding-agent extension powered by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Install the platform-specific VSIX and start working—there is no upstream repository to clone, no Node/npm setup, and no local Harness deployment to manage.
 
-> This is the community-maintained **0.6.3 development build (not published yet)**. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.2.1-alpha.1` package (Typert Remote protocol).
+> This is the community-maintained **0.6.1 release**. DeepSeek Harness is currently a Developer Preview, and this extension pins the official `@deepseek-ai/dsh@0.2.1-alpha.1` package (Typert Remote protocol).
 
 > **Runtime upgrade:** Harness now uses session format V4. Supported older logs are migrated on resume into a new generation while their original files are preserved. Old runtimes cannot read the new V4 generation; back up the shared history home (default `~/.dsh`) and the private `~/.dsh/vscode/harness-home` before upgrading, and do not downgrade an active profile. Third-party plugins using the removed `ctx.agent` or runtime `Inbox` APIs need their own compatibility updates. The extension keeps its native VS Code interface rather than embedding the official Web UI.
 
 Startup uses the official runtime package resolver. Only a recognized legacy module conflict triggers one bounded backup-and-repair attempt; ordinary profile packages are no longer moved on every startup or installation.
 
-## 0.6.3 development update
+## 0.6.1 release update
 
 This update connects the DSH 0.2.1 services and trims unused runtime resources:
 
 - **Background jobs:** view progress, expand live output, and confirm cancellation from Context → Jobs. Output resumes after reconnects; collapsing cancels observation while live updates retain focus and scroll position.
 - **Session management:** native pins, workspace ordering, archive/restore, and activity details before “Stop and archive.” Search includes both active and archived conversations.
-- **Schedules:** read-only reminder cards appear in Context → Schedules when the current Profile enables Schedule. DSH tools own creation and deletion.
+- **Schedules:** reminder cards appear in Context → Schedules when the current Profile enables Schedule; delete tasks and browse delivery history from the workbench, while creation remains a native DSH tool.
 - **Marketplace recovery:** source failures are visible, successful results stay cached for the current extension session, and reopening retries failed loads. Three built-in recipes are no longer reported as the entire GitHub catalog.
 - **Display and compatibility fixes:** completed reasoning shows at least `1s`, cross-platform file links are more reliable, and a native declaration keeps legacy `code` sessions usable.
-- **Smaller packages:** unused LibreOfficeKit, official Web document preview and experimental voice payloads are excluded. The local macOS arm64 VSIX is about **88 MiB (92 MB)**, down from about 196 MiB before trimming; other platform sizes vary.
+- **Smaller packages:** unused LibreOfficeKit, official Web document preview and experimental voice payloads are excluded. The local macOS arm64 VSIX is about **94 MiB (98.58 MB)**, down from about 196 MiB before trimming; other platform sizes vary.
 
-Download the last published VSIX from the [v0.6.1 pre-release](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1) and reload VS Code after installation. This pre-release is not automatically published to Marketplace. Release notes for 0.6.1 and 0.6.0 are available in Chinese in the [changelog](CHANGELOG.md).
+Download the VSIX from the [v0.6.1 release](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1) and reload VS Code after installation. This release is not automatically published to Marketplace. Release notes for 0.6.1 and 0.6.0 are available in Chinese in the [changelog](CHANGELOG.md).
 
 ## Runtime update policy
 
@@ -82,7 +82,7 @@ Screenshots use the **0.5.9** workbench UI with a demonstration conversation and
 
 ## Installation
 
-1. For the last published build, download the VSIX matching your platform from the [0.6.1 pre-release](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1).
+1. Download the VSIX matching your platform from the [0.6.1 release](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1).
 2. Open the VS Code Extensions view (`Cmd/Ctrl+Shift+X`).
 3. Select `...` → **Install from VSIX...** and choose the downloaded file.
 4. Reload the VS Code window when prompted.

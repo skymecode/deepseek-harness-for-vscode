@@ -4,24 +4,24 @@
 
 在 VS Code 中原生运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 AI 编码助手扩展。无需克隆上游仓库、安装 Node/npm 或手动部署 Harness；安装匹配平台的 VSIX 即可使用。
 
-> 当前为社区维护的 **0.6.3 开发构建（尚未发布）**。DeepSeek Harness 仍处于 Developer Preview，本扩展固定使用官方 npm 包 `@deepseek-ai/dsh@0.2.1-alpha.1`（Typert Remote 协议）。
+> 当前为社区维护的 **0.6.1 正式版**。DeepSeek Harness 仍处于 Developer Preview，本扩展固定使用官方 npm 包 `@deepseek-ai/dsh@0.2.1-alpha.1`（Typert Remote 协议）。
 
 > **运行时升级提示：** Harness 已采用 V4 会话格式。恢复受支持的旧日志时会生成新一代文件，原文件仍保留；旧运行时无法读取新增的 V4 日志。建议升级前备份共享历史目录（默认 `~/.dsh`）及扩展私有目录 `~/.dsh/vscode/harness-home`，不要对正在使用的配置目录直接降级。依赖已移除的 `ctx.agent` 或运行时 `Inbox` API 的第三方插件需要自行适配。本扩展继续使用原生 VS Code 界面，不嵌套官方 Web UI。
 
 启动优先使用官方运行时包解析器。仅在确认是旧版模块冲突时执行一次有备份的修复，不再在每次启动或安装插件前搬动普通配置包。
 
-## 0.6.3 开发更新
+## 0.6.1 正式版更新
 
 本次更新接入 DSH 0.2.1 原生能力，并精简当前工作台未使用的运行时资源：
 
 - **后台任务**：在“上下文 → 任务”查看进度、展开实时输出，并在确认后停止任务；断线续接、折叠取消订阅和流式焦点保持均已适配。
 - **会话管理**：原生置顶、工作区顺序、归档恢复，以及列出活动明细的“停止并归档”；搜索可同时找到普通和已归档会话。
-- **定时提醒**：当前 Profile 启用 Schedule 后，可在“上下文 → 定时任务”查看只读提醒卡片，创建和删除仍通过 DSH 工具完成。
+- **定时提醒**：当前 Profile 启用 Schedule 后，可在“上下文 → 定时任务”查看提醒卡片、删除任务和浏览投递历史；创建仍由 DSH 原生工具完成。
 - **插件市场恢复**：在线目录失败时显示来源和错误，保留本次运行中的缓存；重新打开面板可重试，不再误把三个内置条目显示成整个市场。
 - **显示与兼容修复**：思考不足一秒时显示 `1s`，改进跨平台文件引用跳转，并保留旧 `code` 模式的兼容声明。
-- **更小的安装包**：移除未使用的 LibreOfficeKit、官方 Web 文档预览及实验性语音资源。本地 macOS arm64 包约 **88 MiB（92 MB）**，相比裁剪前约 196 MiB 减少一半以上；其他平台体积以发布附件为准。
+- **更小的安装包**：移除未使用的 LibreOfficeKit、官方 Web 文档预览及实验性语音资源。本地 macOS arm64 包约 **94 MiB（98.58 MB）**，相比裁剪前约 196 MiB 减少一半以上；其他平台体积以发布附件为准。
 
-如需安装已发布版本，请从 [v0.6.1 预发布页面](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1) 下载对应平台 VSIX，安装后重新加载 VS Code。此预发布不会自动发布到 Marketplace。完整中文变更见[更新日志](CHANGELOG.md#061)。
+如需安装已发布版本，请从 [v0.6.1 正式版页面](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1) 下载对应平台 VSIX，安装后重新加载 VS Code。此版本不会自动发布到 Marketplace。完整中文变更见[更新日志](CHANGELOG.md#061)。
 
 ## 内核更新策略
 
@@ -82,7 +82,7 @@
 
 ## 安装
 
-1. 如需安装已发布版本，请从 [0.6.1 预发布页面](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1) 下载与你的平台匹配的 VSIX。
+1. 如需安装已发布版本，请从 [0.6.1 正式版页面](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.1) 下载与你的平台匹配的 VSIX。
 2. 打开 VS Code 扩展面板（`Cmd/Ctrl+Shift+X`）。
 3. 点击右上角 `...` → **从 VSIX 安装...**，选择下载的文件。
 4. 按提示重新加载 VS Code 窗口。
