@@ -5,7 +5,10 @@ import type { PromptAttachment } from '../domain/prompt-context.js'
 import type { EditorSelectionView } from './types.js'
 
 const MAX_SELECTION_CHARS = 16_000
-const MAX_CACHED_SELECTIONS = 24
+// Must comfortably exceed the composer's multi-selection cap (8): each cursor
+// move publishes a new id, so a pinned selection can otherwise be evicted
+// while the user keeps reading before sending.
+const MAX_CACHED_SELECTIONS = 64
 const SELECTION_DEBOUNCE_MS = 60
 
 interface CachedSelection {

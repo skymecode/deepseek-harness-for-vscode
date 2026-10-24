@@ -51,6 +51,11 @@ window.addEventListener('message', (event) => {
     components.editorContext.updateSelection(event.data.selection)
     return
   }
+  if (event.data?.type === 'pinSelection' && event.data.selection !== undefined) {
+    components.editorContext.attachSelection(event.data.selection)
+    elements.prompt.focus()
+    return
+  }
   if (event.data?.type === 'workspaceFileSuggestions') {
     components.fileMention.acceptSuggestions(event.data.requestId, event.data.query, event.data.files || [])
     return

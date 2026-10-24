@@ -46,7 +46,7 @@ Stability and the upgrade experience for existing users take priority over alway
 - **Compact completed turns** — reasoning, tool calls and interim updates fold into a duration row; the final answer and file changes remain visible.
 - **Reader-friendly streaming** — while a turn streams you can scroll up through earlier messages freely; auto-follow yields to your scroll and only resumes at the very bottom. The finished conclusion is set off by a divider between the thinking and the final answer (or above the message when there is no thinking).
 - **DeepSeek Harness-native reasoning** — reasoning blocks start collapsed with a live summary and can be expanded manually. Streaming retains the chosen disclosure state; completed reasoning shows at least one second.
-- **Editor context** — selected code appears as a removable context card; type `@` to fuzzy-search and attach workspace files without leaving the composer.
+- **Editor context** — selected code appears as a removable context card; pin one or more selections from the editor context menu (an auto-attach card follows the active selection, while up to eight pinned cards stay attached); type `@` to fuzzy-search and attach workspace files without leaving the composer.
 - **Slash commands** — use official Harness commands plus `/model`, `/reasoning`, and `/preset` extension commands.
 - **Harness-native capabilities** — reasoning, tool calls, approvals, structured questions, Todos, Skills, Goals, Plan mode, and background jobs.
 - **Model and agent controls** — official catalogs provide model capabilities and reasoning choices; new sessions default to `deepseek-flash`. The PTC preset uses `ptc`; legacy `code` sessions keep a compatible preset.

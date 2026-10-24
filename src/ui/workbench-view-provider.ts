@@ -10,6 +10,7 @@ import * as vscode from 'vscode'
 import type { ConfigurationService } from '../config/configuration.js'
 import { AGENT_PRESET_OPTIONS, MODEL_OPTIONS, REASONING_OPTIONS } from '../domain/options.js'
 import type { EditorSelectionService } from '../editor/editor-selection-service.js'
+import type { EditorSelectionView } from '../editor/types.js'
 import type { WorkspaceFileService } from '../editor/workspace-file-service.js'
 import type { HarnessGatewayService } from '../gateway/harness-gateway-service.js'
 import type { DshPluginCenterController } from '../plugins/plugin-center-controller.js'
@@ -33,6 +34,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
   private readonly review = new HistoricalReview()
   private publishing: Promise<void> | undefined
   private publishPending = false
+  private pendingSelections: EditorSelectionView[] = []
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -101,6 +103,17 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     await this.gateway.restart()
   }
 
+  /**
+   * Stages one editor selection as composer context, even when
+   * `autoAttachSelection` is off. Used by the editor context-menu command.
+   */
+  attachSelection(selection: EditorSelectionView): void {
+    if (this.view === undefined && this.panel === undefined) {
+      this.pendingSelections = [...this.pendingSelections, selection].slice(-8)
+    }
+    this.postToHosts({ type: 'pinSelection', selection })
+  }
+
   dispose(): void {
     this.viewSubscription?.dispose()
     for (const subscription of this.subscriptions) subscription.dispose()
@@ -161,6 +174,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
         postToHosts: (payload) => this.postToHosts(payload),
         publishState: () => this.publishState(),
       }, message)
+      if (isRecord(message) && message.type === 'ready') this.flushPendingSelection()
     } catch (cause: unknown) {
       const detail = cause instanceof Error ? cause.message : String(cause)
       if (detail.includes('already owned by an active write handle')) {
@@ -181,6 +195,14 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
   private postToHosts(message: unknown): void {
     void this.view?.webview.postMessage(message)
     void this.panel?.webview.postMessage(message)
+  }
+
+  /** Delivers context-menu selections once a freshly resolved webview is ready. */
+  private flushPendingSelection(): void {
+    const selections = this.pendingSelections
+    if (selections.length === 0) return
+    this.pendingSelections = []
+    for (const selection of selections) this.postToHosts({ type: 'pinSelection', selection })
   }
 
   private publishState(): Promise<void> {

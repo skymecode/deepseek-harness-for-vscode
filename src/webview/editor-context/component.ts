@@ -9,12 +9,13 @@ interface EditorContextComponentOptions {
 }
 
 export interface PromptContextInput {
-  readonly selectionId?: string
+  readonly selectionIds: readonly string[]
   readonly fileIds: readonly string[]
 }
 
 export interface EditorContextComponent {
   readonly updateSelection: (selection: EditorSelectionView | undefined) => void
+  readonly attachSelection: (selection: EditorSelectionView) => void
   readonly setAutoAttach: (enabled: boolean) => void
   readonly addFile: (file: WorkspaceFileView) => void
   readonly input: () => PromptContextInput
@@ -25,12 +26,30 @@ export interface EditorContextComponent {
 export function createEditorContextComponent(options: EditorContextComponentOptions): EditorContextComponent {
   const root = requiredElement(options.document, 'editor-context-list')
   const attach = requiredButton(options.document, 'attach-selection')
+  const MAX_SELECTIONS = 8
   let availableSelection: EditorSelectionView | undefined
-  let stagedSelection: EditorSelectionView | undefined
+  let autoSelection: EditorSelectionView | undefined
+  let explicitSelections: EditorSelectionView[] = []
   let files: WorkspaceFileView[] = []
   let autoAttach = false
   let ignoredSelectionId: string | undefined
   let attachRequested = false
+
+  const selectedSelections = (): EditorSelectionView[] => {
+    const result: EditorSelectionView[] = []
+    for (const selection of [...explicitSelections, ...(autoSelection === undefined ? [] : [autoSelection])]) {
+      if (!result.some((item) => item.id === selection.id)) result.push(selection)
+    }
+    // Keep the newest explicit pins; the moving auto selection is appended
+    // last so it survives when the explicit list is already full.
+    return result.slice(-MAX_SELECTIONS)
+  }
+
+  const addExplicitSelection = (selection: EditorSelectionView): void => {
+    explicitSelections = [...explicitSelections.filter((item) => item.id !== selection.id), selection].slice(-MAX_SELECTIONS)
+    if (autoSelection?.id === selection.id) autoSelection = undefined
+    ignoredSelectionId = undefined
+  }
 
   attach.addEventListener('click', () => {
     if (availableSelection === undefined) {
@@ -38,17 +57,27 @@ export function createEditorContextComponent(options: EditorContextComponentOpti
       options.onRequestSelection()
       return
     }
-    stagedSelection = availableSelection
-    ignoredSelectionId = undefined
+    addExplicitSelection(availableSelection)
     render()
   })
 
   const updateSelection = (selection: EditorSelectionView | undefined): void => {
     const changed = selection?.id !== availableSelection?.id
     availableSelection = selection
-    if (selection !== undefined && (attachRequested || (changed && autoAttach && selection.id !== ignoredSelectionId))) {
-      stagedSelection = selection
+    if (selection !== undefined && attachRequested) {
+      addExplicitSelection(selection)
+    } else if (selection !== undefined && changed && autoAttach && selection.id !== ignoredSelectionId) {
+      // Auto-attach follows the active selection (one chip that moves with the
+      // cursor); explicit right-click adds stay pinned alongside it.
+      autoSelection = selection
     }
+    attachRequested = false
+    render()
+  }
+
+  const attachSelection = (selection: EditorSelectionView): void => {
+    availableSelection = selection
+    addExplicitSelection(selection)
     attachRequested = false
     render()
   }
@@ -56,20 +85,25 @@ export function createEditorContextComponent(options: EditorContextComponentOpti
   const setAutoAttach = (enabled: boolean): void => {
     const changed = enabled !== autoAttach
     autoAttach = enabled
-    if (changed && enabled && availableSelection !== undefined && availableSelection.id !== ignoredSelectionId) {
-      stagedSelection = availableSelection
+    if (changed && !enabled && autoSelection !== undefined) {
+      // Turning auto-attach off keeps the current chip as an explicit one.
+      addExplicitSelection(autoSelection)
+      autoSelection = undefined
+    } else if (changed && enabled && availableSelection !== undefined && availableSelection.id !== ignoredSelectionId) {
+      autoSelection = availableSelection
     }
     render()
   }
 
   const render = (): void => {
     const fragment = options.document.createDocumentFragment()
-    if (stagedSelection !== undefined) fragment.append(selectionChip(stagedSelection))
+    const selections = selectedSelections()
+    for (const selection of selections) fragment.append(selectionChip(selection))
     for (const file of files) fragment.append(fileChip(file))
     root.replaceChildren(fragment)
-    root.classList.toggle('hidden', stagedSelection === undefined && files.length === 0)
-    attach.classList.toggle('active', stagedSelection !== undefined)
-    attach.setAttribute('aria-pressed', String(stagedSelection !== undefined))
+    root.classList.toggle('hidden', selections.length === 0 && files.length === 0)
+    attach.classList.toggle('active', selections.length > 0)
+    attach.setAttribute('aria-pressed', String(selections.length > 0))
   }
 
   const selectionChip = (selection: EditorSelectionView): HTMLElement => {
@@ -92,8 +126,11 @@ export function createEditorContextComponent(options: EditorContextComponentOpti
       open.addEventListener('click', () => options.onOpenFile({ path: selectionFile, line: selection.startLine }))
     }
     chip.append(open, removeButton(options.translate('removeSelectionContext'), () => {
-      ignoredSelectionId = selection.id
-      stagedSelection = undefined
+      explicitSelections = explicitSelections.filter((item) => item.id !== selection.id)
+      if (autoSelection?.id === selection.id) {
+        ignoredSelectionId = selection.id
+        autoSelection = undefined
+      }
       render()
     }))
     return chip
@@ -146,19 +183,21 @@ export function createEditorContextComponent(options: EditorContextComponentOpti
 
   return {
     updateSelection,
+    attachSelection,
     setAutoAttach,
     addFile: (file) => {
       if (!files.some((item) => item.id === file.id)) files = [...files, file].slice(-8)
       render()
     },
     input: () => ({
-      ...(stagedSelection === undefined ? {} : { selectionId: stagedSelection.id }),
+      selectionIds: selectedSelections().map((selection) => selection.id),
       fileIds: files.map((file) => file.id),
     }),
     markSubmitted: () => {
+      explicitSelections = []
       if (!autoAttach) {
-        ignoredSelectionId = stagedSelection?.id
-        stagedSelection = undefined
+        ignoredSelectionId = autoSelection?.id
+        autoSelection = undefined
       }
       files = []
       render()

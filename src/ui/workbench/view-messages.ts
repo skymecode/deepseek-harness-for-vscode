@@ -156,13 +156,18 @@ export interface WorkbenchViewActions {
           throw new Error(vscode.l10n.t('Invalid model or mode configuration.'))
         }
         const context = promptContextInput(value.context)
-        const selectionId = context === undefined && ctx.configuration.get().autoAttachSelection
-          ? ctx.editorSelection.current()?.id
-          : context?.selectionId
-        const selection = ctx.editorSelection.attachment(selectionId)
+        const selectionIds = context === undefined
+          ? (ctx.configuration.get().autoAttachSelection
+              ? [ctx.editorSelection.current()?.id].filter((id): id is string => id !== undefined)
+              : [])
+          : context.selectionIds
+        const selections = selectionIds.flatMap((id) => {
+          const attachment = ctx.editorSelection.attachment(id)
+          return attachment === undefined ? [] : [attachment]
+        })
         const files = await ctx.workspaceFiles.attachments(context?.fileIds ?? [])
         const images = promptImageAttachments(value.images)
-        const attachments = [...(selection === undefined ? [] : [selection]), ...files, ...images]
+        const attachments = [...selections, ...files, ...images]
         // Host-computed task signals for the 'auto' reasoning layer, measured
         // after the final attachment set is known: a short question carrying a
         // large @-file or editor selection must never be judged trivial.
