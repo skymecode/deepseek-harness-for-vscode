@@ -11,6 +11,7 @@ import type { ConnectionSettingsInput, ConnectionTestResult } from '../../domain
 import { promptConfiguration } from '../../domain/prompt-configuration.js'
 import { referenceFromKey as fileReferenceFromKey } from '../../webview/file-reference.js'
 import type { EditorSelectionService } from '../../editor/editor-selection-service.js'
+import type { EditorSelectionView } from '../../editor/types.js'
 import type { WorkspaceFileService } from '../../editor/workspace-file-service.js'
 import type { HarnessGatewayService } from '../../gateway/harness-gateway-service.js'
 import type { DshPluginCenterController } from '../../plugins/plugin-center-controller.js'
@@ -30,6 +31,12 @@ import {
   settingsInput,
 } from './input-validators.js'
 
+/** Identity of one pin generation, so a repin during send is not cleared by the older prompt. */
+export interface SelectionPinRef {
+  readonly id: string
+  readonly revision: number
+}
+
 /** The host capabilities one message may reach. */
 export interface WorkbenchMessageContext {
   readonly review: HistoricalReview
@@ -41,6 +48,10 @@ export interface WorkbenchMessageContext {
   readonly workspaceFiles: WorkspaceFileService
   readonly postToHosts: (message: unknown) => void
   readonly publishState: () => Promise<void>
+  readonly pinSelection: (selection: EditorSelectionView) => void
+  readonly unpinSelection: (selectionId: string) => void
+  readonly snapshotPins: (selectionIds: readonly string[]) => readonly SelectionPinRef[]
+  readonly clearPinnedSelections: (refs?: readonly SelectionPinRef[]) => void
 }
 
 export interface WorkbenchViewActions {
@@ -53,6 +64,7 @@ export interface WorkbenchViewActions {
   readonly importSession: () => Promise<void>
 }
 
+  /** Dispatches one validated webview message to its host capability. */
   export async function handleWorkbenchMessage(ctx: WorkbenchMessageContext, value: unknown): Promise<void> {
   if (!isRecord(value) || typeof value.type !== 'string') return
   switch (value.type) {
@@ -156,13 +168,18 @@ export interface WorkbenchViewActions {
           throw new Error(vscode.l10n.t('Invalid model or mode configuration.'))
         }
         const context = promptContextInput(value.context)
-        const selectionId = context === undefined && ctx.configuration.get().autoAttachSelection
-          ? ctx.editorSelection.current()?.id
-          : context?.selectionId
-        const selection = ctx.editorSelection.attachment(selectionId)
+        const selectionIds = context === undefined
+          ? (ctx.configuration.get().autoAttachSelection
+              ? [ctx.editorSelection.current()?.id].filter((id): id is string => id !== undefined)
+              : [])
+          : context.selectionIds
+        const selections = selectionIds.flatMap((id) => {
+          const attachment = ctx.editorSelection.attachment(id)
+          return attachment === undefined ? [] : [attachment]
+        })
         const files = await ctx.workspaceFiles.attachments(context?.fileIds ?? [])
         const images = promptImageAttachments(value.images)
-        const attachments = [...(selection === undefined ? [] : [selection]), ...files, ...images]
+        const attachments = [...selections, ...files, ...images]
         // Host-computed task signals for the 'auto' reasoning layer, measured
         // after the final attachment set is known: a short question carrying a
         // large @-file or editor selection must never be judged trivial.
@@ -175,6 +192,9 @@ export interface WorkbenchViewActions {
           attachmentCount: attachments.length,
           imageCount: images.length,
         }
+        // Snapshot the exact pin generations consumed by this prompt before
+        // awaiting admission; a pin added or repinned meanwhile must survive.
+        const consumedPins = ctx.snapshotPins(selectionIds)
         // The gateway owns configuration staging: idle prompts apply it ahead
         // of admission; queued prompts keep it in a FIFO pending queue applied
         // at the next turn boundary. No snapshot check races here.
@@ -186,6 +206,7 @@ export interface WorkbenchViewActions {
           signals,
           requestId,
         )
+        ctx.clearPinnedSelections(consumedPins)
       } catch (cause) {
         // The prompt never entered the queue: tell the webview to roll back
         // its optimistic echo so the failed message does not linger as if it
@@ -271,9 +292,19 @@ export interface WorkbenchViewActions {
       await ctx.postToHosts({ type: 'editorSelection', selection })
       if (selection === undefined) {
         void vscode.window.showInformationMessage(vscode.l10n.t('Select code in an editor first.'))
+      } else {
+        ctx.pinSelection(selection)
       }
       break
     }
+    case 'pinSelection': {
+      const selection = ctx.editorSelection.view(requiredString(value, 'selectionId'))
+      if (selection !== undefined) ctx.pinSelection(selection)
+      break
+    }
+    case 'unpinSelection':
+      ctx.unpinSelection(requiredString(value, 'selectionId'))
+      break
     case 'loadCommands':
       await ctx.gateway.refreshCommands()
       break

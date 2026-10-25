@@ -57,6 +57,11 @@
         "icon": "$(new-window)"
       },
       {
+        "command": "deepseekHarness.addSelectionToChat",
+        "title": "%command.addSelectionToChat%",
+        "icon": "$(add)"
+      },
+      {
         "command": "deepseekHarness.reloadRuntime",
         "title": "%command.reloadRuntime%",
         "icon": "$(refresh)"
@@ -122,6 +127,13 @@
           "command": "deepseekHarness.importSession",
           "when": "view == deepseekHarness.chatView",
           "group": "navigation@4"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "deepseekHarness.addSelectionToChat",
+          "when": "editorHasSelection",
+          "group": "navigation@5"
         }
       ]
     },

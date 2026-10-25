@@ -51,6 +51,10 @@ window.addEventListener('message', (event) => {
     components.editorContext.updateSelection(event.data.selection)
     return
   }
+  if (event.data?.type === 'pinnedSelections') {
+    components.editorContext.setPinnedSelections(Array.isArray(event.data.selections) ? event.data.selections : [])
+    return
+  }
   if (event.data?.type === 'workspaceFileSuggestions') {
     components.fileMention.acceptSuggestions(event.data.requestId, event.data.query, event.data.files || [])
     return

@@ -5,7 +5,10 @@ import type { PromptAttachment } from '../domain/prompt-context.js'
 import type { EditorSelectionView } from './types.js'
 
 const MAX_SELECTION_CHARS = 16_000
-const MAX_CACHED_SELECTIONS = 24
+// Must comfortably exceed the composer's multi-selection cap (8): each cursor
+// move publishes a new id, so a pinned selection can otherwise be evicted
+// while the user keeps reading before sending.
+const MAX_CACHED_SELECTIONS = 64
 const SELECTION_DEBOUNCE_MS = 60
 
 interface CachedSelection {
@@ -23,6 +26,8 @@ export class EditorSelectionService implements vscode.Disposable {
   private readonly changeEmitter = new vscode.EventEmitter<EditorSelectionView | undefined>()
   private readonly subscriptions: vscode.Disposable[]
   private readonly cached = new Map<string, CachedSelection>()
+  /** Explicitly pinned selections never evict while their composer card exists. */
+  private readonly retained = new Map<string, CachedSelection>()
   private publishTimer: NodeJS.Timeout | undefined
 
   readonly onDidChange = this.changeEmitter.event
@@ -39,15 +44,20 @@ export class EditorSelectionService implements vscode.Disposable {
     ]
   }
 
+  /** Captures the active editor selection and refreshes the auto-attach cache. */
   current(): EditorSelectionView | undefined {
     const captured = captureActiveSelection()
     if (captured === undefined) return undefined
-    this.cached.delete(captured.view.id)
-    this.cached.set(captured.view.id, captured)
-    while (this.cached.size > MAX_CACHED_SELECTIONS) {
-      const oldest = this.cached.keys().next().value as string | undefined
-      if (oldest === undefined) break
-      this.cached.delete(oldest)
+    // A retained selection already has a stable copy; a later cursor move must
+    // not make it evictable again.
+    if (!this.retained.has(captured.view.id)) {
+      this.cached.delete(captured.view.id)
+      this.cached.set(captured.view.id, captured)
+      while (this.cached.size > MAX_CACHED_SELECTIONS) {
+        const oldest = this.cached.keys().next().value as string | undefined
+        if (oldest === undefined) break
+        this.cached.delete(oldest)
+      }
     }
     return captured.view
   }
@@ -55,8 +65,35 @@ export class EditorSelectionService implements vscode.Disposable {
   /** Resolves an opaque selection token without trusting Webview-supplied text. */
   attachment(id: string | undefined): PromptAttachment | undefined {
     if (id === undefined) return undefined
-    return this.cached.get(id)?.attachment
+    return (this.retained.get(id) ?? this.cached.get(id))?.attachment
   }
+
+  /** Returns the display metadata for an id previously published to the Webview. */
+  view(id: string): EditorSelectionView | undefined {
+    return (this.retained.get(id) ?? this.cached.get(id))?.view
+  }
+
+  /** Keeps one explicitly pinned selection resolvable until it is unpinned or sent. */
+  retain(id: string): void {
+    const entry = this.cached.get(id) ?? this.retained.get(id)
+    if (entry === undefined) return
+    this.cached.delete(id)
+    this.retained.set(id, entry)
+  }
+
+  /** Releases one pin, returning it to the auto-attached cache for reuse. */
+  release(id: string): void {
+    const entry = this.retained.get(id)
+    if (entry === undefined) return
+    this.retained.delete(id)
+    this.cached.set(id, entry)
+    while (this.cached.size > MAX_CACHED_SELECTIONS) {
+      const oldest = this.cached.keys().next().value as string | undefined
+      if (oldest === undefined) break
+      this.cached.delete(oldest)
+    }
+  }
+
 
   dispose(): void {
     if (this.publishTimer !== undefined) clearTimeout(this.publishTimer)
@@ -73,6 +110,7 @@ export class EditorSelectionService implements vscode.Disposable {
   }
 }
 
+/** Reads the active editor selection into a cached view and prompt attachment. */
 function captureActiveSelection(): CachedSelection | undefined {
   const editor = vscode.window.activeTextEditor
   if (editor === undefined || editor.selection.isEmpty) return undefined
@@ -118,6 +156,7 @@ function captureActiveSelection(): CachedSelection | undefined {
   }
 }
 
+/** Returns the workspace-relative display path for a file URI. */
 function displayPath(uri: vscode.Uri): string | undefined {
   if (uri.scheme !== 'file') return undefined
   const folder = vscode.workspace.getWorkspaceFolder(uri)

@@ -105,13 +105,18 @@ export function safeExternalUri(raw: string): vscode.Uri | undefined {
   return undefined
 }
 
-export function promptContextInput(value: unknown): { readonly selectionId?: string; readonly fileIds: readonly string[] } | undefined {
+/** Parses prompt context from a webview message; accepts selectionIds[] and the legacy selectionId. */
+export function promptContextInput(value: unknown): { readonly selectionIds: readonly string[]; readonly fileIds: readonly string[] } | undefined {
   if (!isRecord(value)) return undefined
-  const selectionId = optionalString(value.selectionId)
+  const selectionIds = Array.isArray(value.selectionIds)
+    ? value.selectionIds.filter((id): id is string => typeof id === 'string' && id !== '')
+    : []
+  const legacySelectionId = optionalString(value.selectionId)
+  const ids = [...new Set(legacySelectionId === undefined ? selectionIds : [...selectionIds, legacySelectionId])].slice(0, 8)
   const fileIds = Array.isArray(value.fileIds)
     ? [...new Set(value.fileIds.filter((id): id is string => typeof id === 'string' && id !== ''))].slice(0, 8)
     : []
-  return { ...(selectionId === undefined ? {} : { selectionId }), fileIds }
+  return { selectionIds: ids, fileIds }
 }
 
 const PROMPT_IMAGE_MEDIA_TYPES: readonly PromptImageMediaType[] = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
