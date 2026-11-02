@@ -277,12 +277,17 @@ body.vscode-high-contrast .brand-logo {
 .history-panel {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: 40;
   padding: 9px;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 8px;
   background: var(--vscode-sideBar-background);
+}
+/* The composer is sticky at z-index 20; keep it out of the way while browsing
+   history instead of letting it float over the list. */
+body.history-open .composer-dock {
+  display: none !important;
 }
 .panel-heading {
   display: flex;
@@ -438,6 +443,9 @@ body.vscode-high-contrast .brand-logo {
 .session-meta {
   color: var(--vscode-descriptionForeground);
   font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .session-snippet {
   overflow: hidden;
@@ -5009,6 +5017,9 @@ body.vscode-light .effort-control[data-effort="max"] {
   white-space: nowrap;
 }
 .session-tag.shared {
+  /* The shared badge is a direct grid child of the row; without this it
+     stretches into a full-width bar instead of a compact chip. */
+  justify-self: start;
   background: color-mix(
     in srgb,
     var(--vscode-badge-background) 55%,

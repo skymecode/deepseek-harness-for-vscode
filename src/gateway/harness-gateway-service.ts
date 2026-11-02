@@ -37,7 +37,7 @@ import { isAutoEffort, resolveEffortIntent, type AutoEffortSignals, type EffortI
 import { pickAutoModel, type ModelProfileInput } from '../domain/model-profile.js'
 import { setTags } from '../domain/session-meta.js'
 import { projectSessionStats, projectionSessionStats } from '../domain/session-stats.js'
-import { sameWorkspacePath } from '../domain/workspace-scope.js'
+import { projectRootOf, sameProjectPath, sameWorkspacePath } from '../domain/workspace-scope.js'
 import type { WorktreeService } from '../editor/worktree-service.js'
 import {
   projectConversation,
@@ -51,6 +51,7 @@ import {
   sessionListItem,
   type CommandEntry,
   type HarnessWorkbenchState,
+  type SessionListItem,
 } from '../domain/workbench-state.js'
 import type { HarnessHostRuntime } from '../runtime/web-runtime.js'
 import type { ConnectionSettingsService } from '../services/connection-settings-service.js'
@@ -406,8 +407,11 @@ export class HarnessGatewayService implements vscode.Disposable {
   /** Projects the current runtime state into the workbench DTO the UI renders. */
   async snapshot(): Promise<HarnessWorkbenchState> {
     const hasApiKey = this.connectionSettings.hasConfiguredProvider()
-    const scoped = this.orderedSummaries().filter((summary) => this.inCurrentWorkspace(summary))
-    const partitioned = this.archives.partition(scoped.map((summary) => {
+    // The webview owns the current-project / all-projects filter so switching
+    // scope never needs a Gateway round-trip. Every row still carries its
+    // project identity for labels and the current-project grouping.
+    const ordered = this.orderedSummaries()
+    const partitioned = this.archives.partition(ordered.map((summary) => {
       const item = this.sessionListItemWithIsolation(summary)
       const id = String(summary.sessionId)
       const meta = this.metaStore.metaFor(id)
@@ -784,10 +788,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     if (normalized === '') return []
     const result = await this.requireClient().sessionSearch({ query: normalized })
     return result.items
-      .filter((item) => {
-        const summary = this.summaries.get(String(item.sessionId))
-        return summary !== undefined && this.inCurrentWorkspace(summary)
-      })
+      .filter((item) => this.summaries.has(String(item.sessionId)))
       .map((item) => ({ sessionId: String(item.sessionId), snippet: item.snippet }))
   }
 
@@ -2137,14 +2138,27 @@ export class HarnessGatewayService implements vscode.Disposable {
 
 
 
-  private sessionListItemWithIsolation(summary: SessionSummary): ReturnType<typeof sessionListItem> {
+  private sessionListItemWithIsolation(summary: SessionSummary): SessionListItem {
     const item = sessionListItem(summary, this.labels)
-    if (this.worktrees.recordFor(String(summary.sessionId)) !== undefined) return { ...item, isolated: true }
-    // No worktree: the session runs directly in the shared workspace folder
-    // (git missing, non-git workspace, detached HEAD, or worktree-add failure).
-    // Mark it so the user can tell fenced sessions from ones that share the
-    // same code with every other non-isolated session.
-    return { ...item, shared: true }
+    const cwd = this.worktrees.displayCwd(String(summary.sessionId), summary.cwd)
+    const projectPath = projectRootOf(cwd)
+    const projectLabel = projectPath === undefined
+      ? undefined
+      : projectPath.replaceAll('\\', '/').split('/').filter(Boolean).pop()
+    const projectCurrent = this.currentWorkspaceCwds().some((workspace) => sameProjectPath(cwd, workspace))
+    const base = this.worktrees.recordFor(String(summary.sessionId)) !== undefined
+      ? { ...item, isolated: true }
+      // No worktree: the session runs directly in the shared workspace folder
+      // (git missing, non-git workspace, detached HEAD, or worktree-add failure).
+      // Mark it so the user can tell fenced sessions from ones that share the
+      // same code with every other non-isolated session.
+      : { ...item, shared: true }
+    return {
+      ...base,
+      projectCurrent,
+      ...(projectPath === undefined ? {} : { projectPath }),
+      ...(projectLabel === undefined ? {} : { projectLabel }),
+    }
   }
 
   /** Reloads the agent preset roster, substituting localized copy for built-ins. */
@@ -2165,6 +2179,9 @@ export class HarnessGatewayService implements vscode.Disposable {
         const leftRank = this.nativePinRank(String(left.sessionId))
         const rightRank = this.nativePinRank(String(right.sessionId))
         if (leftRank !== rightRank) return leftRank - rightRank
+        const leftCurrent = this.inCurrentWorkspace(left)
+        const rightCurrent = this.inCurrentWorkspace(right)
+        if (leftCurrent !== rightCurrent) return leftCurrent ? -1 : 1
         const leftOrder = this.workspaceSessionRank(String(left.sessionId))
         const rightOrder = this.workspaceSessionRank(String(right.sessionId))
         if (leftOrder !== rightOrder && (leftOrder <= this.workspaceSessionOrder.length || rightOrder <= this.workspaceSessionOrder.length)) {
@@ -2190,17 +2207,22 @@ export class HarnessGatewayService implements vscode.Disposable {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
   }
 
+  /** Every workspace folder open in this window (multi-root aware). */
+  private currentWorkspaceCwds(): readonly string[] {
+    return (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath)
+  }
+
   /**
-   * Whether a session belongs to the project currently open in this window.
-   * With no workspace folder open there is no project to scope by, so every
-   * session is visible; otherwise only sessions recorded against that exact
-   * folder are shown (history follows the project, nothing is deleted). An
-   * isolated session's cwd is its worktree inside the repo, so scoping maps it
-   * back to the repository root first.
+   * Whether a session belongs to a project currently open in this window.
+   * A session in `<repo>/.dsh-worktrees/<id>` belongs to `<repo>` even when
+   * this extension has no local worktree record for it (for example a session
+   * created by the official DSH backend). With no workspace folder open there
+   * is no project to scope by, so nothing is listed; the all-projects view in
+   * the history panel is the explicit way to browse everything.
    */
   private inCurrentWorkspace(summary: SessionSummary): boolean {
     const cwd = this.worktrees.displayCwd(String(summary.sessionId), summary.cwd)
-    return sameWorkspacePath(cwd, this.currentWorkspaceCwd())
+    return this.currentWorkspaceCwds().some((workspace) => sameProjectPath(cwd, workspace))
   }
 
   private isCurrentSelection(sessionId: string, generation: number): boolean {
