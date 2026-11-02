@@ -26,7 +26,7 @@ import {
 } from './context.js'
 import { addPastedImages, clearPastedImages, closeImagePreview } from './images.js'
 import { applyReferenceValidation, setReferenceValidator } from '../markdown.js'
-import { closePermissionConfirm, closePermissionPopup, renderSessions, toggleArchivedHistory, toggleHistory, togglePermissionPopup } from './sessions.js'
+import { closePermissionConfirm, closePermissionPopup, renderSessions, toggleArchivedHistory, toggleHistory, toggleHistoryScope, togglePermissionPopup } from './sessions.js'
 import { FULL_ACCESS_PERMISSION_ID } from '../../domain/permissions.js'
 import { closeTimeline, openTimeline } from './timeline.js'
 import { clipboardImageFiles } from './clipboard-images.js'
@@ -92,6 +92,7 @@ setReferenceValidator((keys) => post('validateFileReferences', { keys }))
 elements.historyToggle.addEventListener('click', () => toggleHistory(true))
 elements.manageMcp.addEventListener('click', () => post('manageMcp'))
 elements.historyClose.addEventListener('click', () => toggleHistory(false))
+elements.historyScope.addEventListener('click', () => toggleHistoryScope())
 elements.historyArchived.addEventListener('click', () => toggleArchivedHistory())
 elements.historySearch.addEventListener('input', () => {
   clearTimeout(searchTimer)

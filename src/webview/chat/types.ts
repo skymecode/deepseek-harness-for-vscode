@@ -57,6 +57,7 @@ export interface ChatElements {
   readonly importSession: HTMLElement
   readonly historyImport: HTMLElement
   readonly historyArchived: HTMLButtonElement
+  readonly historyScope: HTMLButtonElement
   readonly exportSession: HTMLElement
   readonly sessionStats: HTMLElement
   readonly sessionUsage: HTMLElement

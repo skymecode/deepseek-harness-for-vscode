@@ -27,6 +27,7 @@ export const elements: ChatElements = {
   importSession: byId<HTMLElement>('import-session'),
   historyImport: byId<HTMLElement>('history-import'),
   historyArchived: byId<HTMLButtonElement>('history-archived'),
+  historyScope: byId<HTMLButtonElement>('history-scope'),
   exportSession: byId<HTMLElement>('export-session'),
   sessionStats: byId<HTMLElement>('session-stats'),
   sessionUsage: byId<HTMLElement>('session-usage'),
