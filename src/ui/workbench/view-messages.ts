@@ -93,6 +93,9 @@ export interface WorkbenchViewActions {
     case 'openSettings':
       await ctx.actions.openSettings()
       break
+    case 'manageMcp':
+      await vscode.commands.executeCommand('deepseekHarness.manageMcp')
+      break
     case 'loadPlugins':
       await ctx.pluginCenter.load(value.force === true)
       break

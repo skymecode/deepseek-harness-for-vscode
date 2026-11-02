@@ -15,6 +15,7 @@ function byId<T extends HTMLElement>(id: string): T {
 export const elements: ChatElements = {
   connection: byId<HTMLElement>('connection'),
   historyToggle: byId<HTMLElement>('history-toggle'),
+  manageMcp: byId<HTMLButtonElement>('manage-mcp'),
   historyPanel: byId<HTMLElement>('history-panel'),
   historyClose: byId<HTMLElement>('history-close'),
   historySearch: byId<HTMLInputElement>('history-search'),

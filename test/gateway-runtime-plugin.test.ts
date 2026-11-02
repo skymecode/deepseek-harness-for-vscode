@@ -76,7 +76,7 @@ describe('headless Gateway runtime plugin', () => {
     try {
       apply(context)
 
-      expect(register).toHaveBeenCalledTimes(2)
+      expect(register).toHaveBeenCalledTimes(3)
       const route = register.mock.calls.find(([route]) => route.path === '/')?.[0] as {
         kind: string
         path: string

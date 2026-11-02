@@ -3,6 +3,7 @@ export const ENGLISH_WEBVIEW_MESSAGES = {
   newConversation: 'New conversation',
   extensionSettings: 'Extension settings',
   plugins: 'Plugins',
+  manageMcp: 'MCP servers',
   pluginCenter: 'DSH Plugins',
   closePluginCenter: 'Close plugin center',
   pluginMarketplace: 'Marketplace',

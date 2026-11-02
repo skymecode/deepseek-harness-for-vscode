@@ -44,16 +44,10 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     private readonly workspaceFiles: WorkspaceFileService,
     private readonly actions: WorkbenchViewActions,
   ) {
-    let mcpSignature = JSON.stringify(configuration.get().mcpServers ?? [])
     this.subscriptions = [gateway.onDidChange(() => {
       void this.publishState().catch(() => undefined)
     }), vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('deepseekHarness.worktreeAutoMerge')) void this.publishState().catch(() => undefined)
-    }), configuration.onDidChange((next) => {
-      const nextMcpSignature = JSON.stringify(next.mcpServers ?? [])
-      if (nextMcpSignature === mcpSignature) return
-      mcpSignature = nextMcpSignature
-      void this.gateway.restart().catch(() => undefined)
     }), connectionSettings.onDidChange(() => {
       void this.publishState().catch(() => undefined)
     }), pluginCenter.onDidChange((snapshot) => {
@@ -205,7 +199,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       await this.postToHosts({
         type: 'state',
         state,
-        configuration: this.configuration.get(),
+        configuration: publicConfiguration(this.configuration.get()),
         connectionSettings,
         workspaceFolderOpen: vscode.workspace.workspaceFolders?.[0] !== undefined,
         fallbackOptions: {
@@ -224,4 +218,11 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       selection: this.editorSelection.current(),
     })
   }
+}
+
+/** MCP commands/headers/env stay in the extension host, never in chat state. */
+export function publicConfiguration(configuration: ReturnType<ConfigurationService['get']>): Omit<ReturnType<ConfigurationService['get']>, 'mcpServers'> {
+  const { mcpServers: privateMcp, ...publicValue } = configuration
+  void privateMcp
+  return publicValue
 }

@@ -90,6 +90,7 @@ window.addEventListener('message', (event) => {
 setReferenceValidator((keys) => post('validateFileReferences', { keys }))
 
 elements.historyToggle.addEventListener('click', () => toggleHistory(true))
+elements.manageMcp.addEventListener('click', () => post('manageMcp'))
 elements.historyClose.addEventListener('click', () => toggleHistory(false))
 elements.historyArchived.addEventListener('click', () => toggleArchivedHistory())
 elements.historySearch.addEventListener('input', () => {

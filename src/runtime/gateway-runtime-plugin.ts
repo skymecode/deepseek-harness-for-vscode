@@ -1,4 +1,5 @@
 import { registerOfficialConnectionCheck } from './official-connection-check.js'
+import { registerMcpToolCatalog } from './mcp-tool-catalog.js'
 import type { LlmResolvedModelInfo as DshLlmResolvedModelInfo } from '@deepseek-ai/dsh-llm/types'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AgentPresetRegistry, PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
@@ -123,6 +124,7 @@ function announceAuthenticated(
   connection: GatewayConnectionService,
   base: string,
 ): void {
+  registerMcpToolCatalog(ctx, connection)
   // session/modelCatalog omits capabilities. Forward the official LLM service's
   // resolved metadata without inventing a second capability catalog.
   ctx.webServer.register({

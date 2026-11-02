@@ -157,6 +157,14 @@ export class NodeGatewayClient {
     return await response.json() as DshLlmResolvedModelInfo[]
   }
 
+  /** Names/descriptions registered globally by the native MCP client, not health status. */
+  async mcpTools(): Promise<readonly { readonly name: string; readonly description: string }[]> {
+    await this.ensureAuthenticated()
+    const response = await this.doFetch(new URL('/api/vscode.mcp-tools', this.baseUrl), { signal: AbortSignal.timeout(this.importTimeoutMs) })
+    if (!response.ok) throw new Error(`MCP tool registry unavailable: HTTP ${response.status}`)
+    return await response.json() as { name: string; description: string }[]
+  }
+
   async changesSummary(sessionId: string, seq: number): Promise<DshChangesSummary | undefined> {
     return await this.getChanges('/api/changes.summary', sessionId, seq)
   }

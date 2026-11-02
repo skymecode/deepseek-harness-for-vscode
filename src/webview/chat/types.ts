@@ -44,6 +44,7 @@ export interface WebviewStatePayload {
 }
 
 export interface ChatElements {
+  readonly manageMcp: HTMLButtonElement
   readonly connection: HTMLElement
   readonly historyToggle: HTMLElement
   readonly historyPanel: HTMLElement

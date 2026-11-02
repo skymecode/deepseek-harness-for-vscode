@@ -371,21 +371,24 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   /** Stops the Host around profile mutations, then reconnects even on failure. */
-  async mutateRuntime<T>(mutation: () => Promise<T>): Promise<T> {
+  async mutateRuntime<T>(mutation: () => Promise<T>, beforeStop?: () => void): Promise<T> {
     // Reserve the gate before the first await when idle, so a concurrent
     // prompt cannot sneak in between the idle check and disconnect().
     while (this.runtimeMutationTask !== undefined) await this.runtimeMutationTask
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
     this.runtimeMutationTask = gate
+    let stopped = false
     try {
       await this.waitForRuntimeIdle()
+      beforeStop?.()
+      stopped = true
       this.disconnect()
       await this.runtime.stop()
       return await mutation()
     } finally {
       try {
-        await this.start()
+        if (stopped) await this.start()
       } finally {
         release()
         if (this.runtimeMutationTask === gate) this.runtimeMutationTask = undefined

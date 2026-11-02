@@ -208,7 +208,7 @@ interface GatewayTestHarness {
   createSession: (agentPreset?: string) => Promise<string>
   queue: readonly { id: string; message: { content: readonly { type: string; text?: string }[] } }[]
   selectModel: (provider: string, model: string, reasoningEffort?: string, persist?: boolean, signals?: unknown) => Promise<void>
-  mutateRuntime: <T>(mutation: () => Promise<T>) => Promise<T>
+  mutateRuntime: <T>(mutation: () => Promise<T>, beforeStop?: () => void) => Promise<T>
 }
 
 function config(reasoningEffort: string, agentPreset = 'standard'): unknown {
@@ -932,5 +932,30 @@ describe('start baseline watchdog', () => {
     await mutation
     await prompt
     expect(client.sessionPrompt).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a configuration invalidated while waiting without stopping the live runtime', async () => {
+    vi.useFakeTimers()
+    try {
+      const { service, runtime, client } = createService()
+      const restart = vi.fn(async () => {})
+      ;(service as unknown as { start: () => Promise<void> }).start = restart
+      service.summaries.set('background', { running: true, blank: false, agentPreset: 'standard', updatedAt: 1 })
+      let valid = true
+      const edit = vi.fn(async () => {})
+      const mutation = service.mutateRuntime(edit, () => { if (!valid) throw new Error('Invalid MCP configuration') })
+      const rejected = expect(mutation).rejects.toThrow('Invalid MCP configuration')
+      await vi.advanceTimersByTimeAsync(100)
+      valid = false
+      service.summaries.set('background', { running: false, blank: false, agentPreset: 'standard', updatedAt: 1 })
+      await vi.advanceTimersByTimeAsync(100)
+      await rejected
+      expect(runtime.stop).not.toHaveBeenCalled()
+      expect(client.abortPendingRequests).not.toHaveBeenCalled()
+      expect(restart).not.toHaveBeenCalled()
+      expect(edit).not.toHaveBeenCalled()
+      await service.sendPrompt('continue using the existing runtime')
+      expect(client.sessionPrompt).toHaveBeenCalledOnce()
+    } finally { vi.useRealTimers() }
   })
 })

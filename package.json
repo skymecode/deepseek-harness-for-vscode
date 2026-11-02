@@ -81,6 +81,10 @@
         "command": "deepseekHarness.importSession",
         "title": "%command.importSession%",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "deepseekHarness.manageMcp",
+        "title": "%command.manageMcp%"
       }
     ],
     "viewsContainers": {
@@ -285,7 +289,7 @@
     "vitest": "^4.0.0"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.2.1-rc.3",
+    "@deepseek-ai/dsh": "0.2.1-rc.5",
     "dompurify": "3.4.17",
     "highlight.js": "^11.12.0",
     "markdown-it": "15.0.3",
@@ -301,9 +305,19 @@
     "koffi@3.3.1": true,
     "keytar@7.9.0": true,
     "protobufjs@7.6.6": true,
-    "@deepseek-ai/dsh-subprocess-local@0.2.1-rc.3": true,
+    "@deepseek-ai/dsh-subprocess-local@0.2.1-rc.5": true,
     "@vscode/vsce-sign@2.0.9": true,
     "@google/genai@1.52.0": true
   },
-  "preview": true
+  "preview": true,
+  "overrides": {
+    "@modelcontextprotocol/client": "2.3.0",
+    "zod": "4.6.7",
+    "@deepseek-ai/dsh-http-proxy": {
+      "undici": "8.12.2"
+    },
+    "@deepseek-ai/dsh-web-fetch-http": {
+      "undici": "8.12.2"
+    }
+  }
 }

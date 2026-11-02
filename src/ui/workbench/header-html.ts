@@ -21,6 +21,7 @@ export function headerHtml(logo: string, text: (key: WebviewMessageKey) => strin
       <button id="import-session" class="header-menu-action" type="button">${icon('import')}<span>${text('importSession')}</span></button>
       <button id="export-session" class="header-menu-action" type="button">${icon('export')}<span>${text('exportSession')}</span></button>
       <button id="open-settings" class="header-menu-action" type="button">${icon('settings')}<span>${text('extensionSettings')}</span></button>
+      <button id="manage-mcp" class="header-menu-action" type="button">${icon('plugins')}<span>${text('manageMcp')}</span></button>
       <div id="header-stats" class="header-stats hidden">
         <strong>${text('sessionStats')}</strong>
         <span id="session-stats" class="session-stats"></span>
