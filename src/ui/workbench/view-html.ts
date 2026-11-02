@@ -86,6 +86,7 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
     <div class="panel-heading">
       <strong>${text('history')}</strong>
       <div class="panel-heading-actions">
+        <button id="history-scope" class="history-archive-toggle" type="button" aria-pressed="false" title="${text('sessionScope')}">${text('currentProject')}</button>
         <button id="history-archived" class="history-archive-toggle" type="button" aria-pressed="false" title="${text('archivedConversations')}">${text('archivedConversations')}</button>
         <button id="history-import" class="icon-button compact" title="${text('importSession')}" aria-label="${text('importSession')}">${icon('import')}</button>
         <button id="history-close" class="icon-button">${icon('close')}</button>

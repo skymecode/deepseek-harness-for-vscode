@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { normalizeWorkspacePath, sameWorkspacePath } from '../src/domain/workspace-scope.js'
+import { normalizeWorkspacePath, projectRootOf, sameProjectPath, sameWorkspacePath } from '../src/domain/workspace-scope.js'
 
 describe('workspace-scope', () => {
   describe('normalizeWorkspacePath', () => {
@@ -18,7 +18,6 @@ describe('workspace-scope', () => {
     it('matches the same folder', () => {
       expect(sameWorkspacePath('/Users/me/project', '/Users/me/project')).toBe(true)
     })
-
     it('tolerates a trailing separator on either side', () => {
       expect(sameWorkspacePath('/Users/me/project/', '/Users/me/project')).toBe(true)
       expect(sameWorkspacePath('/Users/me/project', '/Users/me/project/')).toBe(true)
@@ -56,5 +55,38 @@ describe('workspace-scope', () => {
         expect(sameWorkspacePath('E:/vscodeextension', 'e:\\vscodeextension\\deepseek-harness-for-vscode')).toBe(false)
       },
     )
+  })
+
+  describe('projectRootOf', () => {
+    it('keeps a project folder unchanged', () => {
+      expect(projectRootOf('/Users/me/project')).toBe('/Users/me/project')
+      expect(projectRootOf('C:\\Users\\me\\project')).toBe('C:\\Users\\me\\project')
+    })
+
+    it('maps a worktree session to its repository root', () => {
+      expect(projectRootOf('/Users/me/project/.dsh-worktrees/session-1')).toBe('/Users/me/project')
+      expect(projectRootOf('C:\\Users\\me\\project\\.dsh-worktrees\\session-1')).toBe('C:/Users/me/project')
+    })
+
+    it('handles a missing cwd', () => {
+      expect(projectRootOf(undefined)).toBeUndefined()
+    })
+  })
+
+  describe('sameProjectPath', () => {
+    it('groups worktree sessions under the repository project', () => {
+      expect(sameProjectPath('/Users/me/project/.dsh-worktrees/session-1', '/Users/me/project')).toBe(true)
+      expect(sameProjectPath('/Users/me/project', '/Users/me/project/.dsh-worktrees/session-1')).toBe(true)
+    })
+
+    it('still rejects a different project', () => {
+      expect(sameProjectPath('/Users/me/project/.dsh-worktrees/session-1', '/Users/me/other')).toBe(false)
+      expect(sameProjectPath('/Users/me/project-a/.dsh-worktrees/session-1', '/Users/me/project-b')).toBe(false)
+    })
+
+    it('hides sessions when no project is open', () => {
+      expect(sameProjectPath('/Users/me/project', undefined)).toBe(false)
+      expect(sameProjectPath(undefined, undefined)).toBe(false)
+    })
   })
 })

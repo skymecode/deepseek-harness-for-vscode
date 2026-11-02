@@ -39,7 +39,8 @@ export function render(): void {
   renderSelectors(active)
   const providerId = active?.model?.provider ?? payload.configuration.provider
   const configured = payload.connectionSettings.providers.find(provider => provider.id === providerId)?.apiKeyConfigured === true
-  const setupVisible = state.phase === 'connected' && (!configured || (elements.keyBanner.dataset.dismissed !== 'true' && state.sessions.length === 0 && active?.blank === true))
+  const hasCurrentHistory = state.sessions.some(session => session.projectCurrent !== false)
+  const setupVisible = state.phase === 'connected' && (!configured || (elements.keyBanner.dataset.dismissed !== 'true' && !hasCurrentHistory && active?.blank === true))
   elements.keyBanner.classList.toggle('hidden', !setupVisible)
   for (const id of ['setup-model', 'setup-permission', 'setup-done']) {
     const button = document.getElementById(id) as HTMLButtonElement
