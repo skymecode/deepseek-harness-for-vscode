@@ -51,8 +51,7 @@ const reasoningTimeline = new ReasoningTimeline(document)
 const turnChangesController = new TurnChangesController(() => createSessionChangesCard({
   document,
   translate: t,
-  onOpenFile: (path) => post('openFile', { path }),
-  onReview: (changes, index) => post('sessionChangesReview', { ...changes?.official, index }),
+  onReview: (changes, index) => post('sessionChangesReview', { ...changes.official, index }),
 }))
 
 export function renderMessages(active: ActiveSessionView | undefined): void {

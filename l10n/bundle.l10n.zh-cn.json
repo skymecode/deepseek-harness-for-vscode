@@ -578,7 +578,6 @@
   "[gateway] Reconnecting job stream: {0}": "[gateway] 正在重连后台任务流：{0}",
   "[gateway] Background job output unavailable: {0}": "[gateway] 后台任务输出不可用：{0}",
   "Applying plugin changes…": "正在应用插件更改…",
-  "Historical tool statistics; complete comparison unavailable.": "历史工具统计；完整差异已不可用。",
   "The plugin change was saved. Reload Harness to apply it.": "插件更改已保存，重新加载 Harness 后生效。",
   "The plugin change was saved but overridden by a higher-priority profile layer.": "插件更改已保存，但被更高优先级的配置覆盖。",
   "The official plugin manager will unload and remove this bundle.": "官方插件管理器将卸载并移除此插件包。",
@@ -591,5 +590,10 @@
   "API protocol": "API 协议",
   "deepseek-flash, deepseek-v4-pro": "deepseek-flash, deepseek-v4-pro",
   "Model ids your endpoint exposes, comma-separated. Add :contextSize for an explicit context window (e.g. model-id:32k). Otherwise use the official provider metadata. Test the connection to discover model ids.": "填写端点实际暴露的模型 ID，用逗号分隔。可加 :上下文大小 显式设置窗口（例如 model-id:32k）；其余能力以官方提供商元数据为准。测试连接可发现模型 ID。",
-  "The official plugin manager will install and activate the importer.": "官方插件管理器将安装并启用会话导入插件。"
+  "The official plugin manager will install and activate the importer.": "官方插件管理器将安装并启用会话导入插件。",
+  "DSH turn snapshot": "DSH 回合快照",
+  "DSH snapshot: {shown} of {total} files listed (limit reached).": "DSH 快照：列出 {shown}/{total} 个文件（已达上限）。",
+  "Binary": "二进制",
+  "Too large": "文件过大",
+  "{0} — historical excerpts (read-only, whole-file replacement)": "{0} — 历史片段（只读，整文件替换）"
 }

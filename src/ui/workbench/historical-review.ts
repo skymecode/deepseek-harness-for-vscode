@@ -31,7 +31,7 @@ export class HistoricalReview implements vscode.Disposable {
     const after = vscode.Uri.from({ scheme: 'dsh-review', authority: id, path: `/after/${filename}` })
     this.contents.set(before.toString(), value.before)
     this.contents.set(after.toString(), value.after)
-    await vscode.commands.executeCommand('vscode.diff', before, after, vscode.l10n.t('{0} — historical excerpts (read-only)', diff.display), { preview: true })
+    await vscode.commands.executeCommand('vscode.diff', before, after, diff.coarse ? vscode.l10n.t('{0} — historical excerpts (read-only, whole-file replacement)', diff.display) : vscode.l10n.t('{0} — historical excerpts (read-only)', diff.display), { preview: true })
     const open = new Set(vscode.workspace.textDocuments.map(doc => doc.uri.toString()))
     for (const key of this.contents.keys()) {
       if (this.contents.size <= 40) break

@@ -148,7 +148,6 @@ function createService(configOverride: Record<string, unknown> = {}): { service:
     mergeBack: vi.fn(async () => ({ ok: false, message: 'stub' })),
     discard: vi.fn(async () => ({ ok: false, message: 'stub' })),
     workingTreeDirty: vi.fn(async () => false),
-    workingTreeDiff: vi.fn(async () => undefined),
     dispose: vi.fn(),
   } as unknown as WorktreeService
 
@@ -183,6 +182,8 @@ interface GatewayTestHarness {
   activeSessionId: string | undefined
   summaries: Map<string, { running?: boolean; blank?: boolean; agentPreset?: string; updatedAt?: number }>
   pendingQueue: { pending: Map<string, unknown[]>; admitted: Set<string> }
+  loadOlder: () => Promise<void>
+  hasMore: boolean
   entries: unknown[]
   projections: Record<string, unknown>
   selectSubagent: (id: string, mode: 'one-shot' | 'continuable') => Promise<void>
@@ -957,5 +958,25 @@ describe('start baseline watchdog', () => {
       await service.sendPrompt('continue using the existing runtime')
       expect(client.sessionPrompt).toHaveBeenCalledOnce()
     } finally { vi.useRealTimers() }
+  })
+})
+
+describe('history page ownership', () => {
+  it.each(['session', 'generation', 'client'])('ignores a page when the %s changes before it resolves', async changed => {
+    const { service, client } = createService()
+    const original = { event: { seq: 30, type: 'turn/end', data: { turn: 3 } } }
+    service.entries = [original]
+    service.hasMore = true
+    let resolve!: (value: unknown) => void
+    client.sessionPage.mockReturnValue(new Promise(done => { resolve = done }))
+    const pending = service.loadOlder()
+    expect(client.sessionPage).toHaveBeenCalledOnce()
+    if (changed === 'session') service.activeSessionId = 's2'
+    if (changed === 'generation') service.selectionGeneration += 1
+    if (changed === 'client') service.client = undefined
+    resolve({ records: [], hasMore: false })
+    await pending
+    expect(service.entries).toEqual([original])
+    expect(service.hasMore).toBe(true)
   })
 })

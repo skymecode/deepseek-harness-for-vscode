@@ -2789,25 +2789,6 @@ body.vscode-light .markdown-body .hljs-deletion {
   align-items: center;
   gap: 5px;
 }
-.changes-undo {
-  padding: 3px 9px;
-  color: var(--vscode-foreground);
-  background: color-mix(
-    in srgb,
-    var(--vscode-editor-background) 72%,
-    transparent
-  );
-  border: 1px solid
-    color-mix(in srgb, var(--vscode-widget-border) 78%, transparent);
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.changes-undo:hover {
-  background: var(--vscode-toolbar-hoverBackground);
-}
 .changes-review {
   padding: 3px 12px;
   color: var(--vscode-button-foreground);
@@ -2873,6 +2854,11 @@ body.vscode-light .markdown-body .hljs-deletion {
   line-height: 1.6;
   text-align: center;
   text-transform: uppercase;
+}
+.changes-file-status {
+  flex: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10.5px;
 }
 .changes-file-path {
   min-width: 0;

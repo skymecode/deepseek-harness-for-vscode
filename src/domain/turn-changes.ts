@@ -15,9 +15,9 @@ export interface TurnChangesView {
  * numbers cannot be reused across Harness log migrations or forks: both the
  * turn coordinates and conclusion ids must come from the current log.
  *
- * A page cut through a turn cannot prove its complete edit totals. Defer that
- * card until its turn/start is loaded, instead of showing a partial total or
- * attaching an old cached card to a newer reply. Never mutate the source log.
+ * The official summary is complete even when a history page cuts through a
+ * turn. Only the announcement, turn end, and a visible anchor are needed.
+ * Never mutate the source log or reconstruct totals from partial tool events.
  */
 export function projectTurnChanges(entries: readonly HistoryEntry[], messages: readonly ChatItem[], official: ReadonlyMap<number, SessionChangesView | undefined> = new Map()): TurnChangesView[] {
   const turns = new Map<number, HistoryEntry[]>()
@@ -31,7 +31,6 @@ export function projectTurnChanges(entries: readonly HistoryEntry[], messages: r
   const visible = new Map(messages.map((message) => [message.seq, message.id]))
   const cards: TurnChangesView[] = []
   for (const [turn, group] of turns) {
-    if (!group.some(({ event }) => event.type === 'turn/start')) continue
     const end = group.findLast(({ event }) => event.type === 'turn/end')?.event
     if (end === undefined) continue
     const changes = projectSessionChanges(group, official)

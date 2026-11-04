@@ -4,8 +4,7 @@ import type { SessionAddress as DshSessionAddress } from './gateway-wire.js'
 import type { SessionRequestId as DshSessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { JobId as DshJobId } from '@deepseek-ai/dsh-jobs/brand'
 import * as vscode from 'vscode'
-import { officialChangesView, formatWorkspaceDiff } from './workspace-changes.js'
-import type { SessionChangesView } from '../domain/session-changes.js'
+import { WorkspaceChangesCache } from './workspace-changes-cache.js'
 import { inboxQueue } from './inbox-projection.js'
 import type {
   ControlFrame,
@@ -116,8 +115,10 @@ export class HarnessGatewayService implements vscode.Disposable {
   private projectedConversationCache: ReturnType<typeof projectConversation> | undefined
   private hasMore = false
   private activeSessionId: string | undefined
-  private readonly officialChanges = new Map<string, Map<number, SessionChangesView | undefined>>()
-  private readonly requestedChanges = new Set<string>()
+  private readonly officialChanges = new WorkspaceChangesCache(
+    () => this.fireChange(),
+    cause => this.output.appendLine(`[gateway] Change summary unavailable: ${errorMessage(cause)}`),
+  )
   private modelMetadataRevision = 0
   private readonly modelMetadata = new Map<string, DshLlmResolvedModelInfo>()
   private models: SessionModels | undefined
@@ -818,6 +819,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   async selectSession(sessionId: string): Promise<void> {
     if (!this.summaries.has(sessionId)) await this.refreshSessionList()
     if (!this.summaries.has(sessionId)) throw new Error(vscode.l10n.t('Session not found.'))
+    this.officialChanges.retryFailed(sessionId)
     // Remember the selection so a reload/reinstall resumes this conversation
     // instead of silently opening a different (or blank) session.
     await this.globalState.update(LAST_SESSION_STATE_KEY, sessionId).then(
@@ -928,12 +930,15 @@ export class HarnessGatewayService implements vscode.Disposable {
     const address = this.activeFollowAddress()
     if (address === undefined) return
     const cursor = this.followCursor.get(sessionId)
-    const page = await this.requireClient().sessionPage({
+    const generation = this.selectionGeneration
+    const client = this.requireClient()
+    const page = await client.sessionPage({
       address,
       throughSeq: cursor ?? 0,
       ...(beforeSeq === undefined ? {} : { beforeSeq }),
       maxMessages: 60,
     })
+    if (sessionId !== this.activeSessionId || generation !== this.selectionGeneration || client !== this.client) return
     const records = NodeGatewayClient.expandRecords(page.records as unknown[]) as HistoryEntry[]
     const existing = new Set(this.entries.map((entry) => entry.event.seq))
     this.entries = [...records.filter((entry) => !existing.has(entry.event.seq)), ...this.entries]
@@ -1466,20 +1471,6 @@ export class HarnessGatewayService implements vscode.Disposable {
     return this.worktrees.diffText(sessionId)
   }
 
-  /**
-   * Diff of the most recently concluded turn: the isolated worktree diff when
-   * the session runs in one, else the shared checkout's uncommitted diff
-   * against HEAD. Used by the "Review" action on the edited-files card.
-   */
-  async recentTurnDiff(sessionId: string | undefined): Promise<string | undefined> {
-    if (sessionId === undefined) return undefined
-    const isolated = await this.worktrees.diffText(sessionId)
-    if (isolated !== undefined) return isolated
-    const repoRoot = this.worktrees.repoRootFor(sessionId)
-    if (repoRoot === undefined) return undefined
-    return this.worktrees.workingTreeDiff(repoRoot)
-  }
-
   /** The worktree record for one session, if isolated (host-side triage reads it). */
   worktreeRecord(sessionId: string): { readonly baseBranch: string; readonly branch: string } | undefined {
     const record = this.worktrees.recordFor(sessionId)
@@ -1868,6 +1859,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       void this.refreshSessionList()
     } else if (event === 'api-session/removed') {
       const removed = String(args[0] ?? '')
+      this.officialChanges.remove(removed)
       this.summaries.delete(removed)
       this.pendingQueue.dropForSession(removed)
       this.pendingQueue.forget(removed)
@@ -2332,7 +2324,6 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.client?.abortPendingRequests?.()
     this.client = undefined
     this.officialChanges.clear()
-    this.requestedChanges.clear()
     this.modelMetadata.clear()
     this.pinnedFromHost = []
     this.workspaceSessionOrder = []
@@ -2351,31 +2342,11 @@ export class HarnessGatewayService implements vscode.Disposable {
     const sessionId = this.activeSessionId
     const client = this.client
     if (!sessionId || !client) return
+    const latest = new Map<number, number>()
     for (const { event } of this.entries) {
-      if (String(event.type) !== 'workspace/changes') continue
-      const key = `${sessionId}/${event.seq}`
-      if (this.requestedChanges.has(key)) continue
-      this.requestedChanges.add(key)
-      void client.changesSummary(sessionId, event.seq).then((summary) => {
-        if (client !== this.client) return
-        const values = this.officialChanges.get(sessionId) ?? new Map<number, SessionChangesView | undefined>()
-        values.set(event.seq, summary === undefined ? undefined : officialChangesView(sessionId, event.seq, summary))
-        this.officialChanges.set(sessionId, values)
-        this.fireChange()
-      }).catch((cause: unknown) => {
-        this.output.appendLine(`[gateway] Change summary unavailable: ${errorMessage(cause)}`)
-      })
+      if (event.type === 'workspace/changes') latest.set(event.data.turn, event.seq)
     }
-  }
-
-  async officialTurnDiff(sessionId: string, seq: number, index?: number): Promise<string | undefined> {
-    const client = this.requireClient()
-    const summary = await client.changesSummary(sessionId, seq)
-    if (!summary) return undefined
-    const indices = index === undefined ? summary.files.map((_, i) => i) : [index]
-    const diffs = await Promise.all(indices.map((i) => client.changesDiff(sessionId, seq, i)))
-    if (diffs.some((diff) => diff === undefined)) return undefined
-    return diffs.map((diff) => formatWorkspaceDiff(diff!)).join('\n')
+    for (const seq of latest.values()) this.officialChanges.load(sessionId, seq, () => client.changesSummary(sessionId, seq))
   }
 
   private fireChange(): void {

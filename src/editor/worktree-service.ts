@@ -152,21 +152,6 @@ export class WorktreeService implements vscode.Disposable {
   }
 
   /**
-   * The shared (non-isolated) working tree's uncommitted diff against HEAD,
-   * for sessions that run directly in the main checkout. Tracks edits and
-   * deletions only — untracked files are deliberately left out so the intent
-   * marker is never stamped into the user's real index.
-   */
-  async workingTreeDiff(repoRoot: string): Promise<string | undefined> {
-    try {
-      const { stdout } = await this.run(repoRoot, ['diff', 'HEAD'])
-      return stdout
-    } catch {
-      return undefined
-    }
-  }
-
-  /**
    * Whether the main checkout has uncommitted changes. Auto-isolation uses
    * this as a safety gate: migrating a session while the shared checkout is
    * dirty would strand those changes outside the fresh worktree.

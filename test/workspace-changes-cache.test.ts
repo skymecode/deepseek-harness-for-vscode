@@ -1,0 +1,65 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WorkspaceChangesCache } from '../src/gateway/workspace-changes-cache.js'
+
+afterEach(() => vi.useRealTimers())
+const summary = { turn: 1, total: 1, added: 1, deleted: 0, files: [{ path: 'a', display: 'a', added: 1, deleted: 0 }] }
+
+describe('native workspace summary lifetime', () => {
+  it('retries transient failures without a stream-update request storm', async () => {
+    vi.useFakeTimers()
+    const changed = vi.fn(), failed = vi.fn()
+    const cache = new WorkspaceChangesCache(changed, failed)
+    const fetch = vi.fn().mockRejectedValueOnce(new Error('503')).mockResolvedValue(summary)
+    for (let i = 0; i < 100; i++) cache.load('s', 3, fetch)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(cache.get('s')?.get(3)?.official).toEqual({ sessionId: 's', seq: 3 })
+    expect(changed).toHaveBeenCalledOnce()
+    expect(failed).not.toHaveBeenCalled()
+  })
+
+  it('bounds retries and treats missing snapshots as final', async () => {
+    vi.useFakeTimers()
+    const failed = vi.fn()
+    const cache = new WorkspaceChangesCache(vi.fn(), failed)
+    const offline = vi.fn().mockRejectedValue(new Error('offline'))
+    const absent = vi.fn().mockResolvedValue(undefined)
+    cache.load('s', 3, offline)
+    cache.load('s', 4, absent)
+    await vi.runAllTimersAsync()
+    cache.load('s', 3, offline)
+    cache.load('s', 4, absent)
+    expect(offline).toHaveBeenCalledTimes(3)
+    expect(absent).toHaveBeenCalledOnce()
+    expect(failed).toHaveBeenCalledOnce()
+    expect(cache.get('s')?.has(4)).toBe(true)
+    expect(cache.get('s')?.get(4)).toBeUndefined()
+    offline.mockResolvedValue(summary)
+    cache.retryFailed('s')
+    cache.load('s', 3, offline)
+    cache.load('s', 4, absent)
+    await vi.runAllTimersAsync()
+    expect(offline).toHaveBeenCalledTimes(4)
+    expect(cache.get('s')?.get(3)?.total).toBe(1)
+    expect(absent).toHaveBeenCalledOnce()
+  })
+
+  it.each(['clear', 'remove'] as const)('discards late responses and pending retries on %s', async action => {
+    vi.useFakeTimers()
+    const changed = vi.fn()
+    const cache = new WorkspaceChangesCache(changed, vi.fn())
+    let resolve!: (value: typeof summary) => void
+    cache.load('s', 3, () => new Promise(done => { resolve = done }))
+    const fetch = vi.fn().mockRejectedValue(new Error('503'))
+    cache.load('s', 4, fetch)
+    await vi.advanceTimersByTimeAsync(0)
+    if (action === 'clear') cache.clear()
+    else cache.remove('s')
+    cache.load('s', 3, async () => undefined)
+    resolve(summary)
+    await vi.runAllTimersAsync()
+    expect(cache.get('s')?.get(3)).toBeUndefined()
+    expect(changed).toHaveBeenCalledOnce()
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+})

@@ -12,7 +12,6 @@ import type { ContextMeterComponent } from '../context-meter/component.js'
 import type { EditorContextComponent } from '../editor-context/component.js'
 import type { FileMentionComponent } from '../file-mention/component.js'
 import type { PluginCenterComponent } from '../plugin-center/component.js'
-import type { SessionChangesComponent } from '../session-changes/component.js'
 import type { StreamingMessageComponent } from '../streaming-message/component.js'
 import type { WorkDurationComponent } from '../work-duration/component.js'
 
@@ -127,7 +126,6 @@ export interface ChatComponents {
   contextMeter: ContextMeterComponent
   editorContext: EditorContextComponent
   fileMention: FileMentionComponent
-  sessionChanges: SessionChangesComponent
   workDuration: WorkDurationComponent
   streamingMessage: StreamingMessageComponent
   pluginCenter: PluginCenterComponent
