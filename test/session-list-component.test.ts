@@ -135,4 +135,17 @@ describe('session history during live updates', () => {
     expect(f.button('one').textContent).toContain('<b>tag</b>')
     expect(f.button('one').textContent).toContain('<img src=x onerror=alert(1)>')
   })
+
+  it('shows the project name only on sessions from another project', () => {
+    const f = fixture()
+    f.update([
+      session('current', { projectCurrent: true, projectLabel: 'project-a', projectPath: '/work/project-a' }),
+      session('other', { projectCurrent: false, projectLabel: 'project-b', projectPath: '/work/project-b' }),
+    ])
+    const current = f.button('current').querySelector<HTMLElement>('.session-meta')!
+    const other = f.button('other').querySelector<HTMLElement>('.session-meta')!
+    expect(current.textContent).toBe('1m')
+    expect(other.textContent).toBe('1m · project-b')
+    expect(other.title).toBe('/work/project-b')
+  })
 })

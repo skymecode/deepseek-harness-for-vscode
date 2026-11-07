@@ -36,6 +36,12 @@ export interface SessionListItem {
    * edit the same code; only isolated sessions are fenced apart.
    */
   readonly shared?: boolean
+  /** Repository/project root this session belongs to (worktrees map to it). */
+  readonly projectPath?: string
+  /** Basename of {@link projectPath}, shown on rows from another project. */
+  readonly projectLabel?: string
+  /** Whether this session belongs to a workspace folder open in this window. */
+  readonly projectCurrent?: boolean
 }
 
 export interface ChatBlock {

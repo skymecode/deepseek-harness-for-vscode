@@ -95,7 +95,11 @@ export class SessionListComponent {
       element: wrap,
       update: (session, active, nextArchived, nextSnippet) => {
         setText(name, session.title)
-        setText(meta, `${formatTime(session.updatedAt)}${session.agentPreset ? ` · ${session.agentPreset}` : ''}`)
+        const project = session.projectLabel !== undefined && session.projectCurrent === false
+          ? ` · ${session.projectLabel}`
+          : ''
+        setText(meta, `${formatTime(session.updatedAt)}${session.agentPreset ? ` · ${session.agentPreset}` : ''}${project}`)
+        meta.title = session.projectPath ?? ''
         running.classList.toggle('active', session.running)
         button.classList.toggle('active', active)
         button.classList.toggle('has-worktree-action', session.isolated === true)
