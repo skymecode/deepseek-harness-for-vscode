@@ -1463,9 +1463,34 @@ export class HarnessGatewayService implements vscode.Disposable {
   /** Reloads the session list after an external import and optionally opens one. */
   async reloadSessions(selectSessionId?: string): Promise<void> {
     await this.refreshSessionList()
+    await this.hydrateHistoryTitles()
     if (selectSessionId !== undefined && this.summaries.has(selectSessionId)) {
       await this.selectSession(selectSessionId)
     }
+  }
+
+  /** A new shared root can lack this Host's title cache. Warm visible metadata without resuming Agents. */
+  private async hydrateHistoryTitles(): Promise<void> {
+    const client = this.requireClient()
+    const pending = this.orderedSummaries().filter(summary => this.inCurrentWorkspace(summary)
+      && !this.archives.isArchived(String(summary.sessionId)) && projectionTitle(summary.projections?.values) === undefined).slice(0, 40)
+    const run = async (): Promise<void> => {
+      while (pending.length && client === this.client) {
+        const summary = pending.shift()!
+        const id = String(summary.sessionId)
+        try {
+          const preview = await client.sessionPreview(id)
+          if (client !== this.client || !this.summaries.has(id)) continue
+          const current = this.summaries.get(id)!
+          if (current.projections?.kind === 'sequenced' && current.projections.asOfSeq > preview.cursor) continue
+          this.applyTitleProjection(id, projectionTitle(preview.projections))
+          if (preview.agentPreset) this.summaries.set(id, { ...this.summaries.get(id)!, agentPreset: preview.agentPreset })
+          if (preview.projectCwd) this.projectCwds.set(id, preview.projectCwd)
+        } catch { /* A damaged old record remains visible; selection exposes its native read failure. */ }
+      }
+    }
+    await Promise.all(Array.from({ length: 4 }, run))
+    if (client === this.client) this.fireChange()
   }
 
   /**

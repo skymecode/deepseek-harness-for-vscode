@@ -1105,3 +1105,18 @@ describe('native preset identity and multi-root creation', () => {
     expect(client.sessionCreate).not.toHaveBeenCalled()
   })
 })
+
+describe('shared history title cache', () => {
+  it('hydrates missing titles from native read observations without acquiring execution ownership', async () => {
+    const { service, client } = createService()
+    service.execution.clear()
+    client.sessionList.mockResolvedValue([{ sessionId: 's1', cwd: '/repo', running: false, blank: false, agentAvailable: false, updatedAt: 2 }])
+    client.sessionPreview.mockResolvedValue({ cursor: 5, projectCwd: '/repo', cwd: '/repo', agentPreset: 'standard', projections: { title: 'Official conversation' } })
+    await (service as unknown as { reloadSessions(): Promise<void> }).reloadSessions()
+    const summary = service.summaries.get('s1') as unknown as { projections: { values: { title: string } } }
+    expect(summary.projections.values.title).toBe('Official conversation')
+    expect(client.sessionResume).not.toHaveBeenCalled()
+    expect(client.sessionFollow).not.toHaveBeenCalled()
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+  })
+})
