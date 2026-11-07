@@ -1,3 +1,4 @@
+import type { WorkspaceCreateValue } from '@deepseek-ai/dsh-api-workspace-controller/types'
 import type { SessionPreview } from '../domain/session-management.js'
 import type { LlmResolvedModelInfo as DshLlmResolvedModelInfo } from '@deepseek-ai/dsh-llm/types'
 import type { ChangesSummary as DshChangesSummary } from './workspace-changes.js'
@@ -401,6 +402,11 @@ export class NodeGatewayClient {
   /** Human-invocable skill catalog (Typert `skills/list`). */
   async skillList(request: { readonly sessionId: unknown }): Promise<SkillListValue> {
     return await this.callRaw<SkillListValue>('skills/list', { request })
+  }
+
+  /** Reuse the native canonical-folder Workspace; this does not create a directory. */
+  async workspaceCreate(path: string): Promise<WorkspaceCreateValue> {
+    return this.callRaw('workspace/create', { request: { path } })
   }
 
   /** Archive one session (Typert `workspace/archiveSession`). */

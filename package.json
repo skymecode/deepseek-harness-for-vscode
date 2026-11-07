@@ -263,7 +263,8 @@
             "%config.worktreeAutoMerge.onTurnEnd%"
           ],
           "default": "never",
-          "description": "%config.worktreeAutoMerge%"
+          "description": "%config.worktreeAutoMerge%",
+          "deprecationMessage": "%config.worktreeAutoMerge.deprecated%"
         },
         "deepseekHarness.mcpServers": {
           "type": "string",

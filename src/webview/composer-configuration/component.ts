@@ -386,8 +386,8 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     this.renderModels(snapshot)
     this.renderPresets(snapshot)
     this.renderEffort(snapshot)
-    this.hint.textContent = snapshot.modeStartsNewConversation
-      ? t('modeStartsNewConversation')
+    this.hint.textContent = snapshot.presetLocked
+      ? t('sessionPresetLocked')
       : t('configurationAppliesNextMessage')
   }
 
@@ -516,6 +516,8 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     for (const preset of snapshot.input.presets) {
       const active = preset.id === snapshot.selection.agentPreset
       const button = this.optionButton(preset, presetIcon(preset.id), active)
+      button.disabled = !snapshot.input.blank || !snapshot.input.editable
+      if (!snapshot.input.blank) button.title = this.options.translate('sessionPresetLocked')
       button.addEventListener('click', () => {
         this.render(this.store.selectPreset(preset.id))
         this.options.onChange()

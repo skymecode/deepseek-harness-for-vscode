@@ -631,5 +631,13 @@
   "Unable to continue this session: {0}": "无法继续此会话：{0}",
   "This session is in preview. Choose Continue here first.": "当前仅查看此会话，请先点击“在此继续”。",
   "The selected session changed. Please send again.": "所选会话已变化，请重新发送。",
-  "Continue the parent session first to interact with this sub-agent.": "请先在父会话中点击“在此继续”，再与此子代理交互。"
+  "Continue the parent session first to interact with this sub-agent.": "请先在父会话中点击“在此继续”，再与此子代理交互。",
+  "Open a project folder before creating a session.": "请先打开项目文件夹，再创建会话。",
+  "The project folder is missing or inaccessible.": "项目文件夹不存在或无法访问。",
+  "Choose the project folder for this conversation.": "选择此会话所属的项目文件夹。",
+  "This session preset is fixed. Create a new session explicitly to use another preset.": "此会话的预设已固定。如需使用其他预设，请主动新建会话。",
+  "The preset is fixed for this conversation. Models and reasoning can still be changed.": "当前会话的预设已固定，仍可切换模型和推理强度。",
+  "Open project in new window": "在新窗口打开项目",
+  "Choose a project folder before creating a session.": "请先选择项目文件夹，再创建会话。",
+  "Create a conversation in a project folder to start.": "请先在项目文件夹中新建会话。"
 }

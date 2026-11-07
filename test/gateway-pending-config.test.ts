@@ -29,6 +29,7 @@ import type { Memento, OutputChannel } from 'vscode'
 interface TestClient {
   abortPendingRequests: ReturnType<typeof vi.fn>
   probe: ReturnType<typeof vi.fn>
+  workspaceCreate: ReturnType<typeof vi.fn>
   sessionPreview: ReturnType<typeof vi.fn>
   sessionResume: ReturnType<typeof vi.fn>
   sessionList: ReturnType<typeof vi.fn>
@@ -72,8 +73,9 @@ function createService(configOverride: Record<string, unknown> = {}): { service:
   const client: TestClient = {
     abortPendingRequests: vi.fn(),
     probe: vi.fn(),
-    sessionPreview: vi.fn().mockResolvedValue({ cwd: '/repo', cursor: 0, projections: {} }),
-    sessionResume: vi.fn().mockResolvedValue({ cwd: '/repo', cursor: 0, projections: {} }),
+    workspaceCreate: vi.fn().mockResolvedValue({ workspace: { workspaceId: 'workspace-repo', path: '/repo' }, created: false }),
+    sessionPreview: vi.fn().mockResolvedValue({ projectCwd: '/repo', cwd: '/repo', cursor: 0, projections: {} }),
+    sessionResume: vi.fn().mockResolvedValue({ projectCwd: '/repo', cwd: '/repo', cursor: 0, projections: {} }),
     sessionList: vi.fn().mockResolvedValue([]),
     sessionCreate: vi.fn().mockResolvedValue({ sessionId: 's2', agentPreset: 'code' }),
     sessionSelectModel: vi.fn().mockResolvedValue({ selected: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }),
@@ -204,7 +206,6 @@ interface GatewayTestHarness {
   followAbort?: AbortController
   jobsAbort?: AbortController
   selectionGeneration: number
-  pendingCarryOver: { targetSessionId: string; message: string } | undefined
   metaStore: { effortIntents: Map<string, string>; metaBySession: Map<string, unknown> }
   models:
     | {
@@ -432,25 +433,13 @@ describe('gateway staged configuration', () => {
     expect(service.pendingQueue.pending.get('s1')).toHaveLength(1)
   })
 
-  it('keeps carry-over ahead of the prompt when a mode switch creates a session', async () => {
-    const { service, client } = createService()
-    client.sessionList.mockResolvedValue([
-      { sessionId: 's1', running: false, blank: false, agentPreset: 'standard', updatedAt: 1 },
-      { sessionId: 's2', running: false, blank: true, agentPreset: 'code', updatedAt: 2 },
-    ])
-    service.summaries.set('s1', { running: false, blank: false, agentPreset: 'standard', updatedAt: 1 })
-    service.entries = [{ event: {
-      type: 'user/message',
-      data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'prior context' }] },
-    } }]
-
-    await service.sendPrompt('continue', 'queue', [], config('max', 'code'))
-
-    const request = client.sessionPrompt.mock.calls.at(-1)?.[0] as { sessionId: string; content: Array<{ type: string; text?: string }> }
-    expect(request.sessionId).toBe('s2')
-    expect(request.content[0]?.text).toContain('<context-carry')
-    expect(request.content.at(-1)?.text).toBe('continue')
-    expect(service.pendingCarryOver).toBeUndefined()
+  it('rejects locked preset changes without forking or copying the conversation', async () => {
+    const { service, client, worktrees } = createService()
+    await expect(service.sendPrompt('continue', 'queue', [], config('max', 'code'))).rejects.toThrow('preset is fixed')
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+    expect(worktrees.prepare).not.toHaveBeenCalled()
+    expect(service.activeSessionId).toBe('s1')
   })
 
   it('rolls back the pending slot when admission fails', async () => {
@@ -620,67 +609,14 @@ describe('gateway preserves existing session identity', () => {
   })
 })
 
-describe('gateway worktree auto-merge', () => {
-  it('merges an isolated session back on turn/end when worktreeAutoMerge is onTurnEnd', async () => {
-    const { service, worktrees } = createService({ worktreeAutoMerge: 'onTurnEnd' })
-    vi.mocked(worktrees.mergeBack!).mockResolvedValue({ ok: true, message: 'merged' })
-
+describe('legacy worktrees stay untouched', () => {
+  it.each(['never', 'onTurnEnd'])('does not auto-merge with legacy setting %s', async worktreeAutoMerge => {
+    const { service, worktrees } = createService({ worktreeAutoMerge })
+    service.handleFollowFrame('s1', turnEndFrame('s1'))
     service.handleFollowFrame('s1', turnEndFrame('s1'))
     await tick()
-    await tick()
-
-    expect(worktrees.mergeBack).toHaveBeenCalledTimes(1)
-    expect(worktrees.mergeBack).toHaveBeenCalledWith('s1')
-  })
-
-  it('keeps the worktree untouched on turn/end when worktreeAutoMerge is never', async () => {
-    const { service, worktrees } = createService({ worktreeAutoMerge: 'never' })
-
-    service.handleFollowFrame('s1', turnEndFrame('s1'))
-    await tick()
-
     expect(worktrees.mergeBack).not.toHaveBeenCalled()
-  })
-
-  it('defaults to manual review when the setting is not configured', async () => {
-    const { service, worktrees } = createService()
-    service.handleFollowFrame('s1', turnEndFrame('s1'))
-    await tick()
-    await tick()
-
-    expect(worktrees.mergeBack).not.toHaveBeenCalled()
-  })
-
-  it('skips auto-merge for sessions without an isolated worktree', async () => {
-    const { service, worktrees } = createService({ worktreeAutoMerge: 'onTurnEnd' })
-    vi.mocked(worktrees.recordFor!).mockReturnValue(undefined)
-
-    service.handleFollowFrame('s1', turnEndFrame('s1'))
-    await tick()
-
-    expect(worktrees.mergeBack).not.toHaveBeenCalled()
-  })
-
-  it('does not run concurrent merges for the same session', async () => {
-    const { service, worktrees } = createService({ worktreeAutoMerge: 'onTurnEnd' })
-    let resolveMerge: (() => void) | undefined
-    let calls = 0
-    vi.mocked(worktrees.mergeBack!).mockImplementation(async () => {
-      calls += 1
-      await new Promise<void>((resolve) => { resolveMerge = resolve })
-      return { ok: true, message: 'merged' }
-    })
-
-    // Two adjacent turn/end events arrive before the first merge settles.
-    service.handleFollowFrame('s1', turnEndFrame('s1'))
-    service.handleFollowFrame('s1', turnEndFrame('s1'))
-    await tick()
-    expect(calls).toBe(1)
-
-    resolveMerge?.()
-    await tick()
-    await tick()
-    expect(calls).toBe(1)
+    expect(worktrees.discard).not.toHaveBeenCalled()
   })
 })
 
@@ -723,7 +659,9 @@ describe('gateway createSession deduplication', () => {
 
     expect(calls).toBe(1)
     expect(results).toEqual(['s2', 's2', 's2'])
-    expect(worktrees.prepare).toHaveBeenCalledTimes(1)
+    expect(worktrees.prepare).not.toHaveBeenCalled()
+    expect(client.workspaceCreate).toHaveBeenCalledWith('/repo')
+    expect(client.sessionCreate).toHaveBeenCalledWith({ workspaceId: 'workspace-repo', agentPreset: 'standard' })
   }, 15_000)
 
   it('starts a fresh creation after the previous one settles', async () => {
@@ -1037,7 +975,7 @@ describe('explicit session execution ownership', () => {
   it.each(['missing', 'other-project'])('refuses execution in a %s directory before native resume', async reason => {
     const { service, client } = createService()
     service.execution.clear()
-    client.sessionPreview.mockResolvedValue({ cwd: reason === 'missing' ? '/missing' : '/another-project', cursor: 0, projections: {} })
+    client.sessionPreview.mockResolvedValue({ projectCwd: reason === 'missing' ? '/repo' : '/another-project', cwd: reason === 'missing' ? '/missing' : '/another-project', cursor: 0, projections: {} })
     if (reason === 'missing') service.sessionLocations.refresh = async cwd => ({ cwd, kind: 'missing', exists: false })
     await service.resumeSession()
     expect(client.sessionResume).not.toHaveBeenCalled()
@@ -1050,7 +988,7 @@ describe('session read and submission races', () => {
     const { service, client } = createService()
     service.execution.clear()
     service.entries = [{ event: { seq: 5, time: 1, type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } } }]
-    client.sessionPreview.mockResolvedValue({ cwd: '/repo', cursor: 6, projections: {} })
+    client.sessionPreview.mockResolvedValue({ projectCwd: '/repo', cwd: '/repo', cursor: 6, projections: {} })
     const answer = { type: 'event', event: { seq: 5, time: 2, type: 'assistant/message', data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Actual answer' }] } } } }
     client.sessionPage.mockResolvedValue({ records: [answer], hasMore: false })
     await service.refreshSessionPreview()
@@ -1077,9 +1015,9 @@ describe('session read and submission races', () => {
     let release!: (value: unknown) => void
     client.sessionPreview.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
     const old = service.refreshSessionPreview()
-    client.sessionPreview.mockResolvedValueOnce({ cwd: '/repo', cursor: 20, projections: { marker: 'latest' } })
+    client.sessionPreview.mockResolvedValueOnce({ projectCwd: '/repo', cwd: '/repo', cursor: 20, projections: { marker: 'latest' } })
     await service.refreshSessionPreview()
-    release({ cwd: '/repo', cursor: 2, projections: { marker: 'old' } })
+    release({ projectCwd: '/repo', cwd: '/repo', cursor: 2, projections: { marker: 'old' } })
     await old
     expect(service.projections.marker).toBe('latest')
     expect(client.sessionPage).toHaveBeenCalledTimes(1)
@@ -1123,5 +1061,47 @@ describe('continuable child admission', () => {
     await service.selectSubagent('child', 'one-shot')
     await expect(service.sendPrompt('should not start')).rejects.toThrow('read-only')
     expect(client.subagentPrompt).not.toHaveBeenCalled()
+  })
+})
+
+describe('project identity and native creation', () => {
+  it('keeps a session under its original folder after DSH changes its execution cwd', async () => {
+    const { service } = createService()
+    const view = service as unknown as {
+      effectiveCwds: Map<string, string>
+      sessionListItemWithIsolation(summary: unknown): { projectPath?: string; projectCurrent?: boolean; management?: { location?: { cwd: string } } }
+    }
+    view.effectiveCwds.set('s1', '/another-working-directory')
+    const row = view.sessionListItemWithIsolation({ sessionId: 's1', cwd: '/repo', running: false, blank: false, updatedAt: 1, agentAvailable: false })
+    expect(row.projectPath).toBe('/repo')
+    expect(row.projectCurrent).toBe(true)
+    expect(row.management?.location?.cwd).toBe('/another-working-directory')
+  })
+  it('does not create a hidden project from the extension process cwd when no folder is open', async () => {
+    const { service, client, worktrees } = createService()
+    ;(vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = undefined
+    await expect(service.createSession()).rejects.toThrow('Open a project folder')
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+    expect(worktrees.prepare).not.toHaveBeenCalled()
+  })
+})
+
+describe('native preset identity and multi-root creation', () => {
+  it('uses native preset projections after a list refresh instead of the global default', async () => {
+    const { service, client } = createService()
+    const api = service as unknown as { refreshSessionList(): Promise<void>; sessionPreset(summary: unknown): string | undefined }
+    client.sessionList.mockResolvedValue([{ sessionId: 's1', cwd: '/repo', running: false, blank: false, updatedAt: 2, agentAvailable: true, projections: { kind: 'sequenced', asOfSeq: 10, values: { agentPreset: 'ptc' } } }])
+    await api.refreshSessionList()
+    expect(api.sessionPreset(service.summaries.get('s1'))).toBe('ptc')
+    await service.sendPrompt('stay in original preset', 'queue', [], config('high', 'ptc'))
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+    expect(client.sessionPrompt).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }))
+  })
+  it('requires an explicit folder in multi-root windows', async () => {
+    const { service, client } = createService()
+    ;(vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { fsPath: '/repo' } }, { uri: { fsPath: '/other' } }]
+    await expect(service.createSession()).rejects.toThrow('Choose a project folder')
+    expect(client.workspaceCreate).not.toHaveBeenCalled()
+    expect(client.sessionCreate).not.toHaveBeenCalled()
   })
 })

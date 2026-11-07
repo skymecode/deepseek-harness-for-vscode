@@ -48,12 +48,6 @@ export async function inspectSessionLocation(cwd: string): Promise<SessionLocati
   }
 }
 
-export function sameSessionProject(left: SessionLocationView | undefined, right: SessionLocationView | undefined): boolean {
-  if (!left || !right) return false
-  if (left.repositoryId && right.repositoryId) return sameWorkspacePath(left.repositoryId, right.repositoryId)
-  return sameWorkspacePath(left.projectPath ?? left.cwd, right.projectPath ?? right.cwd)
-}
-
 /** Deduplicated, bounded background probes keep large history lists responsive. */
 export class SessionLocationService {
   private readonly cache = new Map<string, { value?: SessionLocationView; time: number; pending?: Promise<SessionLocationView> }>()

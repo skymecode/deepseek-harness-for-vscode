@@ -79,7 +79,7 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
   <section id="worktree-banner" class="worktree-banner hidden" role="status">
     <span id="worktree-banner-text"></span>
     <button id="worktree-review" class="link-button" type="button">${text('worktreeReview')}</button>
-    <button id="worktree-open-settings" class="link-button" type="button">${text('worktreeChangeSettings')}</button>
+    <button id="worktree-open-settings" class="link-button hidden" type="button">${text('worktreeChangeSettings')}</button>
   </section>
 
   <section id="session-access" class="session-access hidden" aria-label="${text('sessionManagement')}">

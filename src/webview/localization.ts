@@ -1,4 +1,6 @@
 export const ENGLISH_WEBVIEW_MESSAGES = {
+  sessionCreateFirst: 'Create a conversation in a project folder to start.',
+  sessionPresetLocked: 'The preset is fixed for this conversation. Models and reasoning can still be changed.',
   sessionChildPreviewHint: 'Continue the parent session first to interact with this sub-agent.',
   sessionManagement: "Session management",
   sessionPreviewState: "Preview",
@@ -14,7 +16,7 @@ export const ENGLISH_WEBVIEW_MESSAGES = {
   sessionContinue: "Continue here",
   sessionRetryResume: "Retry continuing",
   sessionRefresh: "Refresh session state",
-  sessionOpenProject: "Open working folder in new window",
+  sessionOpenProject: "Open project in new window",
   sessionReadyHint: "Uses this session’s original identity and working directory.",
   sessionPreviewHint: "Viewing history does not acquire execution ownership. Continue here resumes the session and any pending work.",
   sessionOtherProjectHint: "History is viewable here. Open its working folder to continue in the correct project.",

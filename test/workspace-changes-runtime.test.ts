@@ -54,7 +54,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('official workspace change
       const indexBefore = repository ? await readFile(join(workspace, '.git/index')) : undefined
       await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
       const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}/anthropic`
-      const options = { home, protocol: 'messages' as const, permissionMode: 'danger-full-access' as const,
+      const options = { home, protocol: 'messages' as const, permissionMode: 'workspace-write' as const,
         prepare: async () => '\n- id: workspace-changes\n  config:\n    maxFileBytes: 1024\n',
       }
       runtime = await bootSmokeRuntime(endpoint, options)

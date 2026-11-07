@@ -13,7 +13,7 @@ export interface PromptConfiguration {
   readonly reasoningIntent?: 'auto'
 }
 
-export type AgentPresetTransition = 'keep-session' | 'select-blank-session' | 'create-session'
+export type AgentPresetTransition = 'keep-session' | 'select-blank-session' | 'reject-locked'
 
 /** Encodes the upstream rule that an Agent Preset is immutable after the first prompt. */
 export function agentPresetTransition(
@@ -22,7 +22,7 @@ export function agentPresetTransition(
   requestedPreset: string,
 ): AgentPresetTransition {
   if (currentPreset === requestedPreset) return 'keep-session'
-  return blank ? 'select-blank-session' : 'create-session'
+  return blank ? 'select-blank-session' : 'reject-locked'
 }
 
 /** Treats Webview input as untrusted and accepts only a complete string tuple. */

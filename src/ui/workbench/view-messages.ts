@@ -124,7 +124,10 @@ export interface WorkbenchViewActions {
       break
     case 'newSession':
       try {
-        await ctx.gateway.createSession()
+        const folders = vscode.workspace.workspaceFolders ?? []
+        if (folders.length === 0) { await vscode.commands.executeCommand('vscode.openFolder'); break }
+        const folder = folders.length === 1 ? folders[0] : await vscode.window.showWorkspaceFolderPick({ placeHolder: vscode.l10n.t('Choose the project folder for this conversation.') })
+        if (folder) await ctx.gateway.createSession(undefined, folder.uri.fsPath)
       } finally {
         // Re-arm the ＋ button in the webview even when creation failed: the
         // webview disables it on click so a storm cannot fan out, and only the

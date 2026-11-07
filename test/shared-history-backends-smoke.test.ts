@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -92,7 +92,12 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('independent backends shar
     const deadline = setTimeout(() => abort.abort(), 50_000)
     try {
       native = await bootSmokeRuntime(url, { historyHome: sharedHome, protocol: 'messages' })
-      const a = await native.client.sessionCreate({ cwd, agentPreset: 'minimal' })
+      const canonicalCwd = await realpath(cwd)
+      const project = await native.client.workspaceCreate(cwd)
+      expect((await native.client.workspaceCreate(cwd)).workspace.workspaceId).toBe(project.workspace.workspaceId)
+      const a = await native.client.sessionCreate({ workspaceId: project.workspace.workspaceId, agentPreset: 'minimal' })
+      expect((await native.client.sessionPreview(a.sessionId)).projectCwd).toBe(canonicalCwd)
+      expect((await native.client.workspaceCreate(cwd)).workspace.sessionIds).toContain(a.sessionId)
       await native.client.agentPresetSelect(a.sessionId, 'standard')
       expect((await native.client.sessionPreview(a.sessionId)).agentPreset).toBe('standard')
       await prompt(native.client, a.sessionId, 'from-vscode', abort.signal)
@@ -103,7 +108,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('independent backends shar
       expect((await official.client.sessionList()).some((row) => row.sessionId === a.sessionId)).toBe(true)
       expect(await history(official.client, a.sessionId, abort.signal)).toContain('VS Code answer.')
       expect((await official.client.sessionList()).find(row => row.sessionId === a.sessionId)?.agentAvailable).toBe(false)
-      await expect(official.client.sessionResume(a.sessionId, cwd)).rejects.toMatchObject({ code: 'session/writer-held' })
+      await expect(official.client.sessionResume(a.sessionId, canonicalCwd)).rejects.toMatchObject({ code: 'session/writer-held' })
       expect((await official.client.sessionList()).find(row => row.sessionId === a.sessionId)?.agentAvailable).toBe(false)
       const unauthorized = await fetch(new URL('/api/vscode.session?sessionId=' + a.sessionId, official.url))
       expect(unauthorized.status).toBe(401)
@@ -120,7 +125,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('independent backends shar
       native = undefined
       const beforeResume = await history(official.client, a.sessionId, abort.signal)
       await expect(official.client.sessionResume(a.sessionId, '/wrong-directory')).rejects.toMatchObject({ code: 'session/directory-changed' })
-      await official.client.sessionResume(a.sessionId, cwd)
+      await official.client.sessionResume(a.sessionId, canonicalCwd)
       expect((await official.client.sessionList()).find(row => row.sessionId === a.sessionId)?.agentAvailable).toBe(true)
       expect(await history(official.client, a.sessionId, abort.signal)).toBe(beforeResume)
       await prompt(official.client, a.sessionId, 'Continue after the other backend closed.', abort.signal)

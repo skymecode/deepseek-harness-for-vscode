@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { describe, expect, it, vi } from 'vitest'
-import { inspectSessionLocation, sameSessionProject, SessionLocationService } from '../src/editor/session-location-service.js'
+import { inspectSessionLocation, SessionLocationService } from '../src/editor/session-location-service.js'
 
 const git = (cwd: string, ...args: string[]) => promisify(execFile)('git', ['-C', cwd, ...args], { windowsHide: true })
 
@@ -23,18 +23,18 @@ describe('session directories from filesystem facts', () => {
       const worktree = await inspectSessionLocation(linked)
       expect(main.kind).toBe('directory')
       expect(worktree).toMatchObject({ kind: 'worktree', exists: true, branch: 'official-task', projectPath: main.projectPath })
-      expect(sameSessionProject(main, worktree)).toBe(true)
+      expect(worktree.repositoryId).toBe(main.repositoryId)
       const missing = await inspectSessionLocation(join(root, 'missing'))
       expect(missing).toMatchObject({ kind: 'missing', exists: false })
       const plain = join(root, '.dsh-worktrees', 'not-a-worktree')
       await mkdir(plain, { recursive: true })
       expect((await inspectSessionLocation(plain)).kind).toBe('directory')
-      expect(sameSessionProject(main, await inspectSessionLocation(plain))).toBe(false)
+      expect((await inspectSessionLocation(plain)).repositoryId).toBeUndefined()
       vi.stubEnv('GIT_DIR', join(repo, '.git'))
       vi.stubEnv('GIT_WORK_TREE', repo)
       try {
         expect((await inspectSessionLocation(plain)).repositoryId).toBeUndefined()
-        expect(sameSessionProject(main, await inspectSessionLocation(plain))).toBe(false)
+        expect((await inspectSessionLocation(plain)).repositoryId).toBeUndefined()
       } finally { vi.unstubAllEnvs() }
     } finally { await rm(root, { recursive: true, force: true }) }
   })

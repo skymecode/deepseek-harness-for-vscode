@@ -23,6 +23,7 @@ export interface SessionManagementView {
 
 /** Exact metadata cut read from DSH without attaching an Agent. */
 export interface SessionPreview {
+  readonly projectCwd?: string
   readonly cursor: number
   readonly cwd?: string
   readonly agentPreset?: string

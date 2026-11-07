@@ -60,9 +60,7 @@ export function render(): void {
   const isolated = active?.isolated === true && active.management?.managedWorktree !== false
   elements.worktreeBanner.classList.toggle('hidden', !isolated)
   if (isolated) {
-    const notice = payload.configuration.worktreeAutoMerge === 'onTurnEnd'
-      ? t('worktreeAutoMergeNotice')
-      : t('worktreeManualMergeNotice')
+    const notice = t('worktreeManualMergeNotice')
     if (elements.worktreeBannerText.textContent !== notice) elements.worktreeBannerText.textContent = notice
   }
   elements.backParent.classList.toggle('hidden', !active?.parentSessionId)
@@ -105,6 +103,7 @@ export function renderPhase(state: HarnessWorkbenchState): void {
 }
 
 export function sendPrompt(): void {
+  if (!payload?.state.active) return
   if (payload?.state.active?.management && payload.state.active.management.status !== 'ready') return
   closeCommandMenu()
   closeTimeline()

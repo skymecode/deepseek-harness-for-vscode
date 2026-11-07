@@ -34,6 +34,7 @@ export function registerSessionManagement(ctx: Context, connection: { authorizeI
       const cwd = typeof values.workingDirectory === 'string' ? values.workingDirectory : observation.header.cwd
       const preset = typeof values.agentPreset === 'string' ? values.agentPreset : observation.header.agentPreset
       const value: SessionPreview = { cursor: observation.cursor, projections: values,
+        ...(observation.header.cwd ? { projectCwd: observation.header.cwd } : {}),
         ...(cwd ? { cwd } : {}), ...(preset ? { agentPreset: preset } : {}) }
       if (req.method === 'GET') { send(200, { value }); return }
       const workspaces = ctx.get('workspaceRegistry') as { archivedSessionIds: readonly SessionId[] }
