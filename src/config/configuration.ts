@@ -19,7 +19,7 @@ import {
   providerRoute,
   type CustomProvider,
 } from '../domain/provider.js'
-import { parseMcpServers, type McpServerConfiguration } from './mcp.js'
+import { inspectMcpServers, parseMcpServers, type McpServerConfiguration } from './mcp.js'
 
 export type PermissionMode = PermissionPresetId
 
@@ -52,10 +52,12 @@ export interface HarnessConfiguration {
   readonly worktreeAutoMerge: WorktreeAutoMergeMode
   /** External MCP servers injected into the generated DSH profile overlay. */
   readonly mcpServers?: readonly McpServerConfiguration[]
+  readonly mcpError?: string
 }
 
 /** Reads extension settings and reports changes that require a runtime restart. */
 export class ConfigurationService implements vscode.Disposable {
+  private lastValidMcpServers: readonly McpServerConfiguration[] = []
   private readonly changeEmitter = new vscode.EventEmitter<HarnessConfiguration>()
   private readonly subscription: vscode.Disposable
 
@@ -72,6 +74,7 @@ export class ConfigurationService implements vscode.Disposable {
   /** Reads the current workspace settings as an immutable harness configuration. */
   get(): HarnessConfiguration {
     const config = vscode.workspace.getConfiguration('deepseekHarness')
+    const mcp = this.getMcpConfiguration()
 
     return {
       historyHome: config.get<string>('historyHome', '').trim(),
@@ -85,7 +88,8 @@ export class ConfigurationService implements vscode.Disposable {
       autoAttachSelection: config.get<boolean>('autoAttachSelection', true),
       experimentalAutoEffort: config.get<boolean>('experimentalAutoEffort', false),
       worktreeAutoMerge: worktreeAutoMergeMode(config.get<string>('worktreeAutoMerge')),
-      mcpServers: parseMcpServers(config.get<string>('mcpServers', '[]')),
+      mcpServers: mcp.error === undefined ? mcp.servers : this.lastValidMcpServers,
+      ...(mcp.error === undefined ? {} : { mcpError: mcp.error }),
     }
   }
 
@@ -116,8 +120,16 @@ export class ConfigurationService implements vscode.Disposable {
   }
 
   setMcpServers(value: string): Thenable<void> {
+    parseMcpServers(value)
     return vscode.workspace.getConfiguration('deepseekHarness')
       .update('mcpServers', value, vscode.ConfigurationTarget.Global)
+  }
+
+  getMcpConfiguration(): ReturnType<typeof inspectMcpServers> & { raw: string } {
+    const raw = vscode.workspace.getConfiguration('deepseekHarness').get<string>('mcpServers', '[]')
+    const parsed = inspectMcpServers(raw)
+    if (parsed.error === undefined) this.lastValidMcpServers = parsed.servers
+    return { raw, ...parsed }
   }
 
   setPermissionMode(value: PermissionMode): Thenable<void> {

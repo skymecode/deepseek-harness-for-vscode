@@ -14,8 +14,8 @@ function message(id: string, role: 'assistant' | 'user' = 'assistant', kind: Cha
 
 function card(turn: number, conclusionId: string): TurnChangesView {
   return { turn, seq: turn * 10, conclusionId, changes: {
-    added: 4, removed: 0,
-    files: [1, 2, 3, 4].map((file) => ({ path: `${turn}/${file}.ts`, added: 1, removed: 0 })),
+    official: { sessionId: 's1', seq: turn * 10 - 1 }, total: 4, added: 4, removed: 0,
+    files: [1, 2, 3, 4].map((file) => ({ index: file - 1, display: `${turn}/${file}.ts`, path: `${turn}/${file}.ts`, added: 1, removed: 0 })),
   } }
 }
 
@@ -24,7 +24,7 @@ function transcript() {
   document.body.append(root)
   const messages = new MessageReconciler()
   const factory = vi.fn(() => createSessionChangesCard({
-    document, translate: (key) => key, onOpenFile: vi.fn(), onReview: vi.fn(),
+    document, translate: (key) => key, onReview: vi.fn(),
   }))
   const cards = new TurnChangesController(factory)
   const create = (item: ChatItem) => {

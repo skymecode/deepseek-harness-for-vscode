@@ -280,7 +280,7 @@ body.vscode-high-contrast .brand-logo {
   z-index: 40;
   padding: 9px;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 8px;
   background: var(--vscode-sideBar-background);
 }
@@ -2797,25 +2797,6 @@ body.vscode-light .markdown-body .hljs-deletion {
   align-items: center;
   gap: 5px;
 }
-.changes-undo {
-  padding: 3px 9px;
-  color: var(--vscode-foreground);
-  background: color-mix(
-    in srgb,
-    var(--vscode-editor-background) 72%,
-    transparent
-  );
-  border: 1px solid
-    color-mix(in srgb, var(--vscode-widget-border) 78%, transparent);
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.changes-undo:hover {
-  background: var(--vscode-toolbar-hoverBackground);
-}
 .changes-review {
   padding: 3px 12px;
   color: var(--vscode-button-foreground);
@@ -2881,6 +2862,11 @@ body.vscode-light .markdown-body .hljs-deletion {
   line-height: 1.6;
   text-align: center;
   text-transform: uppercase;
+}
+.changes-file-status {
+  flex: none;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10.5px;
 }
 .changes-file-path {
   min-width: 0;
@@ -5027,3 +5013,33 @@ body.vscode-light .effort-control[data-effort="max"] {
   );
   color: var(--vscode-descriptionForeground);
 }
+
+/* Session identity and execution remain visible above a read-only transcript. */
+.session-access {
+  margin: 0 10px 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-foreground);
+  font-size: calc(var(--vscode-font-size) - 1px);
+  min-width: 0;
+}
+.session-access-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.session-access-location { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--vscode-descriptionForeground); }
+.session-access p { margin: 5px 0 8px; overflow-wrap: anywhere; line-height: 1.5; }
+.session-access-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.session-access-actions button { white-space: normal; }
+.session-project-heading { margin: 12px 6px 4px; color: var(--vscode-descriptionForeground); font-size: 11px; overflow-wrap: anywhere; }
+.session-badges { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.session-badges .session-tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-execution { color: var(--vscode-descriptionForeground); border: 1px solid var(--vscode-widget-border); }
+
+.history-source { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--vscode-descriptionForeground); font-size: 11px; }
+.history-source span { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.history-source button { flex: none; font-size: inherit; }
+
+.history-panel > .panel-heading { grid-row: 1; }
+.history-source { grid-row: 2; }
+#history-search { grid-row: 3; }
+#session-list { grid-row: 4; min-height: 0; }

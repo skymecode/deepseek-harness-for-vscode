@@ -80,7 +80,7 @@ describe('session history during live updates', () => {
     expect(f.row('one').querySelector('.session-worktree-action')?.classList.contains('hidden')).toBe(false)
     f.state.snippets.clear()
     f.update([session('one')])
-    for (const selector of ['.session-mark', '.shared', '.session-tags', '.session-snippet']) {
+    for (const selector of ['.session-mark', '.session-tags', '.session-snippet']) {
       expect(button.querySelector(selector)?.classList.contains('hidden')).toBe(true)
     }
     expect(button.querySelector('.running-dot')?.classList.contains('active')).toBe(false)

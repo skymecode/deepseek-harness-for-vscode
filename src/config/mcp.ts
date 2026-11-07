@@ -1,5 +1,6 @@
 /** MCP server entries accepted by the extension's generated DSH profile overlay. */
 export interface McpServerConfiguration {
+  readonly enabled?: boolean
   readonly serverName: string
   readonly transport: 'stdio' | 'streamable-http'
   readonly command?: string
@@ -20,47 +21,74 @@ export interface McpServerConfiguration {
 }
 
 const SERVER_NAME = /^[A-Za-z0-9_-]{1,32}$/u
-const MAP_KEY = /^[A-Za-z_][A-Za-z0-9_-]*$/u
+const ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/u
+const HEADER_KEY = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u
+const FIELDS = new Set(['serverName', 'enabled', 'transport', 'command', 'args', 'cwd', 'env', 'url', 'headers', 'toolCallTimeoutMs', 'failOnStartupError', 'maxInstructionBytes', 'reconnect'])
 
-/** Parses user settings defensively; invalid entries are ignored by design. */
+/** Strict, atomic validation. Error messages contain field paths, never secret values. */
 export function parseMcpServers(raw: string | undefined): readonly McpServerConfiguration[] {
-  if (raw === undefined || raw.trim() === '') return []
   let value: unknown
-  try { value = JSON.parse(raw) } catch { return [] }
-  if (!Array.isArray(value)) return []
+  try { value = JSON.parse(raw?.trim() || '[]') } catch { throw new Error('MCP: invalid JSON.') }
+  if (!Array.isArray(value)) throw new Error('MCP: expected a JSON array.')
   const seen = new Set<string>()
-  return value.flatMap((entry): McpServerConfiguration[] => {
-    if (!isRecord(entry) || typeof entry.serverName !== 'string' || !SERVER_NAME.test(entry.serverName)
-      || (entry.transport !== 'stdio' && entry.transport !== 'streamable-http') || seen.has(entry.serverName)) return []
-    const command = typeof entry.command === 'string' && entry.command.trim() !== '' ? entry.command : undefined
-    const url = typeof entry.url === 'string' && /^https?:\/\//u.test(entry.url) ? entry.url : undefined
-    if (entry.transport === 'stdio' && command === undefined) return []
-    if (entry.transport === 'streamable-http' && url === undefined) return []
-    const args = Array.isArray(entry.args) && entry.args.every((item) => typeof item === 'string') ? entry.args : undefined
-    const env = stringMap(entry.env)
-    const headers = stringMap(entry.headers)
-    const reconnect = reconnectConfig(entry.reconnect)
-    seen.add(entry.serverName)
-    return [{
-      serverName: entry.serverName,
-      transport: entry.transport,
-      ...(command === undefined ? {} : { command }),
-      ...(args === undefined ? {} : { args }),
-      ...(typeof entry.cwd === 'string' && entry.cwd.trim() !== '' ? { cwd: entry.cwd } : {}),
-      ...(env === undefined ? {} : { env }),
-      ...(url === undefined ? {} : { url }),
-      ...(headers === undefined ? {} : { headers }),
-      ...(typeof entry.toolCallTimeoutMs === 'number' && Number.isInteger(entry.toolCallTimeoutMs) && entry.toolCallTimeoutMs > 0 ? { toolCallTimeoutMs: entry.toolCallTimeoutMs } : {}),
-      ...(typeof entry.failOnStartupError === 'boolean' ? { failOnStartupError: entry.failOnStartupError } : {}),
-      ...(positiveInt(entry.maxInstructionBytes) === undefined ? {} : { maxInstructionBytes: positiveInt(entry.maxInstructionBytes)! }),
-      ...(reconnect === undefined ? {} : { reconnect }),
-    }]
+  return value.map((entry, index): McpServerConfiguration => {
+    const at = `MCP[${index}]`
+    const invalid = (field: string, reason: string): never => { throw new Error(`${at}.${field}: ${reason}`) }
+    if (!isRecord(entry)) return invalid('server', 'expected an object')
+    for (const key of Object.keys(entry)) if (!FIELDS.has(key)) invalid('server', 'unknown field; check the supported configuration fields')
+    if (typeof entry.serverName !== 'string' || !SERVER_NAME.test(entry.serverName)) invalid('serverName', 'use 1–32 letters, numbers, underscores or hyphens')
+    const serverName = entry.serverName as string
+    if (seen.has(serverName)) invalid('serverName', 'duplicate server name')
+    seen.add(serverName)
+    if (entry.transport !== 'stdio' && entry.transport !== 'streamable-http') invalid('transport', 'use stdio or streamable-http')
+    for (const key of ['enabled', 'failOnStartupError']) if (entry[key] !== undefined && typeof entry[key] !== 'boolean') invalid(key, 'expected a boolean')
+    if (entry.transport === 'stdio') {
+      if (typeof entry.command !== 'string' || entry.command.trim() === '') invalid('command', 'required for stdio')
+      if (entry.url !== undefined || entry.headers !== undefined) invalid('transport', 'url/headers belong to streamable-http')
+    } else {
+      if (typeof entry.url !== 'string') invalid('url', 'expected a string')
+      let url: URL
+      try { url = new URL(entry.url as string) } catch { return invalid('url', 'expected an absolute HTTP(S) URL') }
+      if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.hash) invalid('url', 'use HTTP(S), without user info or fragment')
+      if (entry.command !== undefined || entry.args !== undefined || entry.cwd !== undefined || entry.env !== undefined) invalid('transport', 'command/args/cwd/env belong to stdio')
+    }
+    if (entry.args !== undefined && (!Array.isArray(entry.args) || !entry.args.every(item => typeof item === 'string'))) invalid('args', 'expected an array of strings')
+    if (entry.cwd !== undefined && (typeof entry.cwd !== 'string' || !entry.cwd.trim())) invalid('cwd', 'expected a non-empty path')
+    for (const key of ['env', 'headers']) {
+      const map = entry[key]
+      if (map === undefined) continue
+      if (!isRecord(map)) invalid(key, 'expected an object of string values')
+      for (const [name, item] of Object.entries(map as Record<string, unknown>)) {
+        if (!(key === 'env' ? ENV_KEY : HEADER_KEY).test(name) || ['__proto__', 'constructor', 'prototype'].includes(name)) invalid(key, 'invalid field name')
+        if (typeof item !== 'string') invalid(key, 'all values must be strings')
+        if (key === 'headers' && /[\r\n]/u.test(item as string)) invalid(key, 'header values must not contain line breaks')
+      }
+    }
+    for (const key of ['toolCallTimeoutMs', 'maxInstructionBytes']) if (entry[key] !== undefined && !boundedInt(entry[key])) invalid(key, 'expected an integer from 1 to 2147483647')
+    if (entry.reconnect !== undefined) {
+      if (!isRecord(entry.reconnect)) invalid('reconnect', 'expected an object')
+      const reconnect = entry.reconnect as Record<string, unknown>
+      for (const key of Object.keys(reconnect)) if (!['enabled', 'initialDelayMs', 'maxDelayMs', 'maxAttempts'].includes(key)) invalid('reconnect', 'unknown field')
+      if (reconnect.enabled !== undefined && typeof reconnect.enabled !== 'boolean') invalid('reconnect.enabled', 'expected a boolean')
+      for (const key of ['initialDelayMs', 'maxDelayMs', 'maxAttempts']) if (reconnect[key] !== undefined && !boundedInt(reconnect[key])) invalid(`reconnect.${key}`, 'expected an integer from 1 to 2147483647')
+      if (Number(reconnect.initialDelayMs ?? 500) > Number(reconnect.maxDelayMs ?? 30000)) invalid('reconnect', 'initialDelayMs must not exceed maxDelayMs')
+    }
+    return { ...entry, serverName } as unknown as McpServerConfiguration
   })
+}
+
+export function inspectMcpServers(raw: string | undefined): { servers: readonly McpServerConfiguration[]; error?: string } {
+  try { return { servers: parseMcpServers(raw) } }
+  catch (error) { return { servers: [], error: error instanceof Error ? error.message : 'Invalid MCP configuration.' } }
+}
+
+function boundedInt(value: unknown): boolean {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 2147483647
 }
 
 /** Renders validated entries as DSH loader rows inside one `- insert` patch. */
 export function renderMcpRows(entries: readonly McpServerConfiguration[]): string {
-  return entries.map((entry) => {
+  return entries.filter(entry => entry.enabled !== false).map((entry) => {
     const lines = [
       `    - id: mcp-${entry.serverName}`,
       `      name: '@deepseek-ai/dsh-mcp-client'`,
@@ -96,36 +124,11 @@ function appendMap(lines: string[], name: string, value: Readonly<Record<string,
   lines.push(`        ${name}:`)
   for (const [key, raw] of Object.entries(value)) {
     const envName = /^\$env:([A-Za-z_][A-Za-z0-9_]*)$/u.exec(raw)?.[1]
-    lines.push(`          ${key}: ${envName === undefined ? yamlScalar(raw) : `!!js process.env.${envName}`}`)
+    lines.push(`          ${JSON.stringify(key)}: ${envName === undefined ? yamlScalar(raw) : `!!js process.env.${envName}`}`)
   }
 }
 
 function yamlScalar(value: string): string { return JSON.stringify(value) }
-
-function stringMap(value: unknown): Readonly<Record<string, string>> | undefined {
-  if (!isRecord(value)) return undefined
-  const entries = Object.entries(value).filter(([key, item]) => MAP_KEY.test(key) && typeof item === 'string') as [string, string][]
-  return entries.length === 0 ? undefined : Object.fromEntries(entries)
-}
-
-function positiveInt(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined
-}
-
-function reconnectConfig(value: unknown): McpServerConfiguration['reconnect'] | undefined {
-  if (!isRecord(value)) return undefined
-  const enabled = typeof value.enabled === 'boolean' ? value.enabled : undefined
-  const initialDelayMs = positiveInt(value.initialDelayMs)
-  const maxDelayMs = positiveInt(value.maxDelayMs)
-  const maxAttempts = positiveInt(value.maxAttempts)
-  if (enabled === undefined && initialDelayMs === undefined && maxDelayMs === undefined && maxAttempts === undefined) return undefined
-  return {
-    ...(enabled === undefined ? {} : { enabled }),
-    ...(initialDelayMs === undefined ? {} : { initialDelayMs }),
-    ...(maxDelayMs === undefined ? {} : { maxDelayMs }),
-    ...(maxAttempts === undefined ? {} : { maxAttempts }),
-  }
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

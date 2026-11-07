@@ -10,6 +10,7 @@ interface SessionRow {
 }
 
 interface SessionListState {
+  readonly groupByProject?: boolean
   readonly activeId: string | undefined
   readonly archived: boolean
   readonly archivedIds?: ReadonlySet<string>
@@ -19,6 +20,7 @@ interface SessionListState {
 
 /** Keep buttons mounted between pointerdown and click while replies stream. */
 export class SessionListComponent {
+  private readonly groups = new Map<string, HTMLElement>()
   private readonly rows = new Map<string, SessionRow>()
   private readonly empty: HTMLElement
 
@@ -39,24 +41,43 @@ export class SessionListComponent {
       this.rows.delete(id)
     }
     if (sessions.length === 0) {
-      setText(this.empty, state.emptyMessage)
-      if (this.empty.parentElement !== this.options.element) this.options.element.append(this.empty)
+      this.empty.textContent = state.emptyMessage
+      this.options.element.replaceChildren(this.empty)
+      this.groups.clear()
       return
     }
     this.empty.remove()
-    let cursor = this.options.element.firstElementChild
+    const buckets = new Map<string, SessionListItem[]>()
     for (const session of sessions) {
-      let row = this.rows.get(session.id)
-      if (!row) {
-        row = this.createRow(session.id)
-        this.rows.set(session.id, row)
-      }
-      row.update(session, session.id === state.activeId, state.archivedIds?.has(session.id) ?? state.archived, state.snippets.get(session.id) ?? '')
-      // Even moving an existing node into a fragment detaches the pressed
-      // target. Leave rows in place unless the actual list order changed.
-      if (row.element !== cursor) this.options.element.insertBefore(row.element, cursor)
-      cursor = row.element.nextElementSibling
+      const key = state.groupByProject ? (session.meta?.pinned ? 'pinned' : session.projectPath ?? 'unknown') : ''
+      const group = buckets.get(key) ?? []
+      group.push(session)
+      buckets.set(key, group)
     }
+    const used = new Set<string>()
+    let cursor: ChildNode | null = this.options.element.firstChild
+    const place = (element: HTMLElement): void => {
+      if (element !== cursor) this.options.element.insertBefore(element, cursor)
+      cursor = element.nextSibling
+    }
+    for (const [key, group] of buckets) {
+      if (key) {
+        used.add(key)
+        let header = this.groups.get(key)
+        if (!header) { header = this.node('h3', 'session-project-heading'); this.groups.set(key, header) }
+        header.textContent = key === 'pinned' ? this.options.translate('sessionPinned')
+          : key === 'unknown' ? this.options.translate('sessionUnknownProject') : group[0]?.projectLabel ?? key
+        header.title = key === 'pinned' || key === 'unknown' ? '' : key
+        place(header)
+      }
+      for (const session of group) {
+        let row = this.rows.get(session.id)
+        if (!row) { row = this.createRow(session.id); this.rows.set(session.id, row) }
+        row.update(session, session.id === state.activeId, state.archivedIds?.has(session.id) ?? state.archived, state.snippets.get(session.id) ?? '')
+        place(row.element)
+      }
+    }
+    for (const [key, header] of this.groups) { if (!used.has(key)) { header.remove(); this.groups.delete(key) } }
   }
 
   private createRow(sessionId: string): SessionRow {
@@ -72,12 +93,13 @@ export class SessionListComponent {
     applyIcon(mark, icon('pin', 10))
     top.append(name, running, mark)
     const meta = this.node('span', 'session-meta')
-    const shared = this.node('span', 'session-tag shared', t('sharedWorkspaceTag'))
-    shared.title = t('sharedWorkspaceHint')
-    shared.setAttribute('aria-label', shared.title)
+    const shared = this.node('span', 'session-tag shared')
+    const execution = this.node('span', 'session-tag session-execution')
+    const badges = this.node('span', 'session-badges')
+    badges.append(shared, execution)
     const tags = this.node('span', 'session-tags')
     const snippet = this.node('span', 'session-snippet')
-    button.append(top, meta, shared, tags, snippet)
+    button.append(top, meta, badges, tags, snippet)
     button.addEventListener('click', () => onAction('selectSession', sessionId))
     const actions = this.node('div', 'session-row-actions')
     const pin = this.action(() => onAction('toggleSessionPin', sessionId))
@@ -102,9 +124,18 @@ export class SessionListComponent {
         meta.title = session.projectPath ?? ''
         running.classList.toggle('active', session.running)
         button.classList.toggle('active', active)
-        button.classList.toggle('has-worktree-action', session.isolated === true)
-        worktree.classList.toggle('hidden', session.isolated !== true)
-        shared.classList.toggle('hidden', session.shared !== true)
+        const management = session.management
+        const managed = management ? management.managedWorktree && management.location?.kind === 'worktree' : session.isolated === true
+        button.classList.toggle('has-worktree-action', managed)
+        worktree.classList.toggle('hidden', !managed)
+        const kind = management?.location?.kind
+        setText(shared, t(kind === 'worktree' || session.isolated ? 'sessionWorktree' : kind === 'directory' || session.shared ? 'sessionDirectory' : kind === 'missing' ? 'sessionMissingState' : 'sessionLocationUnknown'))
+        shared.title = management?.location?.cwd ?? session.cwd ?? ''
+        const status = nextArchived ? 'sessionArchivedState' : session.running ? 'sessionRunning'
+          : management?.status === 'occupied' ? 'sessionOccupiedState' : management?.status === 'resuming' ? 'sessionResumingState'
+            : management?.status === 'unavailable' ? 'sessionUnavailableState' : management?.status === 'ready' ? 'sessionReadyState' : 'sessionPreviewState'
+        setText(execution, t(status))
+        execution.title = management?.error ?? ''
         const nextPinned = session.meta?.pinned === true
         pin.disabled = nextArchived && !nextPinned
         if (pinned !== nextPinned) {

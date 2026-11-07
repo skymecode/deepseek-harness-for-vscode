@@ -79,7 +79,14 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
   <section id="worktree-banner" class="worktree-banner hidden" role="status">
     <span id="worktree-banner-text"></span>
     <button id="worktree-review" class="link-button" type="button">${text('worktreeReview')}</button>
-    <button id="worktree-open-settings" class="link-button" type="button">${text('worktreeChangeSettings')}</button>
+    <button id="worktree-open-settings" class="link-button hidden" type="button">${text('worktreeChangeSettings')}</button>
+  </section>
+
+  <section id="session-access" class="session-access hidden" aria-label="${text('sessionManagement')}">
+    <div class="session-access-heading"><strong id="session-access-status"></strong><button id="session-refresh" class="icon-button compact" title="${text('sessionRefresh')}" aria-label="${text('sessionRefresh')}">${icon('refresh')}</button></div>
+    <div id="session-access-location" class="session-access-location"></div>
+    <p id="session-access-hint"></p>
+    <div class="session-access-actions"><button id="session-resume" class="primary-button" type="button">${text('sessionContinue')}</button><button id="session-open-project" class="secondary-button" type="button">${text('sessionOpenProject')}</button></div>
   </section>
 
   <aside id="history-panel" class="history-panel hidden" aria-label="${text('history')}">
@@ -92,6 +99,7 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
         <button id="history-close" class="icon-button">${icon('close')}</button>
       </div>
     </div>
+    <div id="history-source" class="history-source hidden" role="status"><span id="history-source-label"></span><button id="history-source-details" class="link-button" type="button">${text('historyMigrationDetails')}</button></div>
     <input id="history-search" class="search-input" type="search" placeholder="${text('searchConversations')}">
     <div id="session-list" class="session-list"></div>
   </aside>

@@ -16,7 +16,7 @@ vi.mock('vscode', () => ({
   l10n: { t: (text: string, ...args: unknown[]) => text.replace(/\{(\d+)\}/g, (_, index) => String(args[Number(index)])) },
 }))
 vi.mock('../src/runtime/harness-home.js', () => ({ harnessHomePath: () => state.home }))
-vi.mock('../src/runtime/shared-history/runner.js', () => ({ runHistoryMigration: vi.fn(async () => ({ copied: 0, advanced: 0, forked: 0, skipped: 0, deferred: 0, compression: 'zstd' })) }))
+vi.mock('../src/runtime/shared-history/runner.js', () => ({ runHistoryMigration: vi.fn(async () => ({ copied: 0, advanced: 0, forked: 0, skipped: 0, deferred: 0, unavailable: 0, sourceFailures: 0, issues: [], compression: 'zstd' })) }))
 vi.mock('node:child_process', async (original) => ({ ...await original<object>(), spawn: state.spawn }))
 
 import { HarnessHostRuntime } from '../src/runtime/web-runtime.js'
@@ -48,14 +48,15 @@ type BootSeam = { spawnGateway: () => Promise<{ url?: string; exitCode?: number;
 const conflict = 'exists and is not a symlink or dsh-managed module proxy; remove it so dsh can manage the installation fallback'
 
 describe('automatic recovery entry points', () => {
-  it('keeps the private history root when shared migration cannot complete safely', async () => {
+  it('refuses startup when the canonical shared target is unavailable', async () => {
     const f = await fixture()
     vi.mocked(runHistoryMigration).mockRejectedValueOnce(new Error('source history is unreadable'))
     const runtime = new HarnessHostRuntime(f.context, f.configuration, f.resolver, f.output)
     vi.spyOn(runtime as unknown as BootSeam, 'spawnGateway').mockResolvedValue({ url: 'http://127.0.0.1:1234' })
-    await runtime.start()
+    await expect(runtime.start()).rejects.toThrow('No private session store was opened')
     expect(runtime.sharedHistory).toBe(false)
-    expect(await readFile(join(state.home, 'vscode.patch.yml'), 'utf8')).toContain(JSON.stringify(join(state.home, 'history-recovery', 'sessions')))
+    expect(runtime.historySource?.status).toBe('unavailable')
+    expect(existsSync(join(state.home, 'vscode.patch.yml'))).toBe(false)
     await runtime.stop()
   })
   it('tries the official resolver first and repairs only a reported legacy conflict', async () => {

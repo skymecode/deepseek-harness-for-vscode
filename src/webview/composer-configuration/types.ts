@@ -44,7 +44,7 @@ export interface ComposerConfigurationSnapshot {
   readonly autoActive: boolean
   readonly effortTone: EffortTone
   readonly dirty: boolean
-  readonly modeStartsNewConversation: boolean
+  readonly presetLocked: boolean
   readonly experimentalAutoEffort: boolean
 }
 

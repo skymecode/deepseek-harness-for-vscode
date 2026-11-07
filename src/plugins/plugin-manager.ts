@@ -16,7 +16,7 @@ import { installedBundleViews } from './bundle-views.js'
 
 const PROFILE = 'web'
 const DEFAULT_PLUGINS_SEED_FILE = 'default-plugins-seeded.json'
-const DEFAULT_PLUGINS_SEED_VERSION = 3
+const DEFAULT_PLUGINS_SEED_VERSION = 4
 const MAX_ERROR_OUTPUT = 12_000
 
 /** Manages the exact `web` profile booted by this extension through DSH's CLI. */
@@ -77,12 +77,12 @@ export class DshPluginManager {
         ? vscode.l10n.t('The plugin change was saved but overridden by a higher-priority profile layer.') : undefined
   }
 
-  private async installBundle(spec: string): Promise<void> {
+  private async installBundle(spec: string, enabled?: boolean): Promise<void> {
     if (!this.client) { await this.run(['add', spec]); return }
     const client = this.client()
     const requestId = randomUUID()
     this.installRequestId = requestId
-    try { this.acceptResult(await client.pluginInstall(spec, requestId)) }
+    try { this.acceptResult(await client.pluginInstall(spec, requestId, enabled)) }
     finally { if (this.installRequestId === requestId) this.installRequestId = undefined }
   }
 
@@ -134,15 +134,20 @@ export class DshPluginManager {
 
   /** Installs missing default plugins, including newly added built-ins after a seed bump. */
   async ensureDefaultPlugins(): Promise<void> {
-    if (await this.defaultPluginsSeedVersion() >= DEFAULT_PLUGINS_SEED_VERSION) return
+    const seeded = await this.defaultPluginsSeedVersion()
+    if (seeded >= DEFAULT_PLUGINS_SEED_VERSION) return
     const installed = await this.listInstalled()
     const installedNames = new Set(installed.map((item) => item.name))
     for (const plugin of DEFAULT_BUILTIN_PLUGINS.filter((entry) => entry.installedName !== ROUTING_SUITE_MANIFEST.injector.name)) {
-      if (installedNames.has(plugin.installedName) || (plugin.npmPackage !== undefined && installedNames.has(plugin.npmPackage))) continue
+      const current = installed.find(item => item.name === plugin.installedName || item.name === plugin.npmPackage)
+      const upgrade = current?.name === 'dsh-chat-import' && ['0.6.2', '0.22.2'].includes(current.version)
+      if (current && !upgrade) continue
+      // A prior user removal stays removed; only repair the known incompatible bundled version.
+      if (seeded >= 2 && !current) continue
       // The managed routing suite already provides the Super Injector.
       if (plugin.installedName === ROUTING_SUITE_MANIFEST.injector.name && installedNames.has(ROUTING_SUITE_MANIFEST.installedName)) continue
       if (plugin.vendoredTarball !== undefined) {
-        await this.installVendored(plugin.vendoredTarball)
+        await this.installVendored(plugin.vendoredTarball, current?.enabled)
       } else {
         await this.install(plugin.installSpec)
       }
@@ -165,14 +170,14 @@ export class DshPluginManager {
    * the resolved absolute file path, which lives inside the profile and
    * therefore survives extension updates.
    */
-  private async installVendored(vendoredTarball: string): Promise<void> {
+  private async installVendored(vendoredTarball: string, enabled?: boolean): Promise<void> {
     const source = path.join(this.context.extensionUri.fsPath, vendoredTarball)
     const profileDir = path.join(this.harnessHome(), 'profiles', PROFILE)
     const vendorDir = path.join(profileDir, 'vendor')
     await mkdir(vendorDir, { recursive: true })
     const filename = path.basename(source)
     await copyFile(source, path.join(vendorDir, filename))
-    await this.installBundle(path.join(vendorDir, filename))
+    await this.installBundle(path.join(vendorDir, filename), enabled)
   }
 
   async install(value: string): Promise<readonly InstalledDshPlugin[]> {

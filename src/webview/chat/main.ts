@@ -90,6 +90,7 @@ window.addEventListener('message', (event) => {
 setReferenceValidator((keys) => post('validateFileReferences', { keys }))
 
 elements.historyToggle.addEventListener('click', () => toggleHistory(true))
+elements.manageMcp.addEventListener('click', () => post('manageMcp'))
 elements.historyClose.addEventListener('click', () => toggleHistory(false))
 elements.historyScope.addEventListener('click', () => toggleHistoryScope())
 elements.historyArchived.addEventListener('click', () => toggleArchivedHistory())
@@ -286,4 +287,6 @@ document.addEventListener('pointerdown', (event) => {
   }
 })
 // The webview is fully initialized; ask the host for the first state snapshot.
+elements.historySourceDetails.addEventListener('click', () => post('historySourceDetails'))
+
 vscode.postMessage({ type: 'ready' })

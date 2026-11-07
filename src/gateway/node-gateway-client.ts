@@ -1,3 +1,5 @@
+import type { WorkspaceCreateValue } from '@deepseek-ai/dsh-api-workspace-controller/types'
+import type { SessionPreview } from '../domain/session-management.js'
 import type { LlmResolvedModelInfo as DshLlmResolvedModelInfo } from '@deepseek-ai/dsh-llm/types'
 import type { ChangesSummary as DshChangesSummary } from './workspace-changes.js'
 import type { WorkspaceFileDiff as DshWorkspaceFileDiff } from '@deepseek-ai/dsh-workspace-changes/types'
@@ -37,7 +39,7 @@ import type { CreateGoalRequest, CreateGoalResult } from '@deepseek-ai/dsh-goal/
 import type { LlmConfigurableProvider, LlmDiscoveredModel, LlmModelDiscoveryRequest, LlmProviderInfo } from '@deepseek-ai/dsh-llm/types'
 import type { SettingsDescribeValue, SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-settings/types'
 import type { SubagentInterruptReceipt, SubagentPromptReceipt, SubagentPromptRequest } from '@deepseek-ai/dsh-subagent/client'
-import type { ScheduleCatalogEntry, ScheduleDeleteRequest, ScheduleDeleteResult, ScheduleDeliveryHistoryRequest, ScheduleDeliveryHistoryResult, ScheduleUpdateRequest, ScheduleUpdateResult } from '@deepseek-ai/dsh-schedule/client'
+import type { ScheduleCatalogEntry, ScheduleDeliveryHistoryRequest, ScheduleDeliveryHistoryResult, ScheduleEditRequest, ScheduleEditResult, ScheduleId } from '@deepseek-ai/dsh-schedule/client'
 import type {
   SessionControlFrame,
   SessionCreateRequest,
@@ -157,6 +159,36 @@ export class NodeGatewayClient {
     return await response.json() as DshLlmResolvedModelInfo[]
   }
 
+  /** Names/descriptions registered globally by the native MCP client, not health status. */
+  async mcpTools(): Promise<readonly { readonly name: string; readonly description: string }[]> {
+    await this.ensureAuthenticated()
+    const response = await this.doFetch(new URL('/api/vscode.mcp-tools', this.baseUrl), { signal: AbortSignal.timeout(this.importTimeoutMs) })
+    if (!response.ok) throw new Error(`MCP tool registry unavailable: HTTP ${response.status}`)
+    return await response.json() as { name: string; description: string }[]
+  }
+
+  /** Read-only metadata or explicit native writer acquisition; no synthetic prompts. */
+  async sessionPreview(sessionId: string): Promise<SessionPreview> {
+    return this.sessionManagement(sessionId)
+  }
+
+  async sessionResume(sessionId: string, cwd: string): Promise<SessionPreview> {
+    return this.sessionManagement(sessionId, cwd)
+  }
+
+  private async sessionManagement(sessionId: string, cwd?: string): Promise<SessionPreview> {
+    await this.ensureAuthenticated()
+    const url = new URL('/api/vscode.session', this.baseUrl)
+    url.searchParams.set('sessionId', sessionId)
+    if (cwd !== undefined) url.searchParams.set('cwd', cwd)
+    const response = await this.doFetch(url, { method: cwd === undefined ? 'GET' : 'POST',
+      ...(cwd === undefined ? {} : { headers: { 'x-dsh-session-action': 'resume' } }),
+      signal: AbortSignal.timeout(this.importTimeoutMs) })
+    const result = await response.json() as { value?: SessionPreview; error?: { code: string; message?: string } }
+    if (!response.ok || !result.value) throw new DshRemoteError(result.error?.code ?? 'session/unavailable', result.error?.message ?? 'Session unavailable')
+    return result.value
+  }
+
   async changesSummary(sessionId: string, seq: number): Promise<DshChangesSummary | undefined> {
     return await this.getChanges('/api/changes.summary', sessionId, seq)
   }
@@ -210,8 +242,8 @@ export class NodeGatewayClient {
     return await this.callRaw('pluginManager/listPlugins', {})
   }
 
-  async pluginInstall(spec: string, requestId: string): Promise<DshChangeResult> {
-    return await this.callRaw('pluginManager/installBundle', { spec, options: { requestId } }, 600_000)
+  async pluginInstall(spec: string, requestId: string, enabled?: boolean): Promise<DshChangeResult> {
+    return await this.callRaw('pluginManager/installBundle', { spec, options: { requestId, ...(enabled === undefined ? {} : { enabled }) } }, 600_000)
   }
 
   async pluginCancelInstall(requestId: string): Promise<DshPluginInstallCancellation> {
@@ -372,6 +404,11 @@ export class NodeGatewayClient {
     return await this.callRaw<SkillListValue>('skills/list', { request })
   }
 
+  /** Reuse the native canonical-folder Workspace; this does not create a directory. */
+  async workspaceCreate(path: string): Promise<WorkspaceCreateValue> {
+    return this.callRaw('workspace/create', { request: { path } })
+  }
+
   /** Archive one session (Typert `workspace/archiveSession`). */
   async workspaceArchiveSession(request: { readonly sessionId: unknown; readonly stopActivity?: boolean }): Promise<WorkspaceArchiveValue> {
     return await this.callRaw<WorkspaceArchiveValue>('workspace/archiveSession', { request })
@@ -487,13 +524,13 @@ export class NodeGatewayClient {
   }
 
   /** Deletes one native Schedule task without activating its Session. */
-  async scheduleDelete(request: ScheduleDeleteRequest): Promise<ScheduleDeleteResult> {
-    return await this.callRaw<ScheduleDeleteResult>('schedule/delete', { request })
+  async scheduleDelete(request: { id: ScheduleId; sessionId?: DshSessionId }): Promise<ScheduleEditResult> {
+    return await this.callRaw<ScheduleEditResult>('schedule/edit', { request: { id: request.id, action: 'delete' } })
   }
 
   /** Updates one native Schedule task using its compare-and-swap record. */
-  async scheduleUpdate(request: ScheduleUpdateRequest): Promise<ScheduleUpdateResult> {
-    return await this.callRaw<ScheduleUpdateResult>('schedule/update', { request })
+  async scheduleEdit(request: ScheduleEditRequest): Promise<ScheduleEditResult> {
+    return await this.callRaw<ScheduleEditResult>('schedule/edit', { request })
   }
 
   /** Reads saved delivery history for one native Schedule task. */

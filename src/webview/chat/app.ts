@@ -1,3 +1,5 @@
+import { SessionDrafts } from '../session-drafts.js'
+import { renderSessionManagement } from './session-management.js'
 import type { ChatBlock, HarnessWorkbenchState } from '../../domain/workbench-state.js'
 import { shouldEchoPrompt } from '../../domain/optimistic-prompts.js'
 import { closeCommandMenu, updateCommandMenu } from './command-menu.js'
@@ -27,13 +29,22 @@ import { conversationScroll } from './scroll.js'
 import { workbenchHeader } from './header.js'
 import { renderComposerActions } from './composer-actions.js'
 
+const sessionDrafts = new SessionDrafts()
+
 export function render(): void {
   if (!payload) return
   conversationScroll.beforeLayout()
   const { state } = payload
   const active = state.active
+  const restoredDraft = sessionDrafts.select(active?.id, elements.prompt.value)
+  if (restoredDraft !== undefined) {
+    elements.prompt.value = restoredDraft
+    clearPastedImages()
+    components.editorContext.resetForSession()
+    resizePrompt()
+  }
   workbenchHeader.update(state)
-  components.editorContext.setAutoAttach(payload.configuration?.autoAttachSelection === true)
+  components.editorContext.setAutoAttach(payload.configuration?.autoAttachSelection === true && active?.management?.editorContextAvailable !== false && (!active?.management || active.management.status === 'ready'))
   renderPhase(state)
   if (!elements.historyPanel.classList.contains('hidden')) renderSessions()
   renderSelectors(active)
@@ -46,17 +57,16 @@ export function render(): void {
     const button = document.getElementById(id) as HTMLButtonElement
     button.disabled = !configured || !active || active.running || (id === 'setup-permission' && !active.permissions)
   }
-  const isolated = active?.isolated === true
+  const isolated = active?.isolated === true && active.management?.managedWorktree !== false
   elements.worktreeBanner.classList.toggle('hidden', !isolated)
   if (isolated) {
-    const notice = payload.configuration.worktreeAutoMerge === 'onTurnEnd'
-      ? t('worktreeAutoMergeNotice')
-      : t('worktreeManualMergeNotice')
+    const notice = t('worktreeManualMergeNotice')
     if (elements.worktreeBannerText.textContent !== notice) elements.worktreeBannerText.textContent = notice
   }
   elements.backParent.classList.toggle('hidden', !active?.parentSessionId)
   elements.fork.disabled = !active || active.blank
   elements.loadOlder.classList.toggle('hidden', !active?.hasMore)
+  renderSessionManagement(active)
   renderMessages(active)
   renderInteractions(active)
   components.detailsPanel.updateSession(active?.id)
@@ -93,6 +103,8 @@ export function renderPhase(state: HarnessWorkbenchState): void {
 }
 
 export function sendPrompt(): void {
+  if (!payload?.state.active) return
+  if (payload?.state.active?.management && payload.state.active.management.status !== 'ready') return
   closeCommandMenu()
   closeTimeline()
   components.fileMention.close()
@@ -106,13 +118,14 @@ export function sendPrompt(): void {
     components.composerFeedback.show(t('modelRejectsImages'))
     return
   }
-  const configuration = components.composerConfiguration.selection()
+  const configuration = payload?.state.active?.subagentMode ? undefined : components.composerConfiguration.selection()
   components.composerConfiguration.markSubmitted()
   const requestId = crypto.randomUUID()
   // The configuration always travels with the prompt: the host stages it
   // immediately for idle sessions and keeps it FIFO-pending for queued ones.
   post('sendPrompt', {
     requestId,
+    sessionId: payload?.state.active?.id,
     text,
     mode: 'queue',
     context: components.editorContext.input(),

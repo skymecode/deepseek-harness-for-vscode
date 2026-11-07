@@ -75,7 +75,8 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('lossless shared history m
       const snapshots = await target.context.sessionPersistence.list()
       expect(snapshots).toHaveLength(2)
       const fork = snapshots.find((row) => row.header.id !== 'session-collision')!
-      expect(fork.header.parentSession).toBe('session-collision')
+      expect(fork.header.isSeeded).toBe(true)
+    expect(fork.header.origin).toBeUndefined()
       const handle = await target.context.sessionPersistence.open(fork.header.id, 'read')
       try { expect(JSON.stringify((await handle.read()).events)).toContain('VS Code answer.') } finally { await handle.close() }
     } finally { await target.fiber.dispose() }
@@ -175,13 +176,57 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('lossless shared history m
     } finally { await owner.close(); await target.fiber.dispose() }
   })
 
+  it('keeps migrating healthy records when one legacy body uses an unsupported format', async () => {
+    const f = await fixture()
+    await seed(f.source, f.root, 'healthy')
+    const directory = join(f.source, 'sessions', legacyProjectKey(f.root), 'unsupported')
+    await mkdir(directory, { recursive: true })
+    const text = JSON.stringify({ type: 'session', version: 4, id: 'unsupported', cwd: f.root, createdAt: 1, isSeeded: false }) + '\n'
+      + JSON.stringify({ type: 'request/header', seq: 0, time: 1, data: { turn: 1, step: 1, header: { system: 'retired fixture shape' } } }) + '\n'
+    const file = join(directory, 'session.v4.jsonl')
+    await writeFile(file, text)
+    const report = await migrateSharedHistory(f.request)
+    expect(report).toMatchObject({ copied: 1, unavailable: 1, issues: [expect.objectContaining({ sessionId: 'unsupported' })] })
+    expect(await readFile(file, 'utf8')).toBe(text)
+    const target = await openHistoryStore(f.destination)
+    try { expect((await target.context.sessionPersistence.list()).map(row => row.header.id)).toEqual(['healthy']) }
+    finally { await target.fiber.dispose() }
+  })
+
+  it('counts a locked mixed-encoding session once without reporting its header as unreadable', async () => {
+    const f = await fixture()
+    await seed(f.source, f.root, 'locked-mixed')
+    const zstdHome = join(f.root, 'zstd-copy')
+    const zstd = await openHistoryStore(zstdHome, 'zstd')
+    try {
+      const handle = await zstd.context.sessionPersistence.create({ version: 4, id: SessionId('locked-mixed'), createdAt: 1, cwd: f.root, isSeeded: false })
+      await handle.flush(); await handle.close()
+    } finally { await zstd.fiber.dispose() }
+    const dir = join(f.source, 'sessions', legacyProjectKey(f.root), 'locked-mixed')
+    await cp(join(zstdHome, 'sessions', legacyProjectKey(f.root), 'locked-mixed', 'session.v4.jsonl.zstd'), join(dir, 'session.v4.jsonl.zstd'))
+    const original = await openHistoryStore(f.source, 'none')
+    const acquire = Reflect.get(original.context.sessionPersistence, 'acquireLease') as (id: ReturnType<typeof SessionId>, signal: undefined, directory: string) => Promise<{ release(): Promise<void> }>
+    const lease = await acquire.call(original.context.sessionPersistence, SessionId('locked-mixed'), undefined, dir)
+    try { expect(await migrateSharedHistory(f.request)).toMatchObject({ copied: 0, deferred: 1, unavailable: 0, sourceFailures: 0 }) }
+    finally { await lease.release(); await original.fiber.dispose() }
+  })
+
+  it('reports headers omitted by native listing without blocking the shared target', async () => {
+    const f = await fixture()
+    const directory = join(f.source, 'sessions', legacyProjectKey(f.root), 'future')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'session.v999.jsonl'), JSON.stringify({ type: 'session', version: 999, id: 'future', cwd: f.root, createdAt: 1, isSeeded: false }) + '\n')
+    expect(await migrateSharedHistory(f.request)).toMatchObject({ copied: 0, unavailable: 1,
+      issues: [expect.objectContaining({ sessionId: 'future', reason: 'unlisted-header' })] })
+  })
+
   it('does not overwrite conflicting attachments or publish incomplete history', async () => {
     const f = await fixture()
     const original = await seed(f.source, f.root, 'session-image')
     for (const home of [f.source, f.destination]) await mkdir(join(home, 'attachments'), { recursive: true })
     await writeFile(join(f.source, 'attachments', 'image.bin'), 'original image')
     await writeFile(join(f.destination, 'attachments', 'image.bin'), 'other image')
-    await expect(migrateSharedHistory(f.request)).rejects.toThrow('Conflicting attachment')
+    await expect(migrateSharedHistory(f.request)).resolves.toMatchObject({ copied: 0, sourceFailures: 1, issues: [expect.objectContaining({ reason: 'attachment-conflict' })] })
     expect(await readFile(original.file, 'utf8')).toBe(original.raw)
     expect(await readFile(join(f.destination, 'attachments', 'image.bin'), 'utf8')).toBe('other image')
   })

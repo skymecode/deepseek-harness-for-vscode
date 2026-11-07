@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Memento, OutputChannel } from 'vscode'
 import { ArchiveState, type ArchiveStateOptions } from '../src/gateway/archive-state.js'
 import { inboxQueue } from '../src/gateway/inbox-projection.js'
-import { formatWorkspaceDiff, officialChangesView } from '../src/gateway/workspace-changes.js'
+import { officialChangesView } from '../src/gateway/workspace-changes.js'
 import { RESTORED_ARCHIVE_STATE_KEY } from '../src/domain/archived-sessions.js'
 import { projectSessionChanges } from '../src/domain/session-changes.js'
 import type { HistoryEntry } from '../src/gateway/gateway-wire.js'
@@ -64,10 +64,10 @@ describe('official projection adapters', () => {
       { event: { type: 'turn/end', seq: 3, time: 3, data: { turn: 1 } } },
       { event: { type: 'workspace/changes', seq: 4, time: 4, data: { turn: 1 } } },
     ] as unknown as HistoryEntry[]
-    expect(projectSessionChanges(entries)?.added).toBe(1)
-    const recorded = { files: [{ path: 'shell.txt', added: 1, removed: 2 }], added: 1, removed: 2 }
+    expect(projectSessionChanges(entries)).toBeUndefined()
+    const recorded = officialChangesView('s', 4, { turn: 1, total: 1, files: [{ path: 'shell.txt', display: 'shell.txt', added: 1, deleted: 2 }], added: 1, deleted: 2 })
     expect(projectSessionChanges(entries, new Map([[4, recorded]]))).toEqual(recorded)
-    expect(projectSessionChanges(entries, new Map([[4, { files: [], added: 0, removed: 0 }]]))).toBeUndefined()
+    expect(projectSessionChanges(entries, new Map([[4, { ...recorded, files: [], added: 0, removed: 0 }]]))).toBeUndefined()
   })
 
   it('reads both durable Inbox targets and clears missing or malformed messages', () => {
@@ -86,8 +86,5 @@ describe('official projection adapters', () => {
       files: [{ path: 'a.txt', display: 'a.txt', added: 2, deleted: 1 }],
     })
     expect(view).toMatchObject({ official: { sessionId: 'session', seq: 42 }, added: 2, removed: 1 })
-    expect(formatWorkspaceDiff({ kind: 'text', path: 'a.txt', display: 'a.txt', before: true, after: true, coarse: false,
-      hunks: [{ oldStart: 7, oldLines: 1, newStart: 7, newLines: 2, lines: ['-old', '+new', '+second'] }],
-    })).toBe('--- a.txt\n+++ a.txt\n@@ -7,1 +7,2 @@\n-old\n+new\n+second\n')
   })
 })

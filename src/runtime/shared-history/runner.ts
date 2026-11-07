@@ -15,7 +15,7 @@ export async function runHistoryMigration(command: string, worker: string, reque
       if (error !== undefined) { child.kill(); reject(error); return }
       try {
         const response = JSON.parse(output.trim()) as { type: string; report: SharedHistoryReport }
-        if (response.type !== 'shared-history-ready' || !['zstd', 'none'].includes(response.report.compression) || (response.report.preferredSessionId !== undefined && typeof response.report.preferredSessionId !== 'string') || !(['copied', 'advanced', 'forked', 'skipped', 'deferred'] as const).every((key) => Number.isSafeInteger(response.report[key]) && response.report[key] >= 0)) throw new Error('Invalid migration result.')
+        if (response.type !== 'shared-history-ready' || !['zstd', 'none'].includes(response.report.compression) || (response.report.preferredSessionId !== undefined && typeof response.report.preferredSessionId !== 'string') || !(['copied', 'advanced', 'forked', 'skipped', 'deferred', 'unavailable', 'sourceFailures'] as const).every((key) => Number.isSafeInteger(response.report[key]) && response.report[key] >= 0)) throw new Error('Invalid migration result.')
         resolve(response.report)
       } catch { reject(new Error('Invalid shared-history migration response.')) }
     }
