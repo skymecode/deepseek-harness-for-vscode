@@ -124,6 +124,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   private readonly execution = new Map<string, { status: SessionExecutionStatus; error?: string }>()
   private readonly effectiveCwds = new Map<string, string>()
   private readonly projectCwds = new Map<string, string>()
+  private readonly observedTitles = new Map<string, string>()
   private readonly interruptedExecution = new Set<string>()
   private previewRevision = 0
   private previewLoadedAt = 0
@@ -454,7 +455,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     const active = activeSummary === undefined ? undefined : {
       ...this.sessionListItemWithIsolation(activeSummary),
       id: String(activeSummary.sessionId),
-      title: sessionListItem(activeSummary, this.labels).title,
+      title: this.sessionTitle(String(activeSummary.sessionId)),
       running: activeSummary.running,
       blank: activeSummary.blank,
       ...(activePreset === undefined ? {} : { agentPreset: activePreset }),
@@ -1883,6 +1884,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       this.execution.delete(removed)
       this.effectiveCwds.delete(removed)
       this.projectCwds.delete(removed)
+      this.observedTitles.delete(removed)
       this.summaries.delete(removed)
       this.pendingQueue.dropForSession(removed)
       this.pendingQueue.forget(removed)
@@ -2148,6 +2150,8 @@ export class HarnessGatewayService implements vscode.Disposable {
 
 
   private sessionTitle(sessionId: string): string {
+    const observed = this.observedTitles.get(sessionId)
+    if (observed !== undefined) return observed
     const summary = this.summaries.get(sessionId)
     if (summary !== undefined) return sessionListItem(summary, this.labels).title
     return sessionId
@@ -2166,8 +2170,9 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   private sessionListItemWithIsolation(summary: SessionSummary): SessionListItem {
-    const item = sessionListItem(summary, this.labels)
+    const native = sessionListItem(summary, this.labels)
     const id = String(summary.sessionId)
+    const item = { ...native, title: this.observedTitles.get(id) ?? native.title }
     const projected = summary.projections?.values.workingDirectory
     const cwd = this.effectiveCwds.get(id) ?? (typeof projected === 'string' ? projected : summary.cwd)
     const location = this.sessionLocations.get(cwd)
@@ -2311,6 +2316,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     if (title === undefined) return
     const summary = this.summaries.get(sessionId)
     if (summary === undefined) return
+    this.observedTitles.set(sessionId, title)
     const existing = summary.projections
     const projections: SessionSummary['projections'] = existing === undefined
       ? { kind: 'sequenced', asOfSeq: -1, values: { title } }
@@ -2395,6 +2401,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.execution.clear()
     this.effectiveCwds.clear()
     this.projectCwds.clear()
+    this.observedTitles.clear()
     this.modelMetadata.clear()
     this.pinnedFromHost = []
     this.workspaceSessionOrder = []

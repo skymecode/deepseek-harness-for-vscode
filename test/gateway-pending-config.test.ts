@@ -1115,6 +1115,9 @@ describe('shared history title cache', () => {
     await (service as unknown as { reloadSessions(): Promise<void> }).reloadSessions()
     const summary = service.summaries.get('s1') as unknown as { projections: { values: { title: string } } }
     expect(summary.projections.values.title).toBe('Official conversation')
+    const reads = service as unknown as { refreshSessionList(): Promise<void>; sessionListItemWithIsolation(s: unknown): { title: string } }
+    await reads.refreshSessionList()
+    expect(reads.sessionListItemWithIsolation(service.summaries.get('s1')).title).toBe('Official conversation')
     expect(client.sessionResume).not.toHaveBeenCalled()
     expect(client.sessionFollow).not.toHaveBeenCalled()
     expect(client.sessionPrompt).not.toHaveBeenCalled()
