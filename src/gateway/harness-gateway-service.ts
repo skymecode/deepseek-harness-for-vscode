@@ -124,7 +124,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   private readonly execution = new Map<string, { status: SessionExecutionStatus; error?: string }>()
   private readonly effectiveCwds = new Map<string, string>()
   private readonly projectCwds = new Map<string, string>()
-  private readonly observedTitles = new Map<string, string>()
+  private readonly observedTitles = new Map<string, { title: string; asOfSeq: number; logBacked: boolean }>()
   private readonly interruptedExecution = new Set<string>()
   private previewRevision = 0
   private previewLoadedAt = 0
@@ -733,7 +733,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       this.hasMore = this.hasMore || page.hasMore
       this.followCursor.set(sessionId, preview.cursor as never)
       this.projections = preview.projections
-      this.applyTitleProjection(sessionId, projectionTitle(preview.projections))
+      this.applyTitleProjection(sessionId, projectionTitle(preview.projections), preview.cursor, true)
       this.syncModelSelection()
       if (this.execution.get(sessionId)?.error === vscode.l10n.t('This session could not be read. Refresh to retry; the original history is preserved.')) this.execution.delete(sessionId)
       this.fireChange()
@@ -1447,7 +1447,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     await this.assertSessionWritable()
     const sessionId = this.requireActiveSession()
     const renamed = await this.requireClient().sessionRename({ sessionId: sessionId as SessionId, title })
-    this.applyTitleProjection(sessionId, renamed.title)
+    this.applyTitleProjection(sessionId, renamed.title, renamed.seq)
     this.fireChange()
   }
 
@@ -1484,7 +1484,7 @@ export class HarnessGatewayService implements vscode.Disposable {
           if (client !== this.client || !this.summaries.has(id)) continue
           const current = this.summaries.get(id)!
           if (current.projections?.kind === 'sequenced' && current.projections.asOfSeq > preview.cursor) continue
-          this.applyTitleProjection(id, projectionTitle(preview.projections))
+          this.applyTitleProjection(id, projectionTitle(preview.projections), preview.cursor, true)
           if (preview.agentPreset) this.summaries.set(id, { ...this.summaries.get(id)!, agentPreset: preview.agentPreset })
           if (preview.projectCwd) this.projectCwds.set(id, preview.projectCwd)
         } catch { /* A damaged old record remains visible; selection exposes its native read failure. */ }
@@ -1811,7 +1811,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       if (typeof directory === 'string') this.effectiveCwds.set(sessionId, directory)
       this.queue = inboxQueue(this.projections.inbox)
       this.syncModelSelection()
-      this.applyTitleProjection(sessionId, projectionTitle((frame.projections as { readonly values?: Record<string, unknown> } | undefined)?.values))
+      this.applyTitleProjection(sessionId, projectionTitle((frame.projections as { readonly values?: Record<string, unknown> } | undefined)?.values), frame.cursor)
       this.resolveFollowSnapshotWaiter(sessionId)
       this.fireChange()
       return
@@ -1851,7 +1851,7 @@ export class HarnessGatewayService implements vscode.Disposable {
           }
           const summary = this.summaries.get(sessionId)
           if (summary) this.summaries.set(sessionId, { ...summary, projections: { ...projection, kind: 'sequenced' } })
-          this.applyTitleProjection(sessionId, projectionTitle(value))
+          this.applyTitleProjection(sessionId, projectionTitle(value), projection.asOfSeq)
         }
       }
     } else if (frame.type === 'projection') {
@@ -1866,7 +1866,7 @@ export class HarnessGatewayService implements vscode.Disposable {
           if (key === 'inbox') this.queue = inboxQueue(val)
           if (key === 'workingDirectory' && typeof val === 'string') this.effectiveCwds.set(String(frame.sessionId), val)
         }
-        if (key === 'title') this.applyTitleProjection(String(frame.sessionId), typeof val === 'string' ? val : undefined)
+        if (key === 'title') this.applyTitleProjection(String(frame.sessionId), typeof val === 'string' ? val : undefined, frame.seq)
       }
     }
     this.syncModelSelection()
@@ -2151,7 +2151,7 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   private sessionTitle(sessionId: string): string {
     const observed = this.observedTitles.get(sessionId)
-    if (observed !== undefined) return observed
+    if (observed !== undefined) return observed.title
     const summary = this.summaries.get(sessionId)
     if (summary !== undefined) return sessionListItem(summary, this.labels).title
     return sessionId
@@ -2172,7 +2172,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   private sessionListItemWithIsolation(summary: SessionSummary): SessionListItem {
     const native = sessionListItem(summary, this.labels)
     const id = String(summary.sessionId)
-    const item = { ...native, title: this.observedTitles.get(id) ?? native.title }
+    const item = { ...native, title: this.observedTitles.get(id)?.title ?? native.title }
     const projected = summary.projections?.values.workingDirectory
     const cwd = this.effectiveCwds.get(id) ?? (typeof projected === 'string' ? projected : summary.cwd)
     const location = this.sessionLocations.get(cwd)
@@ -2312,11 +2312,13 @@ export class HarnessGatewayService implements vscode.Disposable {
     if (execution.result?.kind === 'error') throw new Error(execution.result.text ?? vscode.l10n.t('Command failed: {0}', line))
   }
 
-  private applyTitleProjection(sessionId: string, title: string | undefined): void {
+  private applyTitleProjection(sessionId: string, title: string | undefined, asOfSeq = -1, logBacked = false): void {
     if (title === undefined) return
+    const prior = this.observedTitles.get(sessionId)
+    if (prior && (prior.asOfSeq > asOfSeq || (prior.asOfSeq === asOfSeq && prior.logBacked && !logBacked))) return
     const summary = this.summaries.get(sessionId)
     if (summary === undefined) return
-    this.observedTitles.set(sessionId, title)
+    this.observedTitles.set(sessionId, { title, asOfSeq, logBacked })
     const existing = summary.projections
     const projections: SessionSummary['projections'] = existing === undefined
       ? { kind: 'sequenced', asOfSeq: -1, values: { title } }

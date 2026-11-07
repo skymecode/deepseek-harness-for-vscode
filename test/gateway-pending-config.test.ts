@@ -1118,6 +1118,10 @@ describe('shared history title cache', () => {
     const reads = service as unknown as { refreshSessionList(): Promise<void>; sessionListItemWithIsolation(s: unknown): { title: string } }
     await reads.refreshSessionList()
     expect(reads.sessionListItemWithIsolation(service.summaries.get('s1')).title).toBe('Official conversation')
+    service.handleControl({ type: 'baseline', value: { projections: { s1: { asOfSeq: 2, values: { title: 'stale' } } } } } as unknown as ControlFrame)
+    expect(reads.sessionListItemWithIsolation(service.summaries.get('s1')).title).toBe('Official conversation')
+    service.handleControl({ type: 'projection', sessionId: 's1', seq: 6, changes: [{ key: 'title', val: 'New native title' }] } as unknown as ControlFrame)
+    expect(reads.sessionListItemWithIsolation(service.summaries.get('s1')).title).toBe('New native title')
     expect(client.sessionResume).not.toHaveBeenCalled()
     expect(client.sessionFollow).not.toHaveBeenCalled()
     expect(client.sessionPrompt).not.toHaveBeenCalled()
