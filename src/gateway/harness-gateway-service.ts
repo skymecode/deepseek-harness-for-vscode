@@ -1473,7 +1473,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   private async hydrateHistoryTitles(): Promise<void> {
     const client = this.requireClient()
     const pending = this.orderedSummaries().filter(summary => this.inCurrentWorkspace(summary)
-      && !this.archives.isArchived(String(summary.sessionId)) && projectionTitle(summary.projections?.values) === undefined).slice(0, 40)
+      && !this.archives.isArchived(String(summary.sessionId))).slice(0, 40)
     const run = async (): Promise<void> => {
       while (pending.length && client === this.client) {
         const summary = pending.shift()!

@@ -30,7 +30,11 @@ export function registerSessionManagement(ctx: Context, connection: { authorizeI
       const sessions = ctx.get('sessionQuery') as SessionQueryEngine
       const controller = ctx.get('sessionController') as SessionController
       using observation = await sessions.observeSession(id as SessionId, { signal: abort.signal })
-      const values = observation.projections?.values ?? {}
+      let values = observation.projections?.values ?? {}
+      // A restored/private cache can contain an old title. The native log fold
+      // is authoritative, and never activates an Agent.
+      const title = await sessions.readTitle(id as SessionId, abort.signal)
+      if (!title || title.eventSeq <= observation.cursor) values = { ...values, title: title?.title ?? null }
       const cwd = typeof values.workingDirectory === 'string' ? values.workingDirectory : observation.header.cwd
       const preset = typeof values.agentPreset === 'string' ? values.agentPreset : observation.header.agentPreset
       const value: SessionPreview = { cursor: observation.cursor, projections: values,
