@@ -287,4 +287,6 @@ document.addEventListener('pointerdown', (event) => {
   }
 })
 // The webview is fully initialized; ask the host for the first state snapshot.
+elements.historySourceDetails.addEventListener('click', () => post('historySourceDetails'))
+
 vscode.postMessage({ type: 'ready' })

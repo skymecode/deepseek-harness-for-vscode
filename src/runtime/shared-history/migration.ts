@@ -1,10 +1,11 @@
+import { storedSessionDirectories, issueReason, type HistoryMigrationIssue } from './issues.js'
 import { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId, SessionStore, interruptedTurnClosers, type SessionHeader, type SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
-import { mkdir, readFile, realpath } from 'node:fs/promises'
+import { access, constants, mkdir, readFile, realpath } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { canonicalJson, compareHistories } from './compare.js'
 import { migrateAttachments } from './attachments.js'
@@ -18,7 +19,7 @@ export interface SharedHistoryRequest {
   readonly forkLabel?: string
   readonly preferredSessionId?: string
 }
-export interface SharedHistoryReport { copied: number; advanced: number; forked: number; skipped: number; deferred: number; compression: 'zstd' | 'none'; preferredSessionId?: string }
+export interface SharedHistoryReport { copied: number; advanced: number; forked: number; skipped: number; deferred: number; unavailable: number; sourceFailures: number; issues: HistoryMigrationIssue[]; compression: 'zstd' | 'none'; preferredSessionId?: string }
 
 /** Runs under the bundled Node, never under Electron, to use the official cross-platform session locks/codecs. */
 export async function migrateSharedHistory(request: SharedHistoryRequest): Promise<SharedHistoryReport> {
@@ -28,12 +29,22 @@ export async function migrateSharedHistory(request: SharedHistoryRequest): Promi
   // alias here would bypass a writer opened with the original spelling.
   const destination = resolve(request.destinationHome)
   const destinationIdentity = await realpath(destination)
+  await mkdir(join(destination, 'sessions'), { recursive: true, mode: 0o700 })
+  await access(join(destination, 'sessions'), constants.R_OK | constants.W_OK)
   const { context: targetContext, fiber: targetFiber, compression } = await openHistoryStore(destination)
-  const report: SharedHistoryReport = { copied: 0, advanced: 0, forked: 0, skipped: 0, deferred: 0, compression }
+  const report: SharedHistoryReport = { copied: 0, advanced: 0, forked: 0, skipped: 0, deferred: 0, unavailable: 0, sourceFailures: 0, issues: [], compression }
+  const issue = (source: string, reason: HistoryMigrationIssue['reason'], sessionId?: string): void => {
+    if (sessionId === undefined) report.sourceFailures++
+    else report.unavailable++
+    // Keep worker output below the protocol budget; never include parser messages or transcript text.
+    if (report.issues.length < 8) report.issues.push({ source: source.slice(0, 512), reason, ...(sessionId === undefined ? {} : { sessionId: sessionId.slice(0, 256) }) })
+  }
   const seen = new Set<string>([destinationIdentity])
   try {
+    // Validate the target independently of all legacy imports. Failure here is fatal, never a fallback to a private store.
+    await targetContext.sessionPersistence.list()
     for (const path of request.sourceHomes) {
-      const identity = await realpath(path).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error })
+      const identity = await realpath(path).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') issue(path, 'source-unavailable'); return undefined })
       if (identity === undefined || seen.has(identity)) continue
       seen.add(identity)
       const source = resolve(path)
@@ -41,7 +52,9 @@ export async function migrateSharedHistory(request: SharedHistoryRequest): Promi
         const child = relative(join(identity, store), destinationIdentity)
         if (child === '' || (!child.startsWith('..') && !isAbsolute(child))) throw new Error('Shared history destination cannot be inside a legacy data store.')
       }
-      const sourceFormats = await historyFormats(join(source, 'sessions'))
+      let sourceFormats: readonly ('zstd' | 'none')[]
+      try { sourceFormats = await historyFormats(join(source, 'sessions')) }
+      catch { issue(source, 'source-unavailable'); continue }
       // A legacy home can contain plain and Zstandard generations after an
       // upgrade. Read each encoding through its own official backend, then
       // write every session to the one canonical target backend.
@@ -53,47 +66,58 @@ export async function migrateSharedHistory(request: SharedHistoryRequest): Promi
           // lease while copying, so parallel views would lock each other out.
           for (const format of sourceFormats) sourceStores.push(await openFormatViewStore(source, format))
         } else {
-          sourceStores.push({ ...(await openHistoryStore(source)), deferred: 0, cleanup: async () => {} })
+          sourceStores.push({ ...(await openHistoryStore(source)), deferred: 0, deferredIds: [], cleanup: async () => {} })
         }
       } catch (error) {
         for (const store of sourceStores) {
           await store.fiber.dispose()
           await store.cleanup()
         }
-        throw error
+        issue(source, issueReason(error))
+        continue
       }
-      report.deferred += sourceStores.reduce((count, store) => count + store.deferred, 0)
+      const lockedDirectories = new Set(sourceStores.flatMap(store => store.deferredIds))
+      report.deferred += lockedDirectories.size
       const attachments = new Map<string, string>()
       try {
         const journal = join(source, 'shared-history-migration', hash(destinationIdentity))
         await mkdir(journal, { recursive: true, mode: 0o700 })
-        for (const sourceStore of sourceStores) for (const snapshot of await sourceStore.context.sessionPersistence.list()) {
-          const marker = join(journal, `${hash(String(snapshot.header.id))}.json`)
-          // A migrated old backup must not resurrect history later deleted in the shared store.
-          try {
-            const previous = JSON.parse(await readFile(marker, 'utf8'))
-            if (previous.schema === 1 && previous.complete === true && previous.sourceId === snapshot.header.id && previous.sourceRevision === canonicalJson(snapshot.revision)) {
-              if (request.preferredSessionId === snapshot.header.id && typeof previous.targetId === 'string') report.preferredSessionId ??= previous.targetId
-              report.skipped++; continue
-            }
+        await migrateAttachments(join(source, 'attachments'), join(destination, 'attachments'), attachments)
+        const listed = new Set<string>()
+        for (const sourceStore of sourceStores) {
+          const snapshots = await sourceStore.context.sessionPersistence.list()
+          for (const snapshot of snapshots) {
+            const id = String(snapshot.header.id)
+            listed.add(id)
+            if (snapshot.location?.kind === 'jsonl') listed.add(basename(dirname(snapshot.location.path)))
+            let sourceHandle: SessionHandle | undefined
+            try {
+              const marker = join(journal, `${hash(id)}.json`)
+              try {
+                const previous = JSON.parse(await readFile(marker, 'utf8'))
+                if (previous.schema === 1 && previous.complete === true && previous.sourceId === snapshot.header.id && previous.sourceRevision === canonicalJson(snapshot.revision)) {
+                  if (request.preferredSessionId === snapshot.header.id && typeof previous.targetId === 'string') report.preferredSessionId ??= previous.targetId
+                  report.skipped++; continue
+                }
+              } catch (error) { if (!(error instanceof SyntaxError) && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+              // Native ownership prevents copying an active writer. Its released generations remain intact.
+              sourceHandle = await sourceStore.context.sessionPersistence.open(snapshot.header.id, 'write')
+              const outcome = await transferSession(sourceHandle, targetContext, identity, request.forkLabel ?? 'VS Code history')
+              const settledSource = await sourceStore.context.sessionPersistence.stat(sourceHandle.id)
+              await writeFileAtomic(marker, JSON.stringify({ schema: 1, complete: true, sourceId: sourceHandle.id, sourceRevision: canonicalJson(settledSource?.revision), ...outcome }) + '\n', { mode: 0o600 })
+              report[outcome.kind]++
+              if (request.preferredSessionId === sourceHandle.id) report.preferredSessionId ??= outcome.targetId
+            } catch (error) {
+              if (['SessionAlreadyOwnedError', 'SessionAlreadyExistsError'].includes((error as Error).name)) report.deferred++
+              else issue(source, issueReason(error), id)
+            } finally { await sourceHandle?.close() }
           }
-          catch (error) { if (!(error instanceof SyntaxError) && (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
-          let sourceHandle: SessionHandle | undefined
-          try {
-            // An old extension process can still own this private log. Defer;
-            // never copy an active writer's log or remove its kernel lock.
-            sourceHandle = await sourceStore.context.sessionPersistence.open(snapshot.header.id, 'write')
-            await migrateAttachments(join(source, 'attachments'), join(destination, 'attachments'), attachments)
-            const outcome = await transferSession(sourceHandle, targetContext, identity, request.forkLabel ?? 'VS Code history')
-            const settledSource = await sourceStore.context.sessionPersistence.stat(sourceHandle.id)
-            await writeFileAtomic(marker, JSON.stringify({ schema: 1, complete: true, sourceId: sourceHandle.id, sourceRevision: canonicalJson(settledSource?.revision), ...outcome }) + '\n', { mode: 0o600 })
-            report[outcome.kind]++
-            if (request.preferredSessionId === sourceHandle.id) report.preferredSessionId ??= outcome.targetId
-          } catch (error) {
-            if (['SessionAlreadyOwnedError', 'SessionAlreadyExistsError'].includes((error as Error).name)) { report.deferred++; continue }
-            throw error
-          } finally { await sourceHandle?.close() }
         }
+        for (const id of await storedSessionDirectories(join(source, 'sessions'))) {
+          if (!listed.has(id) && !lockedDirectories.has(id)) issue(source, 'unlisted-header', id)
+        }
+      } catch (error) {
+        issue(source, issueReason(error))
       } finally {
         for (const sourceStore of sourceStores) {
           await sourceStore.fiber.dispose()

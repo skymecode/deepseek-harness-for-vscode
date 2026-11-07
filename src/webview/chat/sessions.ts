@@ -46,6 +46,13 @@ const sessionList = new SessionListComponent({
 
 export function renderSessions(): void {
   if (!payload) return
+  const source = payload.state.historySource
+  elements.historySource.classList.toggle('hidden', source === undefined)
+  if (source) {
+    const label = source.status === 'shared' ? t('historySharedSource') : source.status === 'shared-incomplete' ? t('historySharedIncomplete') : source.status === 'preparing' ? t('historySourcePreparing') : t('historySourceUnavailable')
+    elements.historySourceLabel.textContent = label + ' · ' + source.root
+    elements.historySourceLabel.title = source.root
+  }
   const query = elements.historySearch.value.trim()
   const snippets = new Map(searchResults.map((result) => [result.sessionId, result.snippet]))
   const resultIds = new Set(searchResults.map((result) => result.sessionId))

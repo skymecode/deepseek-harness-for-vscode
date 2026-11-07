@@ -4,7 +4,7 @@ import { installedBundleViews } from '../src/plugins/bundle-views.js'
 
 function bundle(values: Partial<BundleInfo>): BundleInfo {
   return { name: 'fixture', official: false, availability: 'profile', enabled: false, installed: true,
-    optional: false, removable: true, rows: [], overrides: [], ...values }
+    optional: false, removable: true, updatable: false, rows: [], overrides: [], ...values }
 }
 
 describe('native bundle inventory', () => {

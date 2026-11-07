@@ -1,3 +1,4 @@
+import type { HistorySourceView } from './history-source.js'
 import type { SessionManagementView } from './session-management.js'
 import type { JobOutputView } from '../gateway/job-output-observer.js'
 import type { HistoryEntry, JobView, SessionSummary, SkillEntry } from '../gateway/gateway-wire.js'
@@ -392,6 +393,7 @@ export interface GoalView {
 }
 
 export interface HarnessWorkbenchState {
+  readonly historySource?: HistorySourceView
   readonly phase: ConnectionPhase
   readonly error?: string
   readonly hasApiKey: boolean

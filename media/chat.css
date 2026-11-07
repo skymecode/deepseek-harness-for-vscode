@@ -280,7 +280,7 @@ body.vscode-high-contrast .brand-logo {
   z-index: 40;
   padding: 9px;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 8px;
   background: var(--vscode-sideBar-background);
 }
@@ -5034,3 +5034,12 @@ body.vscode-light .effort-control[data-effort="max"] {
 .session-badges { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .session-badges .session-tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-execution { color: var(--vscode-descriptionForeground); border: 1px solid var(--vscode-widget-border); }
+
+.history-source { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--vscode-descriptionForeground); font-size: 11px; }
+.history-source span { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.history-source button { flex: none; font-size: inherit; }
+
+.history-panel > .panel-heading { grid-row: 1; }
+.history-source { grid-row: 2; }
+#history-search { grid-row: 3; }
+#session-list { grid-row: 4; min-height: 0; }

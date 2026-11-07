@@ -1,4 +1,9 @@
 export const ENGLISH_WEBVIEW_MESSAGES = {
+  historyMigrationDetails: "Migration details",
+  historySharedSource: "Shared history",
+  historySharedIncomplete: "Shared history · some legacy records pending",
+  historySourcePreparing: "Checking shared history",
+  historySourceUnavailable: "Shared history unavailable",
   sessionCreateFirst: 'Create a conversation in a project folder to start.',
   sessionPresetLocked: 'The preset is fixed for this conversation. Models and reasoning can still be changed.',
   sessionChildPreviewHint: 'Continue the parent session first to interact with this sub-agent.',

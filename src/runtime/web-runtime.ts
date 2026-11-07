@@ -1,3 +1,5 @@
+import type { HistorySourceView } from '../domain/history-source.js'
+import { prepareSharedHistory } from './shared-history/prepare.js'
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -11,8 +13,6 @@ import { isModuleFallbackConflict } from './module-fallback-recovery.js'
 import { prepareModuleFallback } from './prepare-module-fallback.js'
 import { renderOverlay } from './runtime-overlay.js'
 import { sharedHistoryHome } from './shared-history/paths.js'
-import { runHistoryMigration } from './shared-history/runner.js'
-import { historyCompression as detectHistoryCompression } from './shared-history/encoding.js'
 import { LAST_SESSION_STATE_KEY } from '../domain/session-selection.js'
 
 const START_TIMEOUT_MS = 90_000
@@ -49,6 +49,8 @@ export class HarnessHostRuntime implements vscode.Disposable {
   private stateValue: HostRuntimeState = { phase: 'idle' }
   private preparationAbort: AbortController | undefined
   private sharedHistoryValue = false
+  private historySourceValue: HistorySourceView | undefined
+  get historySource(): HistorySourceView | undefined { return this.historySourceValue }
 
   get sharedHistory(): boolean { return this.sharedHistoryValue }
 
@@ -120,56 +122,34 @@ export class HarnessHostRuntime implements vscode.Disposable {
     const gatewayPlugin = path.join(this.context.extensionUri.fsPath, 'dist', 'runtime', 'gateway-runtime.mjs')
     await mkdir(home, { recursive: true })
     const sharedHome = sharedHistoryHome(configuration.historyHome)
-    // A clean sibling store is used only when the shared destination itself
-    // contains incompatible physical encodings. It lets the extension keep
-    // showing old sessions while preserving the official store untouched.
     const recoveryHome = path.join(home, 'history-recovery')
-    let historyCompression: 'zstd' | 'none' = 'zstd'
-    let runtimeHistoryHome = sharedHome
     this.sharedHistoryValue = false
+    this.historySourceValue = { root: path.join(sharedHome, 'sessions'), status: 'preparing' }
     const preferredSessionId = this.context.globalState?.get<string>(LAST_SESSION_STATE_KEY)
+    const worker = this.context.asAbsolutePath('dist/runtime/shared-history-worker.mjs')
+    let prepared
     try {
-      const report = await runHistoryMigration(launch.command, this.context.asAbsolutePath('dist/runtime/shared-history-worker.mjs'), {
+      prepared = await prepareSharedHistory(launch.command, worker, {
         destinationHome: sharedHome,
         forkLabel: vscode.l10n.t('VS Code history'),
         ...(preferredSessionId === undefined ? {} : { preferredSessionId }),
         sourceHomes: [home, recoveryHome, ...(this.context.globalStorageUri?.fsPath === undefined ? [] : [path.join(this.context.globalStorageUri.fsPath, 'harness-home')])],
       }, signal)
-      this.sharedHistoryValue = true
-      historyCompression = report.compression
-      if (report.preferredSessionId !== undefined) await this.context.globalState?.update(LAST_SESSION_STATE_KEY, report.preferredSessionId)
-      this.output.appendLine(`[history] Shared history ready: ${JSON.stringify(report)}`)
-      if (report.deferred > 0) void vscode.window.showWarningMessage(vscode.l10n.t('Some old sessions are still in use. Their originals are preserved; migration will retry on the next Harness start.'))
     } catch (error) {
-      if (signal.aborted) throw error
-      this.sharedHistoryValue = false
-      this.output.appendLine(`[history] ${error instanceof Error ? error.message : String(error)}`)
-      // Normalize mixed private/legacy stores into a clean sibling through the
-      // same official codecs. Originals remain untouched and this retry is
-      // idempotent, so a later launch can retry sharing with the official home.
-      try {
-        const recovery = await runHistoryMigration(launch.command, this.context.asAbsolutePath('dist/runtime/shared-history-worker.mjs'), {
-          destinationHome: recoveryHome,
-          forkLabel: vscode.l10n.t('VS Code history recovery'),
-          ...(preferredSessionId === undefined ? {} : { preferredSessionId }),
-          sourceHomes: [home, ...(this.context.globalStorageUri?.fsPath === undefined ? [] : [path.join(this.context.globalStorageUri.fsPath, 'harness-home')])],
-        }, signal)
-        runtimeHistoryHome = recoveryHome
-        historyCompression = recovery.compression
-        if (recovery.preferredSessionId !== undefined) await this.context.globalState?.update(LAST_SESSION_STATE_KEY, recovery.preferredSessionId)
-        this.output.appendLine(`[history] Clean recovery history ready: ${JSON.stringify(recovery)}`)
-      } catch (recoveryError) {
-        this.output.appendLine(`[history] Clean recovery history unavailable: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`)
-        // A corrupt/mixed private store should not turn a recoverable migration
-        // issue into a startup crash. The Gateway can create a fresh store;
-        // the original files remain available for a later repair.
-        runtimeHistoryHome = home
-        historyCompression = await detectHistoryCompression(path.join(home, 'sessions')).catch(() => 'zstd')
-      }
-      void vscode.window.showWarningMessage(vscode.l10n.t('History sharing could not finish safely. This launch keeps your previous extension history; no original logs were removed. See the output logs.'))
+      this.historySourceValue = { root: path.join(sharedHome, 'sessions'), status: 'unavailable' }
+      this.output.appendLine(`[history] Shared target unavailable: ${sharedHome}`)
+      throw new Error(vscode.l10n.t('The shared history store is unavailable: {0}. No private session store was opened. See the output logs.', path.join(sharedHome, 'sessions')), { cause: error })
     }
+    const { report, migrationError } = prepared
+    const incomplete = migrationError !== undefined || (report !== undefined && report.deferred + report.unavailable + report.sourceFailures > 0)
+    this.sharedHistoryValue = true
+    this.historySourceValue = { root: path.join(sharedHome, 'sessions'), status: incomplete ? 'shared-incomplete' : 'shared',
+      ...(report === undefined ? {} : { report }), ...(migrationError === undefined ? {} : { migrationError }) }
+    if (report?.preferredSessionId !== undefined) await this.context.globalState?.update(LAST_SESSION_STATE_KEY, report.preferredSessionId)
+    this.output.appendLine(`[history] Using shared store: ${JSON.stringify(this.historySourceValue)}`)
+    if (incomplete) void vscode.window.showWarningMessage(vscode.l10n.t('Shared history is active. Some old extension records could not be imported yet; originals are preserved. See Migration details in history.'))
     signal.throwIfAborted()
-    await writeFile(overlay, renderOverlay(configuration, gatewayPlugin, this.sharedHistoryValue ? sharedHome : runtimeHistoryHome, historyCompression), 'utf8')
+    await writeFile(overlay, renderOverlay(configuration, gatewayPlugin, sharedHome, prepared.compression), 'utf8')
     const installAnchor = this.context.asAbsolutePath(path.join('node_modules', '@deepseek-ai', 'dsh', 'package.json'))
     // DSH owns runtime profile resolution. Legacy repair runs only after a
     // recognized old-link failure, preserving unrelated installed packages.

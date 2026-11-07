@@ -4,7 +4,7 @@
 
 A native VS Code coding-agent extension powered by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Install the platform-specific VSIX and start working—there is no upstream repository to clone, no Node/npm setup, and no local Harness deployment to manage.
 
-> This is the community-maintained **0.6.1 codebase with unreleased fixes**. Current source pins the official `@deepseek-ai/dsh@0.2.1-rc.5` package (Typert Remote protocol). The published 0.6.1 assets still contain `0.2.1-alpha.1`; DeepSeek Harness remains a Developer Preview.
+> This is the community-maintained **0.6.1 codebase with unreleased fixes**. Current source pins the official `@deepseek-ai/dsh@0.2.2-rc.1` package (Typert Remote protocol). The published 0.6.1 assets still contain `0.2.1-alpha.1`; DeepSeek Harness remains a Developer Preview.
 
 Pending updates fix duplicate user prompts appearing after their answers when editor context is attached, preserve message order during streaming and rapid submissions, and support the new external-task entries in the native subagent catalog. See the [changelog](CHANGELOG.md).
 
@@ -56,7 +56,7 @@ Stability and the upgrade experience for existing users take priority over alway
 - **Native change records** — DSH records snapshots and diffs without an extra conversation or checkout. The legacy `worktreeAutoMerge` setting is retired. Snapshots record changes; they do not isolate concurrent edits to the same files.
 - **External MCP servers** — configure `deepseekHarness.mcpServers` as a JSON array in VS Code Settings. The extension writes validated stdio or Streamable HTTP entries into DSH's profile and restarts the Gateway; discovered tools use names such as `mcp__github__create_issue`. `toolCallTimeoutMs`, `maxInstructionBytes`, `failOnStartupError`, and bounded `reconnect` options are passed through to the native DSH MCP client.
 - **Automatic localization** — follows the VS Code display language with English and Simplified Chinese support.
-- **Zero-deployment runtime** — official `dsh`, pnpm, and standalone Node 22.22.3 are bundled in each platform VSIX and managed by the extension.
+- **Zero-deployment runtime** — official `dsh`, pnpm, and standalone Node 24.22.2 are bundled in each platform VSIX and managed by the extension.
 
 Open the workbench with `Ctrl+Alt+H` on Windows/Linux or `Cmd+Alt+H` on macOS.
 
@@ -114,11 +114,11 @@ The extension still ships and starts its own tested Harness/Node runtime. A sepa
 
 An inherited `DSH_HOME` takes precedence. If official DSH uses another home, set the application-level `deepseekHarness.historyHome` to that same absolute path. Only `sessions/` and `attachments/` are shared. The extension's credentials, plugin profile and caches remain under `~/.dsh/vscode/harness-home`; archive and pin state use the native DSH workspace registry in the extension's private home and remain separate from independently launched DSH. Tags and the VS Code history filter stay local to this workbench. VS Code uninstall does not remove the shared history.
 
-Old private/globalStorage histories are migrated through the official session codecs, with the original logs retained. Equal records are not duplicated; a strictly newer compatible prefix is appended only with write ownership. Diverged histories, or newer copies whose destination is busy, become separately named “VS Code history” forks. Completed imports are journaled, so reopening the extension does not keep duplicating them. In-use old sources are deferred; if migration fails, the extension keeps its previous private history for that launch and shows a warning instead of silently starting with an empty migrated store.
+Migration copies readable legacy histories while retaining originals; conflicting same-ID histories are preserved through a native fork. Unreadable, locked, or attachment-conflicting records are reported without changing the canonical data source. An unavailable canonical target fails visibly and never opens a private session store.
 
 Open the VS Code history panel to refresh its list; refresh the official Web UI page to discover externally created history. VS Code filters by the current project, while official DSH may show worktree sessions under their own workspace or as ungrouped sessions. This shares **saved history**, not another process's transient token stream. Kernel locks prevent simultaneous writes to one session: close the owning backend before continuing on the other side, or create a fork. Model credentials and installed plugins are configured independently.
 
-Both runtimes must support the same log format (this build uses **V4, DSH 0.2.1-rc.5**). An older official CLI cannot read new V4 logs and must be updated to use this sharing feature; original V2/V3 files are retained, but are not a downgrade-sync mechanism. This is not cloud, cross-device, or Windows/WSL cross-kernel synchronization; do not run live shared stores through a network/sync drive. Back up both the shared home and the old private home before a major runtime upgrade.
+Both runtimes must support the same log format (this build uses **V4, DSH 0.2.2-rc.1**). An older official CLI cannot read new V4 logs and must be updated to use this sharing feature; original V2/V3 files are retained, but are not a downgrade-sync mechanism. This is not cloud, cross-device, or Windows/WSL cross-kernel synchronization; do not run live shared stores through a network/sync drive. Back up both the shared home and the old private home before a major runtime upgrade.
 
 ## DSH plugins
 
@@ -148,7 +148,7 @@ The tool list is a global registry view, not a live connection test; use a chat 
 
 ## Configuration
 
-The current source uses DSH `0.2.1-rc.5` (npm `next`; extension version remains `0.6.1`). In VS Code Settings, `deepseekHarness.webSearchProvider` selects `messages` (default: Messages search with local HTTP retrieval) or `search-api` (native DeepSeek Search and Fetch APIs). Reload the workbench after changing it. The direct APIs use the official DeepSeek credential, independently of the chat provider, and require access on that account. Disabling `deepseekHarness.webSearch` disables both DeepSeek web providers while retaining local HTTP retrieval. As in official DSH, Search API requests may include up to 128 characters of the initiating question.
+The current source uses DSH `0.2.2-rc.1` (npm `next`; extension version remains `0.6.1`). In VS Code Settings, `deepseekHarness.webSearchProvider` selects `messages` (default: Messages search with local HTTP retrieval) or `search-api` (native DeepSeek Search and Fetch APIs). Reload the workbench after changing it. The direct APIs use the official DeepSeek credential, independently of the chat provider, and require access on that account. Disabling `deepseekHarness.webSearch` disables both DeepSeek web providers while retaining local HTTP retrieval. As in official DSH, Search API requests may include up to 128 characters of the initiating question.
 
 
 DSH 0.2.1 uses only Messages for DeepSeek Official, at `https://api.deepseek.com/anthropic`. Old hand-written `llm-deepseek.protocol` options must be removed; Chat Completions endpoints belong under a custom provider. Custom-provider protocols remain unchanged.

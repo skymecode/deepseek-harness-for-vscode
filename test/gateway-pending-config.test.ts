@@ -274,7 +274,7 @@ describe('official control projections', () => {
     } } } as unknown as ControlFrame)
     expect(service.queue.map((item) => item.id)).toEqual(['pending'])
     expect(service.models?.current).toEqual(model)
-    service.handleControl({ type: 'projection', sessionId: 's2', key: 'inbox', value: {}, seq: 9 } as unknown as ControlFrame)
+    service.handleControl({ type: 'projection', sessionId: 's2', changes: [{ key: 'inbox', val: {} }], seq: 9 } as unknown as ControlFrame)
     expect(service.queue.map((item) => item.id)).toEqual(['pending'])
     service.handleControl({ type: 'baseline', value: { jobs: {}, projections: {} } } as unknown as ControlFrame)
     expect(service.queue).toEqual([])

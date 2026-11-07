@@ -639,5 +639,12 @@
   "The preset is fixed for this conversation. Models and reasoning can still be changed.": "当前会话的预设已固定，仍可切换模型和推理强度。",
   "Open project in new window": "在新窗口打开项目",
   "Choose a project folder before creating a session.": "请先选择项目文件夹，再创建会话。",
-  "Create a conversation in a project folder to start.": "请先在项目文件夹中新建会话。"
+  "Create a conversation in a project folder to start.": "请先在项目文件夹中新建会话。",
+  "Migration details": "迁移详情",
+  "Shared history": "共享会话库",
+  "Shared history · some legacy records pending": "共享会话库 · 部分旧记录待处理",
+  "Checking shared history": "正在检查共享会话库",
+  "Shared history unavailable": "共享会话库不可用",
+  "The shared history store is unavailable: {0}. No private session store was opened. See the output logs.": "共享会话库不可用：{0}。未切换到私有会话库，请查看输出日志。",
+  "Shared history is active. Some old extension records could not be imported yet; originals are preserved. See Migration details in history.": "已使用共享会话库。部分扩展旧记录暂未迁入，原始文件已保留；可在历史面板查看“迁移详情”。"
 }

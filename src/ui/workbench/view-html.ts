@@ -99,6 +99,7 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
         <button id="history-close" class="icon-button">${icon('close')}</button>
       </div>
     </div>
+    <div id="history-source" class="history-source hidden" role="status"><span id="history-source-label"></span><button id="history-source-details" class="link-button" type="button">${text('historyMigrationDetails')}</button></div>
     <input id="history-search" class="search-input" type="search" placeholder="${text('searchConversations')}">
     <div id="session-list" class="session-list"></div>
   </aside>

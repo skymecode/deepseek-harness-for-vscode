@@ -118,6 +118,12 @@ export interface WorkbenchViewActions {
     case 'showLogs':
       ctx.actions.showLogs()
       break
+    case 'historySourceDetails': {
+      const state = await ctx.gateway.snapshot()
+      const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(state.historySource ?? {}, null, 2) })
+      await vscode.window.showTextDocument(document, { preview: true })
+      break
+    }
     case 'refreshSessions':
       await ctx.gateway.ensureStarted()
       await ctx.gateway.reloadSessions()

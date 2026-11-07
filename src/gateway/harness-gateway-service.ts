@@ -503,6 +503,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       phase: this.phase,
       ...(this.error === undefined ? {} : { error: this.error }),
       hasApiKey,
+      ...(this.runtime.historySource === undefined ? {} : { historySource: this.runtime.historySource }),
       sessions: partitioned.active,
       archivedSessions: partitioned.archived,
       ...(active === undefined ? {} : { active }),
@@ -701,8 +702,8 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   /** Native DSH Schedule delivery history, kept read-only for the workbench. */
-  async scheduleHistory(sessionId: string, scheduleId: string, limit = 20): Promise<unknown> {
-    return await this.requireClient().scheduleHistory({ sessionId: sessionId as SessionId, id: scheduleId as never, limit })
+  async scheduleHistory(_sessionId: string, scheduleId: string, limit = 20): Promise<unknown> {
+    return await this.requireClient().scheduleHistory({ id: scheduleId as never, limit })
   }
 
   /** Browse an exact native cut without invoking follow's implicit promotion. */
@@ -731,6 +732,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       this.hasMore = this.hasMore || page.hasMore
       this.followCursor.set(sessionId, preview.cursor as never)
       this.projections = preview.projections
+      this.applyTitleProjection(sessionId, projectionTitle(preview.projections))
       this.syncModelSelection()
       if (this.execution.get(sessionId)?.error === vscode.l10n.t('This session could not be read. Refresh to retry; the original history is preserved.')) this.execution.delete(sessionId)
       this.fireChange()
@@ -1830,13 +1832,16 @@ export class HarnessGatewayService implements vscode.Disposable {
       const summary = this.summaries.get(String(frame.sessionId))
       if (summary) this.summaries.set(String(frame.sessionId), { ...summary, projections: {
         kind: 'sequenced', asOfSeq: frame.seq,
-        values: { ...summary.projections?.values, [frame.key]: frame.value },
+        values: { ...summary.projections?.values, ...Object.fromEntries(frame.changes.map(change => [change.key, change.val])) },
       } })
-      if (String(frame.sessionId) === active) {
-        this.projections[frame.key] = frame.value
-        if (frame.key === 'inbox') this.queue = inboxQueue(frame.value)
+      for (const { key, val } of frame.changes) {
+        if (String(frame.sessionId) === active) {
+          this.projections[key] = val
+          if (key === 'inbox') this.queue = inboxQueue(val)
+          if (key === 'workingDirectory' && typeof val === 'string') this.effectiveCwds.set(String(frame.sessionId), val)
+        }
+        if (key === 'title') this.applyTitleProjection(String(frame.sessionId), typeof val === 'string' ? val : undefined)
       }
-      if (frame.key === 'title') this.applyTitleProjection(String(frame.sessionId), typeof frame.value === 'string' ? frame.value : undefined)
     }
     this.syncModelSelection()
     this.fireChange()

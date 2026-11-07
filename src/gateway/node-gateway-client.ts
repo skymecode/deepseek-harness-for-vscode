@@ -39,7 +39,7 @@ import type { CreateGoalRequest, CreateGoalResult } from '@deepseek-ai/dsh-goal/
 import type { LlmConfigurableProvider, LlmDiscoveredModel, LlmModelDiscoveryRequest, LlmProviderInfo } from '@deepseek-ai/dsh-llm/types'
 import type { SettingsDescribeValue, SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-settings/types'
 import type { SubagentInterruptReceipt, SubagentPromptReceipt, SubagentPromptRequest } from '@deepseek-ai/dsh-subagent/client'
-import type { ScheduleCatalogEntry, ScheduleDeleteRequest, ScheduleDeleteResult, ScheduleDeliveryHistoryRequest, ScheduleDeliveryHistoryResult, ScheduleUpdateRequest, ScheduleUpdateResult } from '@deepseek-ai/dsh-schedule/client'
+import type { ScheduleCatalogEntry, ScheduleDeliveryHistoryRequest, ScheduleDeliveryHistoryResult, ScheduleEditRequest, ScheduleEditResult, ScheduleId } from '@deepseek-ai/dsh-schedule/client'
 import type {
   SessionControlFrame,
   SessionCreateRequest,
@@ -242,8 +242,8 @@ export class NodeGatewayClient {
     return await this.callRaw('pluginManager/listPlugins', {})
   }
 
-  async pluginInstall(spec: string, requestId: string): Promise<DshChangeResult> {
-    return await this.callRaw('pluginManager/installBundle', { spec, options: { requestId } }, 600_000)
+  async pluginInstall(spec: string, requestId: string, enabled?: boolean): Promise<DshChangeResult> {
+    return await this.callRaw('pluginManager/installBundle', { spec, options: { requestId, ...(enabled === undefined ? {} : { enabled }) } }, 600_000)
   }
 
   async pluginCancelInstall(requestId: string): Promise<DshPluginInstallCancellation> {
@@ -524,13 +524,13 @@ export class NodeGatewayClient {
   }
 
   /** Deletes one native Schedule task without activating its Session. */
-  async scheduleDelete(request: ScheduleDeleteRequest): Promise<ScheduleDeleteResult> {
-    return await this.callRaw<ScheduleDeleteResult>('schedule/delete', { request })
+  async scheduleDelete(request: { id: ScheduleId; sessionId?: DshSessionId }): Promise<ScheduleEditResult> {
+    return await this.callRaw<ScheduleEditResult>('schedule/edit', { request: { id: request.id, action: 'delete' } })
   }
 
   /** Updates one native Schedule task using its compare-and-swap record. */
-  async scheduleUpdate(request: ScheduleUpdateRequest): Promise<ScheduleUpdateResult> {
-    return await this.callRaw<ScheduleUpdateResult>('schedule/update', { request })
+  async scheduleEdit(request: ScheduleEditRequest): Promise<ScheduleEditResult> {
+    return await this.callRaw<ScheduleEditResult>('schedule/edit', { request })
   }
 
   /** Reads saved delivery history for one native Schedule task. */

@@ -15,7 +15,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('DSH 0.2.1 official contra
     let fixture = ''
     let importer = ''
     const runtime = await bootSmokeRuntime('http://127.0.0.1:1', { prepare: async (home, extensionRoot) => {
-      importer = join(extensionRoot, 'vendor/plugins/dsh-chat-import-0.22.2.tgz')
+      importer = join(extensionRoot, 'vendor/plugins/dsh-chat-import-0.26.4.tgz')
       fixture = join(home, 'fixture-bundle')
       await mkdir(fixture)
       await writeFile(join(fixture, 'package.json'), JSON.stringify({ name, version: '1.0.0', type: 'module', main: './index.js', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
