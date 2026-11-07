@@ -1,3 +1,4 @@
+import type { SessionPreview } from '../domain/session-management.js'
 import type { LlmResolvedModelInfo as DshLlmResolvedModelInfo } from '@deepseek-ai/dsh-llm/types'
 import type { ChangesSummary as DshChangesSummary } from './workspace-changes.js'
 import type { WorkspaceFileDiff as DshWorkspaceFileDiff } from '@deepseek-ai/dsh-workspace-changes/types'
@@ -163,6 +164,28 @@ export class NodeGatewayClient {
     const response = await this.doFetch(new URL('/api/vscode.mcp-tools', this.baseUrl), { signal: AbortSignal.timeout(this.importTimeoutMs) })
     if (!response.ok) throw new Error(`MCP tool registry unavailable: HTTP ${response.status}`)
     return await response.json() as { name: string; description: string }[]
+  }
+
+  /** Read-only metadata or explicit native writer acquisition; no synthetic prompts. */
+  async sessionPreview(sessionId: string): Promise<SessionPreview> {
+    return this.sessionManagement(sessionId)
+  }
+
+  async sessionResume(sessionId: string, cwd: string): Promise<SessionPreview> {
+    return this.sessionManagement(sessionId, cwd)
+  }
+
+  private async sessionManagement(sessionId: string, cwd?: string): Promise<SessionPreview> {
+    await this.ensureAuthenticated()
+    const url = new URL('/api/vscode.session', this.baseUrl)
+    url.searchParams.set('sessionId', sessionId)
+    if (cwd !== undefined) url.searchParams.set('cwd', cwd)
+    const response = await this.doFetch(url, { method: cwd === undefined ? 'GET' : 'POST',
+      ...(cwd === undefined ? {} : { headers: { 'x-dsh-session-action': 'resume' } }),
+      signal: AbortSignal.timeout(this.importTimeoutMs) })
+    const result = await response.json() as { value?: SessionPreview; error?: { code: string; message?: string } }
+    if (!response.ok || !result.value) throw new DshRemoteError(result.error?.code ?? 'session/unavailable', result.error?.message ?? 'Session unavailable')
+    return result.value
   }
 
   async changesSummary(sessionId: string, seq: number): Promise<DshChangesSummary | undefined> {

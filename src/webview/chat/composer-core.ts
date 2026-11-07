@@ -17,10 +17,10 @@ import {
 
 /** Repaints the composer toolbar (send state, context meter, status line) for the session. */
 export function renderComposer(active: ActiveSessionView | undefined): void {
-  const ready = payload?.state.phase === 'connected' || payload?.state.phase === 'reconnecting'
+  const ready = (payload?.state.phase === 'connected' || payload?.state.phase === 'reconnecting') && (!active?.management || active.management.status === 'ready')
   elements.prompt.disabled = !ready
   if (active?.subagentMode === 'one-shot') elements.prompt.disabled = true
-  elements.prompt.placeholder = active?.running ? t('queuedPromptPlaceholder') : t('promptPlaceholder')
+  elements.prompt.placeholder = active?.management && active.management.status !== 'ready' ? t('sessionPreviewPlaceholder') : active?.running ? t('queuedPromptPlaceholder') : t('promptPlaceholder')
   elements.send.disabled = !ready || (!active?.running && elements.prompt.value.trim() === '' && pastedImages.length === 0)
   elements.send.textContent = active?.running ? '■' : '↑'
   elements.send.title = active?.running ? `${t('stopGenerating')} · ${t('activityEscHint')}` : t('sendTitle')

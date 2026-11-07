@@ -80,7 +80,7 @@ export function composerConfigurationInput(
     // A queued prompt must not mutate the Agent's live model selection while
     // the current turn may still be executing tools. DSH snapshots per step,
     // so changing it mid-turn could otherwise move a later step to a new route.
-    editable: active.subagentMode === undefined && !active.running,
+    editable: active.subagentMode === undefined && !active.running && (!active.management || active.management.status === 'ready'),
     blank: active.blank,
     current: {
       provider: active.model?.provider ?? payload.configuration.provider,

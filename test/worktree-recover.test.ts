@@ -82,7 +82,7 @@ describe('WorktreeService.recover (Memento reset self-healing)', () => {
     expect(writeFile).toHaveBeenCalledWith('/repo/.git/dsh-worktrees.json', expect.any(String))
   })
 
-  it('rebuilds records by scanning the isolation directory when the mirror is gone', async () => {
+  it('does not adopt a foreign worktree when the extension registry is absent', async () => {
     const { memento } = memStore()
     vi.mocked(readFile).mockImplementation(async (target) => {
       if (String(target).endsWith('/.dsh-worktrees/abc123/.git')) return 'gitdir: /repo/.git/worktrees/abc123\n'
@@ -95,13 +95,9 @@ describe('WorktreeService.recover (Memento reset self-healing)', () => {
 
     const restored = await service.recover(['/repo'])
 
-    expect(restored).toHaveLength(1)
-    expect(service.recordFor('abc123')).toMatchObject({
-      sessionId: 'abc123',
-      baseBranch: 'main',
-      branch: 'dsh/abc123',
-      worktreePath: '/repo/.dsh-worktrees/abc123',
-    })
+    expect(restored).toHaveLength(0)
+    expect(service.recordFor('abc123')).toBeUndefined()
+    expect(readdir).not.toHaveBeenCalled()
   })
 
   it('ignores merge scratch and non-worktree directories during the scan', async () => {

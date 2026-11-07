@@ -13,6 +13,13 @@ function byId<T extends HTMLElement>(id: string): T {
 }
 
 export const elements: ChatElements = {
+  sessionAccess: byId<HTMLElement>('session-access'),
+  sessionAccessStatus: byId<HTMLElement>('session-access-status'),
+  sessionAccessLocation: byId<HTMLElement>('session-access-location'),
+  sessionAccessHint: byId<HTMLElement>('session-access-hint'),
+  sessionResume: byId<HTMLButtonElement>('session-resume'),
+  sessionRefresh: byId<HTMLButtonElement>('session-refresh'),
+  sessionOpenProject: byId<HTMLButtonElement>('session-open-project'),
   connection: byId<HTMLElement>('connection'),
   historyToggle: byId<HTMLElement>('history-toggle'),
   manageMcp: byId<HTMLButtonElement>('manage-mcp'),
@@ -89,7 +96,7 @@ export const elements: ChatElements = {
 }
 
 export function post(type: string, data: Record<string, unknown> = {}): void {
-  vscode.postMessage({ type, ...data })
+  vscode.postMessage({ type, ...(payload?.state.active?.id ? { sessionId: payload.state.active.id } : {}), ...data })
 }
 
 export function node(tag: string, className = '', text = ''): HTMLElement {

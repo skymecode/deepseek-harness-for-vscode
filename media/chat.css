@@ -5013,3 +5013,24 @@ body.vscode-light .effort-control[data-effort="max"] {
   );
   color: var(--vscode-descriptionForeground);
 }
+
+/* Session identity and execution remain visible above a read-only transcript. */
+.session-access {
+  margin: 0 10px 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--vscode-widget-border);
+  border-radius: 8px;
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-foreground);
+  font-size: calc(var(--vscode-font-size) - 1px);
+  min-width: 0;
+}
+.session-access-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.session-access-location { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--vscode-descriptionForeground); }
+.session-access p { margin: 5px 0 8px; overflow-wrap: anywhere; line-height: 1.5; }
+.session-access-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.session-access-actions button { white-space: normal; }
+.session-project-heading { margin: 12px 6px 4px; color: var(--vscode-descriptionForeground); font-size: 11px; overflow-wrap: anywhere; }
+.session-badges { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.session-badges .session-tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-execution { color: var(--vscode-descriptionForeground); border: 1px solid var(--vscode-widget-border); }

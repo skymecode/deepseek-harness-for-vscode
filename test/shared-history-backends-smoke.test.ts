@@ -48,10 +48,10 @@ async function prompt(client: NodeGatewayClient, id: SessionId, text: string, si
 }
 
 async function history(client: NodeGatewayClient, id: SessionId, signal: AbortSignal): Promise<string> {
-  for await (const frame of client.sessionFollow({ address: { kind: 'session', sessionId: id } }, signal)) {
-    if (frame.type === 'snapshot') return JSON.stringify(projectConversation(frame.records as unknown as HistoryEntry[]).messages)
-  }
-  throw new Error('No history snapshot.')
+  signal.throwIfAborted()
+  const cut = await client.sessionPreview(id)
+  const page = await client.sessionPage({ address: { kind: 'session', sessionId: id }, throughSeq: cut.cursor, maxMessages: 80 })
+  return JSON.stringify(projectConversation(page.records as unknown as HistoryEntry[]).messages)
 }
 
 describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('independent backends share history', () => {
@@ -93,6 +93,8 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('independent backends shar
     try {
       native = await bootSmokeRuntime(url, { historyHome: sharedHome, protocol: 'messages' })
       const a = await native.client.sessionCreate({ cwd, agentPreset: 'minimal' })
+      await native.client.agentPresetSelect(a.sessionId, 'standard')
+      expect((await native.client.sessionPreview(a.sessionId)).agentPreset).toBe('standard')
       await prompt(native.client, a.sessionId, 'from-vscode', abort.signal)
       await savedHistory(sharedHome, a.sessionId, 'VS Code answer.')
       official = await bootSmokeRuntime(url, { home: sharedHome, officialUi: true })
@@ -100,6 +102,11 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('independent backends shar
       expect(native.home).not.toBe(official.home)
       expect((await official.client.sessionList()).some((row) => row.sessionId === a.sessionId)).toBe(true)
       expect(await history(official.client, a.sessionId, abort.signal)).toContain('VS Code answer.')
+      expect((await official.client.sessionList()).find(row => row.sessionId === a.sessionId)?.agentAvailable).toBe(false)
+      await expect(official.client.sessionResume(a.sessionId, cwd)).rejects.toMatchObject({ code: 'session/writer-held' })
+      expect((await official.client.sessionList()).find(row => row.sessionId === a.sessionId)?.agentAvailable).toBe(false)
+      const unauthorized = await fetch(new URL('/api/vscode.session?sessionId=' + a.sessionId, official.url))
+      expect(unauthorized.status).toBe(401)
 
       const b = await official.client.sessionCreate({ cwd, agentPreset: 'minimal' })
       await prompt(official.client, b.sessionId, 'from-official-web', abort.signal)
@@ -111,6 +118,11 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('independent backends shar
       expect(await history(native.client, a.sessionId, abort.signal)).not.toContain('Do not take over the active owner.')
       await native.close()
       native = undefined
+      const beforeResume = await history(official.client, a.sessionId, abort.signal)
+      await expect(official.client.sessionResume(a.sessionId, '/wrong-directory')).rejects.toMatchObject({ code: 'session/directory-changed' })
+      await official.client.sessionResume(a.sessionId, cwd)
+      expect((await official.client.sessionList()).find(row => row.sessionId === a.sessionId)?.agentAvailable).toBe(true)
+      expect(await history(official.client, a.sessionId, abort.signal)).toBe(beforeResume)
       await prompt(official.client, a.sessionId, 'Continue after the other backend closed.', abort.signal)
       expect(await history(official.client, a.sessionId, abort.signal)).toContain('Continue after the other backend closed.')
     } finally {

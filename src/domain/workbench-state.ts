@@ -1,3 +1,4 @@
+import type { SessionManagementView } from './session-management.js'
 import type { JobOutputView } from '../gateway/job-output-observer.js'
 import type { HistoryEntry, JobView, SessionSummary, SkillEntry } from '../gateway/gateway-wire.js'
 import type { AgentPresetRow as AgentPresetEntry } from '@deepseek-ai/dsh-agent-preset-registry/types'
@@ -19,6 +20,7 @@ import { projectTurnActivityScope, type TurnActivityScope } from './turn-activit
 export type ConnectionPhase = 'idle' | 'starting' | 'connected' | 'reconnecting' | 'error'
 
 export interface SessionListItem {
+  readonly management?: SessionManagementView
   readonly id: string
   readonly title: string
   readonly cwd?: string
@@ -126,6 +128,7 @@ export interface ModelView {
 }
 
 export interface ActiveSessionView {
+  readonly management?: SessionManagementView
   readonly id: string
   readonly title: string
   readonly running: boolean

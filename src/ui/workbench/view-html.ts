@@ -82,6 +82,13 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
     <button id="worktree-open-settings" class="link-button" type="button">${text('worktreeChangeSettings')}</button>
   </section>
 
+  <section id="session-access" class="session-access hidden" aria-label="${text('sessionManagement')}">
+    <div class="session-access-heading"><strong id="session-access-status"></strong><button id="session-refresh" class="icon-button compact" title="${text('sessionRefresh')}" aria-label="${text('sessionRefresh')}">${icon('refresh')}</button></div>
+    <div id="session-access-location" class="session-access-location"></div>
+    <p id="session-access-hint"></p>
+    <div class="session-access-actions"><button id="session-resume" class="primary-button" type="button">${text('sessionContinue')}</button><button id="session-open-project" class="secondary-button" type="button">${text('sessionOpenProject')}</button></div>
+  </section>
+
   <aside id="history-panel" class="history-panel hidden" aria-label="${text('history')}">
     <div class="panel-heading">
       <strong>${text('history')}</strong>

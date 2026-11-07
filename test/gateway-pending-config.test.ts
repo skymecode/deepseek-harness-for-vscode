@@ -1,3 +1,4 @@
+import type { SessionLocationView } from '../src/domain/session-management.js'
 import { describe, expect, it, vi } from 'vitest'
 import type { ControlFrame, FollowFrame } from '../src/gateway/gateway-wire.js'
 
@@ -28,6 +29,8 @@ import type { Memento, OutputChannel } from 'vscode'
 interface TestClient {
   abortPendingRequests: ReturnType<typeof vi.fn>
   probe: ReturnType<typeof vi.fn>
+  sessionPreview: ReturnType<typeof vi.fn>
+  sessionResume: ReturnType<typeof vi.fn>
   sessionList: ReturnType<typeof vi.fn>
   sessionCreate: ReturnType<typeof vi.fn>
   sessionSelectModel: ReturnType<typeof vi.fn>
@@ -69,6 +72,8 @@ function createService(configOverride: Record<string, unknown> = {}): { service:
   const client: TestClient = {
     abortPendingRequests: vi.fn(),
     probe: vi.fn(),
+    sessionPreview: vi.fn().mockResolvedValue({ cwd: '/repo', cursor: 0, projections: {} }),
+    sessionResume: vi.fn().mockResolvedValue({ cwd: '/repo', cursor: 0, projections: {} }),
     sessionList: vi.fn().mockResolvedValue([]),
     sessionCreate: vi.fn().mockResolvedValue({ sessionId: 's2', agentPreset: 'code' }),
     sessionSelectModel: vi.fn().mockResolvedValue({ selected: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }),
@@ -160,6 +165,10 @@ function createService(configOverride: Record<string, unknown> = {}): { service:
     worktrees,
   ) as unknown as GatewayTestHarness
 
+  ;(vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { fsPath: '/repo' } }]
+  service.sessionLocations = { get: cwd => cwd ? { cwd, exists: true, kind: 'directory', projectPath: cwd } : undefined,
+    refresh: async cwd => ({ cwd, exists: true, kind: 'directory', projectPath: cwd }), dispose: () => {} }
+  service.execution.set('s1', { status: 'ready' })
   service.activeSessionId = 's1'
   service.summaries.set('s1', { running: false, blank: false, agentPreset: 'standard', updatedAt: 1 })
   service.client = client
@@ -178,6 +187,11 @@ function createService(configOverride: Record<string, unknown> = {}): { service:
 
 /** Structural view of the private gateway state the tests drive directly. */
 interface GatewayTestHarness {
+  execution: Map<string, { status: string; error?: string }>
+  sessionLocations: { get(cwd?: string): SessionLocationView | undefined; refresh(cwd: string): Promise<SessionLocationView>; dispose(): void }
+  selectSession(id: string): Promise<void>
+  resumeSession(): Promise<void>
+  refreshSessionPreview(): Promise<void>
   client: TestClient | undefined
   activeSessionId: string | undefined
   summaries: Map<string, { running?: boolean; blank?: boolean; agentPreset?: string; updatedAt?: number }>
@@ -556,8 +570,8 @@ describe('gateway auto model matching', () => {
   })
 })
 
-describe('gateway auto-isolation of host-forked sessions', () => {
-  it('moves a worktree-less session into a fresh isolated session on first send', async () => {
+describe('gateway preserves existing session identity', () => {
+  it('continues a worktree-less session in its original directory without silently forking', async () => {
     const { service, client, worktrees } = createService()
     // A session that arrived through the host's native fork path has no
     // worktree record (uuid id, inherited shared cwd).
@@ -571,9 +585,10 @@ describe('gateway auto-isolation of host-forked sessions', () => {
 
     // The conversation moved: a fresh session was created (createSession) and
     // the prompt was admitted against the new isolated session.
-    expect(client.sessionCreate).toHaveBeenCalledTimes(1)
-    expect(service.activeSessionId).toBe('s2')
-    expect(client.sessionPrompt).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's2' }))
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+    expect(worktrees.prepare).not.toHaveBeenCalled()
+    expect(service.activeSessionId).toBe('s1')
+    expect(client.sessionPrompt).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }))
   })
 
   it('skips auto-isolation when the shared checkout has uncommitted changes', async () => {
@@ -978,5 +993,135 @@ describe('history page ownership', () => {
     await pending
     expect(service.entries).toEqual([original])
     expect(service.hasMore).toBe(true)
+  })
+})
+
+describe('explicit session execution ownership', () => {
+  it('opens history through read-only preview/page without resolving command contexts or forking', async () => {
+    const { service, client } = createService()
+    service.execution.clear()
+    await service.selectSession('s1')
+    expect(client.sessionPreview).toHaveBeenCalledWith('s1')
+    expect(client.sessionPage).toHaveBeenCalled()
+    expect(client.sessionFollow).not.toHaveBeenCalled()
+    expect(client.listCommands).not.toHaveBeenCalled()
+    expect(client.sessionResume).not.toHaveBeenCalled()
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+    await expect(service.sendPrompt('should not send')).rejects.toThrow('preview')
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+  })
+
+  it('resumes only on explicit action and preserves native session identity', async () => {
+    const { service, client, worktrees } = createService()
+    service.execution.clear()
+    await service.resumeSession()
+    expect(client.sessionResume).toHaveBeenCalledWith('s1', '/repo')
+    expect(service.execution.get('s1')?.status).toBe('ready')
+    expect(worktrees.prepare).not.toHaveBeenCalled()
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+  })
+
+  it('shows native writer conflicts without preventing read-only history', async () => {
+    const { service, client } = createService()
+    service.execution.clear()
+    client.sessionResume.mockRejectedValue(Object.assign(new Error('held'), { code: 'session/writer-held' }))
+    await service.resumeSession()
+    expect(service.execution.get('s1')?.status).toBe('occupied')
+    await service.refreshSessionPreview()
+    expect(service.execution.get('s1')?.status).toBe('occupied')
+    expect(client.sessionPage).toHaveBeenCalled()
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+  })
+
+  it.each(['missing', 'other-project'])('refuses execution in a %s directory before native resume', async reason => {
+    const { service, client } = createService()
+    service.execution.clear()
+    client.sessionPreview.mockResolvedValue({ cwd: reason === 'missing' ? '/missing' : '/another-project', cursor: 0, projections: {} })
+    if (reason === 'missing') service.sessionLocations.refresh = async cwd => ({ cwd, kind: 'missing', exists: false })
+    await service.resumeSession()
+    expect(client.sessionResume).not.toHaveBeenCalled()
+    expect(service.execution.get('s1')?.status).toBe('unavailable')
+  })
+})
+
+describe('session read and submission races', () => {
+  it('replaces temporary cold-read closers with newly committed messages at the same sequence', async () => {
+    const { service, client } = createService()
+    service.execution.clear()
+    service.entries = [{ event: { seq: 5, time: 1, type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } } }]
+    client.sessionPreview.mockResolvedValue({ cwd: '/repo', cursor: 6, projections: {} })
+    const answer = { type: 'event', event: { seq: 5, time: 2, type: 'assistant/message', data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Actual answer' }] } } } }
+    client.sessionPage.mockResolvedValue({ records: [answer], hasMore: false })
+    await service.refreshSessionPreview()
+    expect(JSON.stringify(service.entries)).toContain('Actual answer')
+    expect(JSON.stringify(service.entries)).not.toContain('interrupted')
+  })
+
+  it('rejects a late prompt configuration after switching to another preview session', async () => {
+    const { service, client } = createService()
+    let release!: (value: unknown) => void
+    client.sessionSelectModel.mockReturnValue(new Promise(resolve => { release = resolve }))
+    const pending = service.sendPrompt('Only for A', 'queue', [], config('high'))
+    await vi.waitFor(() => expect(client.sessionSelectModel).toHaveBeenCalledOnce())
+    service.activeSessionId = 'other'
+    service.selectionGeneration++
+    release({ selected: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    await expect(pending).rejects.toThrow('selected session changed')
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+  })
+
+  it('does not let a slow preview overwrite a newer cut', async () => {
+    const { service, client } = createService()
+    service.execution.clear()
+    let release!: (value: unknown) => void
+    client.sessionPreview.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
+    const old = service.refreshSessionPreview()
+    client.sessionPreview.mockResolvedValueOnce({ cwd: '/repo', cursor: 20, projections: { marker: 'latest' } })
+    await service.refreshSessionPreview()
+    release({ cwd: '/repo', cursor: 2, projections: { marker: 'old' } })
+    await old
+    expect(service.projections.marker).toBe('latest')
+    expect(client.sessionPage).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('readonly operation boundaries', () => {
+  it('keeps a running session writable after a read-only refresh fails', async () => {
+    const { service, client } = createService()
+    client.sessionPreview.mockRejectedValue(new Error('503'))
+    await service.refreshSessionPreview()
+    expect(service.execution.get('s1')?.status).toBe('ready')
+  })
+
+  it('blocks goal and rename operations from preview at the actual service boundary', async () => {
+    const { service, client } = createService()
+    service.execution.clear()
+    const actions = service as unknown as { createGoal(s: string): Promise<void>; mutateGoal(s: 'resume'): Promise<void>; rename(s: string): Promise<void> }
+    await expect(actions.createGoal('should not start')).rejects.toThrow('preview')
+    await expect(actions.mutateGoal('resume')).rejects.toThrow('preview')
+    await expect(actions.rename('new title')).rejects.toThrow('preview')
+    expect(client.goalCreate).not.toHaveBeenCalled()
+    expect(client.goalAction).not.toHaveBeenCalled()
+    expect(client.sessionRename).not.toHaveBeenCalled()
+  })
+})
+
+describe('continuable child admission', () => {
+  it('keeps child delivery on the native parent address without ordinary-session resume', async () => {
+    const { service, client } = createService()
+    await service.selectSubagent('child', 'continuable')
+    await service.sendPrompt('continue child')
+    expect(service.execution.get('child')?.status).toBe('ready')
+    expect(client.subagentPrompt).toHaveBeenCalledWith(expect.objectContaining({ parentSessionId: 's1', childSessionId: 'child', mode: 'continuable' }))
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+    expect(client.sessionResume).not.toHaveBeenCalled()
+  })
+
+  it('keeps one-shot child history read-only', async () => {
+    const { service, client } = createService()
+    await service.selectSubagent('child', 'one-shot')
+    await expect(service.sendPrompt('should not start')).rejects.toThrow('read-only')
+    expect(client.subagentPrompt).not.toHaveBeenCalled()
   })
 })

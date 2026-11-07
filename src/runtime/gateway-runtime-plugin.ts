@@ -1,3 +1,4 @@
+import { registerSessionManagement } from './session-management.js'
 import { registerOfficialConnectionCheck } from './official-connection-check.js'
 import { registerMcpToolCatalog } from './mcp-tool-catalog.js'
 import type { LlmResolvedModelInfo as DshLlmResolvedModelInfo } from '@deepseek-ai/dsh-llm/types'
@@ -125,6 +126,7 @@ function announceAuthenticated(
   base: string,
 ): void {
   registerMcpToolCatalog(ctx, connection)
+  registerSessionManagement(ctx, connection)
   // session/modelCatalog omits capabilities. Forward the official LLM service's
   // resolved metadata without inventing a second capability catalog.
   ctx.webServer.register({

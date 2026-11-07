@@ -43,6 +43,13 @@ export interface WebviewStatePayload {
 }
 
 export interface ChatElements {
+  readonly sessionAccess: HTMLElement
+  readonly sessionAccessStatus: HTMLElement
+  readonly sessionAccessLocation: HTMLElement
+  readonly sessionAccessHint: HTMLElement
+  readonly sessionResume: HTMLButtonElement
+  readonly sessionRefresh: HTMLButtonElement
+  readonly sessionOpenProject: HTMLButtonElement
   readonly manageMcp: HTMLButtonElement
   readonly connection: HTMLElement
   readonly historyToggle: HTMLElement

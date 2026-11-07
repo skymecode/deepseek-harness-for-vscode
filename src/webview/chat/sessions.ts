@@ -75,7 +75,7 @@ export function renderSessions(): void {
       emptyMessage = t('noMatchingConversations')
     }
   }
-  sessionList.update(sessions, { activeId: payload.state.active?.id, archived: showingArchived, archivedIds, snippets, emptyMessage })
+  sessionList.update(sessions, { activeId: payload.state.active?.id, archived: showingArchived, archivedIds, snippets, emptyMessage, groupByProject: showingAllProjects })
   renderHistoryFilter()
 }
 
@@ -126,7 +126,7 @@ export function renderSelectors(active: ActiveSessionView | undefined): void {
   if (permissions) {
     renderPermissionOptions(permissions)
     elements.permission.classList.remove('hidden')
-    elements.permissionToggle.disabled = active?.running === true || payload.state.phase !== 'connected'
+    elements.permissionToggle.disabled = (active?.management !== undefined && active.management.status !== 'ready') || active?.running === true || payload.state.phase !== 'connected'
     elements.permissionToggle.classList.toggle('danger', permissions.currentValue === FULL_ACCESS_PERMISSION_ID)
   } else {
     elements.permission.classList.add('hidden')
@@ -265,7 +265,7 @@ export function toggleHistory(open: boolean): void {
     // initial scope; the header button can switch back at any time.
     if (!showingAllProjects && workspaceFolderOpen && payload !== undefined
       && payload.state.sessions.length > 0
-      && payload.state.sessions.every((session) => session.projectCurrent === false)) {
+      && payload.state.sessions.every((session) => session.projectCurrent === false && session.management?.location !== undefined)) {
       showingAllProjects = true
     }
   }

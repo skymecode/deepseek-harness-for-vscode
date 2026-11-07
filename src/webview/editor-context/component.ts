@@ -19,6 +19,7 @@ export interface EditorContextComponent {
   readonly addFile: (file: WorkspaceFileView) => void
   readonly input: () => PromptContextInput
   readonly markSubmitted: () => void
+  readonly resetForSession: () => void
 }
 
 /** Renders removable selection/@file chips and owns their staged state. */
@@ -155,6 +156,14 @@ export function createEditorContextComponent(options: EditorContextComponentOpti
       ...(stagedSelection === undefined ? {} : { selectionId: stagedSelection.id }),
       fileIds: files.map((file) => file.id),
     }),
+    resetForSession: () => {
+      stagedSelection = undefined
+      files = []
+      autoAttach = false
+      ignoredSelectionId = undefined
+      attachRequested = false
+      render()
+    },
     markSubmitted: () => {
       if (!autoAttach) {
         ignoredSelectionId = stagedSelection?.id
