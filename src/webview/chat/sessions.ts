@@ -107,6 +107,7 @@ export function renderSelectors(active: ActiveSessionView | undefined): void {
   if (!payload) return
   const nextSignature = JSON.stringify({
     sessionId: active?.id,
+    blank: active?.blank,
     phase: payload.state.phase,
     configuration: payload.configuration,
     fallbackOptions: payload.fallbackOptions,
