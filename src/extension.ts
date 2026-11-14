@@ -103,6 +103,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   )
 
+  /** Pins the active editor selection and reveals the workbench composer. */
+  const addSelectionToChat = async (): Promise<void> => {
+    const selection = editorSelection.current()
+    if (selection === undefined) {
+      void vscode.window.showInformationMessage(vscode.l10n.t('Select code in an editor first.'))
+      return
+    }
+    provider.pinSelection(selection)
+    await focusWorkbench()
+  }
+
   context.subscriptions.push(
     output,
     configuration,
@@ -122,6 +133,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('deepseekHarness.openChat', focusWorkbench),
     vscode.commands.registerCommand('deepseekHarness.manageMcp', () => mcp.show()),
     vscode.commands.registerCommand('deepseekHarness.openChatWindow', () => provider.openPanel()),
+    vscode.commands.registerCommand('deepseekHarness.addSelectionToChat', addSelectionToChat),
     vscode.commands.registerCommand('deepseekHarness.reloadRuntime', () => provider.refresh()),
     vscode.commands.registerCommand('deepseekHarness.setApiKey', setApiKey),
     vscode.commands.registerCommand('deepseekHarness.clearApiKey', async () => {
