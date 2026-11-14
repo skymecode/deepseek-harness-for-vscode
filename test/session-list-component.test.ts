@@ -80,7 +80,7 @@ describe('session history during live updates', () => {
     expect(f.row('one').querySelector('.session-worktree-action')?.classList.contains('hidden')).toBe(false)
     f.state.snippets.clear()
     f.update([session('one')])
-    for (const selector of ['.session-mark', '.shared', '.session-tags', '.session-snippet']) {
+    for (const selector of ['.session-mark', '.session-tags', '.session-snippet']) {
       expect(button.querySelector(selector)?.classList.contains('hidden')).toBe(true)
     }
     expect(button.querySelector('.running-dot')?.classList.contains('active')).toBe(false)
@@ -134,5 +134,18 @@ describe('session history during live updates', () => {
     expect(f.button('one').textContent).toContain('<script>bad()</script>')
     expect(f.button('one').textContent).toContain('<b>tag</b>')
     expect(f.button('one').textContent).toContain('<img src=x onerror=alert(1)>')
+  })
+
+  it('shows the project name only on sessions from another project', () => {
+    const f = fixture()
+    f.update([
+      session('current', { projectCurrent: true, projectLabel: 'project-a', projectPath: '/work/project-a' }),
+      session('other', { projectCurrent: false, projectLabel: 'project-b', projectPath: '/work/project-b' }),
+    ])
+    const current = f.button('current').querySelector<HTMLElement>('.session-meta')!
+    const other = f.button('other').querySelector<HTMLElement>('.session-meta')!
+    expect(current.textContent).toBe('1m')
+    expect(other.textContent).toBe('1m · project-b')
+    expect(other.title).toBe('/work/project-b')
   })
 })

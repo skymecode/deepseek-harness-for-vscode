@@ -36,6 +36,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
   private publishPending = false
   /** Host-owned explicit pins, shared by the sidebar and the editor panel. */
   private pinnedSelections: EditorSelectionView[] = []
+  private pinnedSessionId: string | undefined
   private readonly pinRevisions = new Map<string, number>()
   private nextPinRevision = 0
   private viewReady = false
@@ -51,16 +52,15 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     private readonly workspaceFiles: WorkspaceFileService,
     private readonly actions: WorkbenchViewActions,
   ) {
-    let mcpSignature = JSON.stringify(configuration.get().mcpServers ?? [])
     this.subscriptions = [gateway.onDidChange(() => {
+      const active = this.gateway.openSessionId()
+      if (active !== this.pinnedSessionId) {
+        this.pinnedSessionId = active
+        this.resetPinnedSelections()
+      }
       void this.publishState().catch(() => undefined)
     }), vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('deepseekHarness.worktreeAutoMerge')) void this.publishState().catch(() => undefined)
-    }), configuration.onDidChange((next) => {
-      const nextMcpSignature = JSON.stringify(next.mcpServers ?? [])
-      if (nextMcpSignature === mcpSignature) return
-      mcpSignature = nextMcpSignature
-      void this.gateway.restart().catch(() => undefined)
     }), connectionSettings.onDidChange(() => {
       void this.publishState().catch(() => undefined)
     }), pluginCenter.onDidChange((snapshot) => {
@@ -133,6 +133,15 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
     this.pinnedSelections = this.pinnedSelections.filter((item) => item.id !== selectionId)
     this.pinRevisions.delete(selectionId)
     this.editorSelection.release(selectionId)
+    this.postPinnedSelections()
+  }
+
+  /** Clears session-scoped pins when the active session changes, without restoring auto cards. */
+  private resetPinnedSelections(): void {
+    if (this.pinnedSelections.length === 0 && this.pinRevisions.size === 0) return
+    for (const selection of this.pinnedSelections) this.editorSelection.release(selection.id)
+    this.pinnedSelections = []
+    this.pinRevisions.clear()
     this.postPinnedSelections()
   }
 
@@ -302,7 +311,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       await this.postToHosts({
         type: 'state',
         state,
-        configuration: this.configuration.get(),
+        configuration: publicConfiguration(this.configuration.get()),
         connectionSettings,
         workspaceFolderOpen: vscode.workspace.workspaceFolders?.[0] !== undefined,
         fallbackOptions: {
@@ -322,4 +331,11 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       selection: this.editorSelection.current(),
     })
   }
+}
+
+/** MCP commands/headers/env stay in the extension host, never in chat state. */
+export function publicConfiguration(configuration: ReturnType<ConfigurationService['get']>): Omit<ReturnType<ConfigurationService['get']>, 'mcpServers'> {
+  const { mcpServers: privateMcp, ...publicValue } = configuration
+  void privateMcp
+  return publicValue
 }

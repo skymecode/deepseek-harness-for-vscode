@@ -37,7 +37,14 @@ describe('sendPrompt pin snapshot timing', () => {
 
     const work = handleWorkbenchMessage({
       review: {} as never,
-      gateway: { sendPrompt } as never,
+      gateway: {
+        sendPrompt,
+        selectionToken: () => ({ sessionId: 's' }),
+        assertSessionWritable: async () => undefined,
+        assertSelection: () => undefined,
+        canAttachEditorContext: () => false,
+        activeWorktreeRoot: () => undefined,
+      } as never,
       actions: {} as never,
       configuration: { get: () => ({ autoAttachSelection: false }) } as never,
       pluginCenter: {} as never,

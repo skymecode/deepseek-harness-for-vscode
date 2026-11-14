@@ -17,6 +17,7 @@ import { ConnectionTestService } from './services/connection-test-service.js'
 import { SessionImportService } from './import/session-import-service.js'
 import { WorkbenchViewProvider } from './ui/workbench-view-provider.js'
 import { CompletionNotifications } from './notifications/completion-notifications.js'
+import { McpManagementController } from './mcp/management-controller.js'
 
 let activeRuntime: HarnessHostRuntime | undefined
 
@@ -49,6 +50,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const sessionImport = new SessionImportService(pluginManager, gateway)
   const editorSelection = new EditorSelectionService()
   const workspaceFiles = new WorkspaceFileService()
+  const mcp = new McpManagementController(configuration, gateway, output)
   activeRuntime = runtime
 
   const setApiKey = async (): Promise<void> => {
@@ -124,10 +126,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     editorSelection,
     workspaceFiles,
     provider,
+    mcp,
     vscode.window.registerWebviewViewProvider(WorkbenchViewProvider.viewType, provider, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.commands.registerCommand('deepseekHarness.openChat', focusWorkbench),
+    vscode.commands.registerCommand('deepseekHarness.manageMcp', () => mcp.show()),
     vscode.commands.registerCommand('deepseekHarness.openChatWindow', () => provider.openPanel()),
     vscode.commands.registerCommand('deepseekHarness.addSelectionToChat', addSelectionToChat),
     vscode.commands.registerCommand('deepseekHarness.reloadRuntime', () => provider.refresh()),

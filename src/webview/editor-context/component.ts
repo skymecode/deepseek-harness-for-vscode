@@ -1,6 +1,8 @@
 import type { EditorSelectionView, WorkspaceFileView } from '../../editor/types.js'
 import type { MessageArguments, WebviewMessageKey } from '../localization.js'
 
+const MAX_SELECTIONS = 8
+
 interface EditorContextComponentOptions {
   readonly document: Document
   readonly translate: (key: WebviewMessageKey, args?: MessageArguments) => string
@@ -22,6 +24,7 @@ export interface EditorContextComponent {
   readonly addFile: (file: WorkspaceFileView) => void
   readonly input: () => PromptContextInput
   readonly markSubmitted: () => void
+  readonly resetForSession: () => void
 }
 
 /**
@@ -32,7 +35,6 @@ export interface EditorContextComponent {
 export function createEditorContextComponent(options: EditorContextComponentOptions): EditorContextComponent {
   const root = requiredElement(options.document, 'editor-context-list')
   const attach = requiredButton(options.document, 'attach-selection')
-  const MAX_SELECTIONS = 8
   let availableSelection: EditorSelectionView | undefined
   let autoSelection: EditorSelectionView | undefined
   let pinnedSelections: readonly EditorSelectionView[] = []
@@ -51,7 +53,6 @@ export function createEditorContextComponent(options: EditorContextComponentOpti
     }
     return result
   }
-
   attach.addEventListener('click', () => {
     if (availableSelection === undefined) {
       attachRequested = true
@@ -60,7 +61,6 @@ export function createEditorContextComponent(options: EditorContextComponentOpti
     }
     options.onPinSelection(availableSelection.id)
   })
-
   /** Applies the active selection, moving the auto card and satisfying a pending attach request. */
   const updateSelection = (selection: EditorSelectionView | undefined): void => {
     const changed = selection?.id !== availableSelection?.id
@@ -73,7 +73,6 @@ export function createEditorContextComponent(options: EditorContextComponentOpti
     attachRequested = false
     render()
   }
-
   /** Replaces the host-owned pin list; only a consumed pin restores the auto card. */
   const setPinnedSelections = (selections: readonly EditorSelectionView[], consumed = false): void => {
     pinnedSelections = selections.slice(0, MAX_SELECTIONS)
@@ -82,9 +81,7 @@ export function createEditorContextComponent(options: EditorContextComponentOpti
     } else if (consumed && autoSelection === undefined && autoAttach && availableSelection !== undefined
       && availableSelection.id !== ignoredSelectionId
       && !pinnedSelections.some((item) => item.id === availableSelection?.id)) {
-      // The pin that replaced the automatic card was consumed by a prompt;
-      // show the still-active selection again instead of silently dropping it.
-      // A manual unpin must not restore it.
+      // A consumed pin restores the active selection; a manual unpin must not.
       autoSelection = availableSelection
     }
     render()
@@ -147,7 +144,6 @@ export function createEditorContextComponent(options: EditorContextComponentOpti
     }))
     return chip
   }
-
   /** Builds one removable @file chip. */
   const fileChip = (file: WorkspaceFileView): HTMLElement => {
     const chip = chipShell('file-context-chip')
@@ -212,6 +208,15 @@ export function createEditorContextComponent(options: EditorContextComponentOpti
       selectionIds: selectedSelections().map((selection) => selection.id),
       fileIds: files.map((file) => file.id),
     }),
+    /** Clears session-scoped auto/file context; host-owned pins stay until consumed. */
+    resetForSession: () => {
+      autoSelection = undefined
+      files = []
+      autoAttach = false
+      ignoredSelectionId = undefined
+      attachRequested = false
+      render()
+    },
     /** Clears transient input after sending; explicit pins are host-owned. */
     markSubmitted: () => {
       // The host clears explicit pins only after the prompt is accepted.

@@ -390,3 +390,10 @@ body {
 @media (max-width: 360px) {
   .plugin-filter-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+@media (max-width: 360px) {
+  .session-access { margin-inline: 6px; padding: 7px 8px; }
+  .session-access-actions { flex-direction: column; align-items: stretch; }
+  .history-panel .panel-heading { flex-wrap: wrap; gap: 6px; }
+  .history-panel .panel-heading-actions { flex-wrap: wrap; }
+}

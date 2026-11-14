@@ -22,7 +22,7 @@ export const composerActions = new ComposerActionsMenu({
 })
 
 export function renderComposerActions(): void {
-  composerActions.update(payload?.state.active?.id, composerActionItems(payload?.state.active, payload?.state.phase === 'connected'))
+  composerActions.update(payload?.state.active?.id, composerActionItems(payload?.state.active, payload?.state.phase === 'connected' && (!payload.state.active?.management || payload.state.active.management.status === 'ready')))
 }
 
 function chooseAction(action: ComposerAction): void {

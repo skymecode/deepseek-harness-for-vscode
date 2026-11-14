@@ -12,7 +12,6 @@ import type { ContextMeterComponent } from '../context-meter/component.js'
 import type { EditorContextComponent } from '../editor-context/component.js'
 import type { FileMentionComponent } from '../file-mention/component.js'
 import type { PluginCenterComponent } from '../plugin-center/component.js'
-import type { SessionChangesComponent } from '../session-changes/component.js'
 import type { StreamingMessageComponent } from '../streaming-message/component.js'
 import type { WorkDurationComponent } from '../work-duration/component.js'
 
@@ -44,10 +43,21 @@ export interface WebviewStatePayload {
 }
 
 export interface ChatElements {
+  readonly sessionAccess: HTMLElement
+  readonly sessionAccessStatus: HTMLElement
+  readonly sessionAccessLocation: HTMLElement
+  readonly sessionAccessHint: HTMLElement
+  readonly sessionResume: HTMLButtonElement
+  readonly sessionRefresh: HTMLButtonElement
+  readonly sessionOpenProject: HTMLButtonElement
+  readonly manageMcp: HTMLButtonElement
   readonly connection: HTMLElement
   readonly historyToggle: HTMLElement
   readonly historyPanel: HTMLElement
   readonly historyClose: HTMLElement
+  readonly historySource: HTMLElement
+  readonly historySourceLabel: HTMLElement
+  readonly historySourceDetails: HTMLButtonElement
   readonly historySearch: HTMLInputElement
   readonly sessionList: HTMLElement
   readonly newSession: HTMLButtonElement
@@ -57,6 +67,7 @@ export interface ChatElements {
   readonly importSession: HTMLElement
   readonly historyImport: HTMLElement
   readonly historyArchived: HTMLButtonElement
+  readonly historyScope: HTMLButtonElement
   readonly exportSession: HTMLElement
   readonly sessionStats: HTMLElement
   readonly sessionUsage: HTMLElement
@@ -126,7 +137,6 @@ export interface ChatComponents {
   contextMeter: ContextMeterComponent
   editorContext: EditorContextComponent
   fileMention: FileMentionComponent
-  sessionChanges: SessionChangesComponent
   workDuration: WorkDurationComponent
   streamingMessage: StreamingMessageComponent
   pluginCenter: PluginCenterComponent

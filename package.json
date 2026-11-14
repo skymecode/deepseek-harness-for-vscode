@@ -2,7 +2,7 @@
   "name": "deepseek-harness-for-vscode",
   "displayName": "DeepSeek Harness for Visual Studio Code",
   "description": "%extension.description%",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "type": "module",
   "publisher": "skymecode",
   "license": "MIT",
@@ -86,6 +86,10 @@
         "command": "deepseekHarness.importSession",
         "title": "%command.importSession%",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "deepseekHarness.manageMcp",
+        "title": "%command.manageMcp%"
       }
     ],
     "viewsContainers": {
@@ -271,7 +275,8 @@
             "%config.worktreeAutoMerge.onTurnEnd%"
           ],
           "default": "never",
-          "description": "%config.worktreeAutoMerge%"
+          "description": "%config.worktreeAutoMerge%",
+          "deprecationMessage": "%config.worktreeAutoMerge.deprecated%"
         },
         "deepseekHarness.mcpServers": {
           "type": "string",
@@ -297,25 +302,35 @@
     "vitest": "^4.0.0"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.2.1-rc.3",
+    "@deepseek-ai/dsh": "0.2.2-rc.1",
     "dompurify": "3.4.17",
     "highlight.js": "^11.12.0",
     "markdown-it": "15.0.3",
-    "node": "22.22.3",
+    "node": "24.22.2",
     "pnpm": "11.21.0",
     "undici": "^7.29.0",
     "ws": "^8.21.3"
   },
   "allowScripts": {
-    "node@22.22.3": true,
     "esbuild@0.25.12": true,
     "node-pty@1.2.0-beta.15": true,
-    "koffi@3.3.1": true,
     "keytar@7.9.0": true,
     "protobufjs@7.6.6": true,
-    "@deepseek-ai/dsh-subprocess-local@0.2.1-rc.3": true,
     "@vscode/vsce-sign@2.0.9": true,
-    "@google/genai@1.52.0": true
+    "node@24.22.2": true,
+    "@deepseek-ai/dsh-subprocess-local@0.2.2-rc.1": true,
+    "koffi@3.1.1": true,
+    "@google/genai@2.21.0": false
   },
-  "preview": true
+  "preview": true,
+  "overrides": {
+    "@modelcontextprotocol/client": "2.3.0",
+    "zod": "4.6.7",
+    "@deepseek-ai/dsh-http-proxy": {
+      "undici": "8.12.2"
+    },
+    "@deepseek-ai/dsh-web-fetch-http": {
+      "undici": "8.12.2"
+    }
+  }
 }

@@ -38,7 +38,7 @@ describe('prompt configuration', () => {
   it('keeps, switches, or recreates a session according to the preset lock', () => {
     expect(agentPresetTransition(false, 'standard', 'standard')).toBe('keep-session')
     expect(agentPresetTransition(true, 'standard', 'code')).toBe('select-blank-session')
-    expect(agentPresetTransition(false, 'standard', 'code')).toBe('create-session')
+    expect(agentPresetTransition(false, 'standard', 'code')).toBe('reject-locked')
   })
 
   it('treats every ordered preset pair identically — no mode is special-cased', () => {
@@ -51,7 +51,7 @@ describe('prompt configuration', () => {
         } else {
           // Any mid-conversation switch opens a fresh session under the new
           // mode; a still-blank session just re-selects in place.
-          expect(agentPresetTransition(false, from, to), `${from} -> ${to}`).toBe('create-session')
+          expect(agentPresetTransition(false, from, to), `${from} -> ${to}`).toBe('reject-locked')
           expect(agentPresetTransition(true, from, to), `${from} -> ${to}`).toBe('select-blank-session')
         }
       }

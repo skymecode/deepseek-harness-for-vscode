@@ -1,4 +1,4 @@
-import type { ActiveSessionView, PermissionView } from '../../domain/workbench-state.js'
+import type { ActiveSessionView, PermissionView, SessionListItem } from '../../domain/workbench-state.js'
 import { FULL_ACCESS_PERMISSION_ID, PERMISSION_PRESET_IDS } from '../../domain/permissions.js'
 import { applyIcon, icon } from '../icons.js'
 import { SessionListComponent } from '../session-list/component.js'
@@ -20,6 +20,7 @@ import {
 import { formatRelativeTime } from './utils.js'
 
 let showingArchived = false
+let showingAllProjects = false
 
 const sessionList = new SessionListComponent({
   element: elements.sessionList,
@@ -45,18 +46,28 @@ const sessionList = new SessionListComponent({
 
 export function renderSessions(): void {
   if (!payload) return
+  const source = payload.state.historySource
+  elements.historySource.classList.toggle('hidden', source === undefined)
+  if (source) {
+    const label = source.status === 'shared' ? t('historySharedSource') : source.status === 'shared-incomplete' ? t('historySharedIncomplete') : source.status === 'preparing' ? t('historySourcePreparing') : t('historySourceUnavailable')
+    elements.historySourceLabel.textContent = label + ' · ' + source.root
+    elements.historySourceLabel.title = source.root
+  }
   const query = elements.historySearch.value.trim()
   const snippets = new Map(searchResults.map((result) => [result.sessionId, result.snippet]))
   const resultIds = new Set(searchResults.map((result) => result.sessionId))
   const archivedIds = new Set(payload.state.archivedSessions.map(session => session.id))
-  const pool = showingArchived ? payload.state.archivedSessions
-    : query === '' ? payload.state.sessions : [...payload.state.sessions, ...payload.state.archivedSessions]
+  const inScope = (session: SessionListItem): boolean => showingAllProjects || session.projectCurrent !== false
+  const visibleSessions = payload.state.sessions.filter(inScope)
+  const visibleArchived = payload.state.archivedSessions.filter(inScope)
+  const pool = showingArchived ? visibleArchived
+    : query === '' ? visibleSessions : [...visibleSessions, ...visibleArchived]
   const sessions = query === '' ? pool : pool.filter(session => resultIds.has(session.id))
   let emptyMessage = ''
   if (sessions.length === 0) {
     const archivedHits = query === '' || showingArchived
       ? []
-      : payload.state.archivedSessions.filter((session) => resultIds.has(session.id))
+      : visibleArchived.filter((session) => resultIds.has(session.id))
     if (archivedHits.length > 0) {
       emptyMessage = t('archivedSearchHint', { count: String(archivedHits.length) })
     } else if (showingArchived && query !== '') {
@@ -64,23 +75,34 @@ export function renderSessions(): void {
     } else if (showingArchived) {
       emptyMessage = t('noArchivedConversations')
     } else if (query === '') {
-      emptyMessage = t(workspaceFolderOpen ? 'noProjectConversations' : 'historyNeedsProject')
+      emptyMessage = showingAllProjects
+        ? t('noConversations')
+        : t(workspaceFolderOpen ? 'noProjectConversations' : 'historyNeedsProject')
     } else {
       emptyMessage = t('noMatchingConversations')
     }
   }
-  sessionList.update(sessions, { activeId: payload.state.active?.id, archived: showingArchived, archivedIds, snippets, emptyMessage })
+  sessionList.update(sessions, { activeId: payload.state.active?.id, archived: showingArchived, archivedIds, snippets, emptyMessage, groupByProject: showingAllProjects })
   renderHistoryFilter()
 }
 
 function renderHistoryFilter(): void {
   if (!payload) return
-  const archivedCount = payload.state.archivedSessions.length
+  const inScope = (session: SessionListItem): boolean => showingAllProjects || session.projectCurrent !== false
+  const archivedCount = payload.state.archivedSessions.filter(inScope).length
   elements.historyArchived.classList.toggle('active', showingArchived)
   elements.historyArchived.setAttribute('aria-pressed', String(showingArchived))
   elements.historyArchived.textContent = archivedCount === 0
     ? t('archivedConversations')
     : `${t('archivedConversations')} ${archivedCount}`
+  elements.historyScope.classList.toggle('active', showingAllProjects)
+  elements.historyScope.setAttribute('aria-pressed', String(showingAllProjects))
+  elements.historyScope.textContent = showingAllProjects ? t('allProjects') : t('currentProject')
+}
+
+export function toggleHistoryScope(): void {
+  showingAllProjects = !showingAllProjects
+  renderSessions()
 }
 
 export function toggleArchivedHistory(): void {
@@ -92,6 +114,7 @@ export function renderSelectors(active: ActiveSessionView | undefined): void {
   if (!payload) return
   const nextSignature = JSON.stringify({
     sessionId: active?.id,
+    blank: active?.blank,
     phase: payload.state.phase,
     configuration: payload.configuration,
     fallbackOptions: payload.fallbackOptions,
@@ -111,7 +134,7 @@ export function renderSelectors(active: ActiveSessionView | undefined): void {
   if (permissions) {
     renderPermissionOptions(permissions)
     elements.permission.classList.remove('hidden')
-    elements.permissionToggle.disabled = active?.running === true || payload.state.phase !== 'connected'
+    elements.permissionToggle.disabled = (active?.management !== undefined && active.management.status !== 'ready') || active?.running === true || payload.state.phase !== 'connected'
     elements.permissionToggle.classList.toggle('danger', permissions.currentValue === FULL_ACCESS_PERMISSION_ID)
   } else {
     elements.permission.classList.add('hidden')
@@ -242,7 +265,18 @@ function resetPermissionOverlayAnchor(overlay: HTMLElement): void {
 }
 
 export function toggleHistory(open: boolean): void {
-  if (open) components.pluginCenter.close()
+  document.body.classList.toggle('history-open', open)
+  if (open) {
+    components.pluginCenter.close()
+    // A project that has no history of its own should still offer the user's
+    // other conversations instead of an empty panel. This only chooses the
+    // initial scope; the header button can switch back at any time.
+    if (!showingAllProjects && workspaceFolderOpen && payload !== undefined
+      && payload.state.sessions.length > 0
+      && payload.state.sessions.every((session) => session.projectCurrent === false && session.management?.location !== undefined)) {
+      showingAllProjects = true
+    }
+  }
   elements.historyPanel.classList.toggle('hidden', !open)
   if (open) {
     post('refreshSessions')

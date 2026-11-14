@@ -46,7 +46,7 @@ export const DEFAULT_BUILTIN_PLUGINS: readonly DefaultBuiltinPlugin[] = [
     categoryLabel: { en: 'Import', zh: '导入' },
     repositoryUrl: 'https://github.com/Nwflower/dsh-chat-import',
     installSpec: 'dsh-chat-import',
-    vendoredTarball: 'vendor/plugins/dsh-chat-import-0.22.2.tgz',
+    vendoredTarball: 'vendor/plugins/dsh-chat-import-0.26.4.tgz',
     installedName: 'dsh-chat-import',
     npmPackage: 'dsh-chat-import',
     updatedAt: '2026-09-28T13:47:46Z',

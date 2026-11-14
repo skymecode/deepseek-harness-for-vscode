@@ -6,7 +6,7 @@ import type { ComposerConfigurationInput } from '../src/webview/composer-configu
 describe('composer configuration store', () => {
   it('stages choices without changing the host-owned current configuration', () => {
     const store = new ComposerConfigurationStore()
-    store.update(input())
+    store.update(input({ blank: true }))
 
     const model = store.selectModel('deepseek-official', 'deepseek-v4-pro')
     const preset = store.selectPreset('code')
@@ -21,7 +21,7 @@ describe('composer configuration store', () => {
       agentPreset: 'code',
     })
     expect(effort?.dirty).toBe(true)
-    expect(effort?.modeStartsNewConversation).toBe(true)
+    expect(effort?.presetLocked).toBe(false)
   })
 
   it('clears a submitted draft when the host state catches up', () => {
@@ -44,7 +44,7 @@ describe('composer configuration store', () => {
     expect(applied?.dirty).toBe(false)
   })
 
-  it('carries only a submitted draft into the fresh session created for a mode change', () => {
+  it('keeps submitted configuration scoped to its original session', () => {
     const store = new ComposerConfigurationStore()
     store.update(input())
     store.selectModel('deepseek-official', 'deepseek-v4-pro')
@@ -62,13 +62,22 @@ describe('composer configuration store', () => {
       },
     }))
 
-    expect(freshSession?.selection.model).toBe('deepseek-v4-pro')
+    expect(freshSession?.selection.model).toBe('deepseek-v4-flash')
     expect(freshSession?.selection.agentPreset).toBe('code')
 
     const unsubmitted = new ComposerConfigurationStore()
     unsubmitted.update(input())
     unsubmitted.selectModel('deepseek-official', 'deepseek-v4-pro')
     expect(unsubmitted.update(input({ sessionId: 'session-3' }))?.selection.model).toBe('deepseek-v4-flash')
+  })
+
+  it('locks only the preset of a started session while keeping model and effort editable', () => {
+    const store = new ComposerConfigurationStore()
+    store.update(input())
+    expect(store.selectPreset('code')?.selection.agentPreset).toBe('standard')
+    expect(store.selectModel('deepseek-official', 'deepseek-v4-pro')?.selection.model).toBe('deepseek-v4-pro')
+    expect(store.selectReasoning(2)?.selection.reasoningEffort).toBe('max')
+    expect(store.snapshot()?.presetLocked).toBe(true)
   })
 
   it('maps effort stops to distinct visual tones', () => {

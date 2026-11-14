@@ -17,12 +17,10 @@ import * as path from 'node:path'
 import { rm } from 'node:fs/promises'
 import {
   currentBranch,
-  defaultBranch,
   dirnameLike,
   gitRoot,
   ignoreDshWorktrees,
   joinPathLike,
-  listSubdirectories,
   pathExists,
   runGit,
   worktreeDirty,
@@ -145,21 +143,6 @@ export class WorktreeService implements vscode.Disposable {
     try {
       await this.markIntentToAdd(record)
       const { stdout } = await this.run(record.worktreePath, ['diff', record.baseBranch])
-      return stdout
-    } catch {
-      return undefined
-    }
-  }
-
-  /**
-   * The shared (non-isolated) working tree's uncommitted diff against HEAD,
-   * for sessions that run directly in the main checkout. Tracks edits and
-   * deletions only — untracked files are deliberately left out so the intent
-   * marker is never stamped into the user's real index.
-   */
-  async workingTreeDiff(repoRoot: string): Promise<string | undefined> {
-    try {
-      const { stdout } = await this.run(repoRoot, ['diff', 'HEAD'])
       return stdout
     } catch {
       return undefined
@@ -330,8 +313,8 @@ export class WorktreeService implements vscode.Disposable {
    * priority order:
    *   1. the per-repository `.git/dsh-worktrees.json` mirror (accurate
    *      `baseBranch`/`createdAt`, written by every `save()`);
-   *   2. a scan of the isolation directory `.dsh-worktrees/*`, which rebuilds
-   *      a record from each surviving worktree even when the mirror is gone.
+   * Directory scans do not establish ownership: foreign worktrees remain
+   * discoverable through Git but are never adopted for merge or cleanup.
    * Existing in-memory records always win. Returns the restored records.
    */
   async recover(workspaceRoots: readonly string[]): Promise<WorktreeRecord[]> {
@@ -345,15 +328,7 @@ export class WorktreeService implements vscode.Disposable {
         seen.add(record.sessionId)
         restored.push(record)
       }
-      for (const sessionId of await listSubdirectories(joinPathLike(root, '.dsh-worktrees'))) {
-        if (seen.has(sessionId) || sessionId.startsWith('.merge-')) continue
-        const worktreePath = joinPathLike(root, '.dsh-worktrees', sessionId)
-        const record = await this.recordFromWorktree(root, sessionId, worktreePath)
-        if (record === undefined) continue
-        this.records.set(sessionId, record)
-        seen.add(sessionId)
-        restored.push(record)
-      }
+
     }
     if (restored.length > 0) this.save()
     return restored
@@ -372,30 +347,6 @@ export class WorktreeService implements vscode.Disposable {
         && typeof entry.worktreePath === 'string')
     } catch {
       return []
-    }
-  }
-
-  /**
-   * Rebuilds a record for one surviving worktree directory. `.git` inside a
-   * worktree is a pointer file naming its gitdir; requiring it keeps us from
-   * mistaking random directories for worktrees. The base branch degrades to
-   * the repository's default branch when it cannot be recovered.
-   */
-  private async recordFromWorktree(root: string, sessionId: string, worktreePath: string): Promise<WorktreeRecord | undefined> {
-    try {
-      const gitFile = await readFile(joinPathLike(worktreePath, '.git'), 'utf8')
-      if (!gitFile.trim().includes('worktrees')) return undefined
-      const baseBranch = await defaultBranch(this.run, root)
-      return {
-        sessionId,
-        repoRoot: root,
-        baseBranch,
-        branch: `dsh/${sessionId}`,
-        worktreePath,
-        createdAt: Date.now(),
-      }
-    } catch {
-      return undefined
     }
   }
 

@@ -1,11 +1,13 @@
+import { sessionProjectFolder } from '../domain/session-project.js'
+import { SessionLocationService } from '../editor/session-location-service.js'
+import type { SessionManagementView, SessionExecutionStatus } from '../domain/session-management.js'
 import type { LlmResolvedModelInfo as DshLlmResolvedModelInfo } from '@deepseek-ai/dsh-llm/types'
 import type { ModelSelection as DshModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { SessionAddress as DshSessionAddress } from './gateway-wire.js'
 import type { SessionRequestId as DshSessionRequestId } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { JobId as DshJobId } from '@deepseek-ai/dsh-jobs/brand'
 import * as vscode from 'vscode'
-import { officialChangesView, formatWorkspaceDiff } from './workspace-changes.js'
-import type { SessionChangesView } from '../domain/session-changes.js'
+import { WorkspaceChangesCache } from './workspace-changes-cache.js'
 import { inboxQueue } from './inbox-projection.js'
 import type {
   ControlFrame,
@@ -25,7 +27,6 @@ import type { PromptContentPart } from './gateway-wire.js'
 import type { AgentPresetRow as AgentPresetEntry } from '@deepseek-ai/dsh-agent-preset-registry/types'
 import type { ConfigurationService } from '../config/configuration.js'
 import { localizedPresetDisplay } from '../domain/agent-preset-display.js'
-import { buildCarryOverMessage, type CarryTurn } from '../domain/carry-over.js'
 import { projectionContextPressure } from '../domain/context-pressure.js'
 import { isPermissionPresetId, type PermissionPresetId } from '../domain/permissions.js'
 import { isProviderRouteInUse } from '../domain/provider.js'
@@ -51,6 +52,7 @@ import {
   sessionListItem,
   type CommandEntry,
   type HarnessWorkbenchState,
+  type SessionListItem,
 } from '../domain/workbench-state.js'
 import type { HarnessHostRuntime } from '../runtime/web-runtime.js'
 import type { ConnectionSettingsService } from '../services/connection-settings-service.js'
@@ -59,11 +61,9 @@ import { ArchiveState } from './archive-state.js'
 import { AssistantStreamState, presentationHistory } from './assistant-stream-state.js'
 import {
   attachmentPart,
-  carryEventText,
   errorMessage,
   localizedWorkbenchLabels,
   mergeHistory,
-  newSessionId,
   queuedPromptView,
   recordValue,
   subagentView,
@@ -116,8 +116,18 @@ export class HarnessGatewayService implements vscode.Disposable {
   private projectedConversationCache: ReturnType<typeof projectConversation> | undefined
   private hasMore = false
   private activeSessionId: string | undefined
-  private readonly officialChanges = new Map<string, Map<number, SessionChangesView | undefined>>()
-  private readonly requestedChanges = new Set<string>()
+  private readonly officialChanges = new WorkspaceChangesCache(
+    () => this.fireChange(),
+    cause => this.output.appendLine(`[gateway] Change summary unavailable: ${errorMessage(cause)}`),
+  )
+  private readonly sessionLocations = new SessionLocationService(() => this.fireChange())
+  private readonly execution = new Map<string, { status: SessionExecutionStatus; error?: string }>()
+  private readonly effectiveCwds = new Map<string, string>()
+  private readonly projectCwds = new Map<string, string>()
+  private readonly observedTitles = new Map<string, { title: string; asOfSeq: number; logBacked: boolean }>()
+  private readonly interruptedExecution = new Set<string>()
+  private previewRevision = 0
+  private previewLoadedAt = 0
   private modelMetadataRevision = 0
   private readonly modelMetadata = new Map<string, DshLlmResolvedModelInfo>()
   private models: SessionModels | undefined
@@ -129,8 +139,6 @@ export class HarnessGatewayService implements vscode.Disposable {
   private subagents: readonly SubagentListEntry[] = []
   private subagentAddress: SubagentAddress | undefined
   private projections: Record<string, unknown> = {}
-  /** Armed by a mode switch; consumed by the next prompt in its target session. */
-  private pendingCarryOver: { targetSessionId: string; message: string } | undefined
   private readonly labels = localizedWorkbenchLabels()
   private commands: readonly CommandEntry[] = projectionCommands(undefined, this.labels)
   private startTask: Promise<void> | undefined
@@ -144,12 +152,6 @@ export class HarnessGatewayService implements vscode.Disposable {
   private readonly metaStore: SessionMetaStore
   /** The archived-session set plus its restore overlay. */
   private readonly archives: ArchiveState
-  /**
-   * Sessions whose worktree is currently being auto-merged after a turn/end.
-   * Keeps two adjacent turn ends from running concurrent git operations on the
-   * same worktree (index.lock races); entries are removed when the merge settles.
-   */
-  private readonly autoMergingSessions = new Set<string>()
   /** Serializes profile mutations with prompt admission and other restarts. */
   private runtimeMutationTask: Promise<void> | undefined
   /**
@@ -172,7 +174,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   ) {
     this.pendingQueue = new PendingConfigurationQueue({
       isRunning: (sessionId) => this.summaries.get(sessionId)?.running === true,
-      apply: (configuration, signals) => this.applyPromptConfiguration(configuration, signals),
+      apply: async (configuration, signals) => { await this.applyPromptConfiguration(configuration, signals) },
       onApplyFailure: (message) => this.output.appendLine(vscode.l10n.t('[gateway] Failed to apply a queued configuration: {0}', message)),
     })
     this.metaStore = new SessionMetaStore(this.globalState, this.output)
@@ -312,7 +314,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.output.appendLine('[baseline] lists ok, sweep…')
     // Sweep worktrees whose session no longer exists (crash between worktree
     // add and session create, or a session removed out-of-band).
-    void this.cleanupOrphanWorktrees()
+    // Viewing shared history never cleans up Git worktrees automatically.
     // Resume the user's last open session first; only fall back to the most
     // recent history entry, and only create a blank session when no history
     // exists at all. A reload/reinstall must never silently open a different
@@ -332,7 +334,7 @@ export class HarnessGatewayService implements vscode.Disposable {
         // The user can still create a new session and inspect the log.
         this.output.appendLine(vscode.l10n.t('[gateway] Failed to load recent sessions: {0}', errorMessage(cause)))
       }
-    } else {
+    } else if (this.currentWorkspaceCwds().length === 1) {
       // No session to resume: open a fresh blank one so the model and
       // permission selectors are usable before the first message is sent.
       // Blank sessions are archivable and never pollute the history.
@@ -371,24 +373,29 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   /** Stops the Host around profile mutations, then reconnects even on failure. */
-  async mutateRuntime<T>(mutation: () => Promise<T>): Promise<T> {
+  async mutateRuntime<T>(mutation: () => Promise<T>, beforeStop?: () => void): Promise<T> {
     // Reserve the gate before the first await when idle, so a concurrent
     // prompt cannot sneak in between the idle check and disconnect().
     while (this.runtimeMutationTask !== undefined) await this.runtimeMutationTask
     let release!: () => void
     const gate = new Promise<void>((resolve) => { release = resolve })
     this.runtimeMutationTask = gate
+    let stopped = false
     try {
       await this.waitForRuntimeIdle()
+      beforeStop?.()
+      stopped = true
+      for (const [id, state] of this.execution) if (state.status === 'ready') this.interruptedExecution.add(id)
       this.disconnect()
       await this.runtime.stop()
       return await mutation()
     } finally {
       try {
-        await this.start()
+        if (stopped) await this.start()
       } finally {
         release()
         if (this.runtimeMutationTask === gate) this.runtimeMutationTask = undefined
+        this.interruptedExecution.clear()
       }
     }
   }
@@ -406,8 +413,11 @@ export class HarnessGatewayService implements vscode.Disposable {
   /** Projects the current runtime state into the workbench DTO the UI renders. */
   async snapshot(): Promise<HarnessWorkbenchState> {
     const hasApiKey = this.connectionSettings.hasConfiguredProvider()
-    const scoped = this.orderedSummaries().filter((summary) => this.inCurrentWorkspace(summary))
-    const partitioned = this.archives.partition(scoped.map((summary) => {
+    // The webview owns the current-project / all-projects filter so switching
+    // scope never needs a Gateway round-trip. Every row still carries its
+    // project identity for labels and the current-project grouping.
+    const ordered = this.orderedSummaries()
+    const partitioned = this.archives.partition(ordered.map((summary) => {
       const item = this.sessionListItemWithIsolation(summary)
       const id = String(summary.sessionId)
       const meta = this.metaStore.metaFor(id)
@@ -419,6 +429,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     }))
 
     const activeSummary = this.activeSessionId === undefined ? undefined : this.summaries.get(this.activeSessionId)
+    const activePreset = this.sessionPreset(activeSummary)
     const subagents = this.currentSubagentRows()
     if (this.historyProjectionDirty || this.projectedConversationCache === undefined) {
       this.projectedConversationCache = projectConversation(presentationHistory(this.entries, this.assistantStream.entries()), this.labels)
@@ -444,10 +455,10 @@ export class HarnessGatewayService implements vscode.Disposable {
     const active = activeSummary === undefined ? undefined : {
       ...this.sessionListItemWithIsolation(activeSummary),
       id: String(activeSummary.sessionId),
-      title: sessionListItem(activeSummary, this.labels).title,
+      title: this.sessionTitle(String(activeSummary.sessionId)),
       running: activeSummary.running,
       blank: activeSummary.blank,
-      ...(activeSummary.agentPreset === undefined ? {} : { agentPreset: activeSummary.agentPreset }),
+      ...(activePreset === undefined ? {} : { agentPreset: activePreset }),
       hasMore: this.hasMore,
       ...(this.models === undefined ? {} : { model: this.models.current }),
       models: this.models?.groups.flatMap((group) => group.models.map((model) => {
@@ -493,6 +504,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       phase: this.phase,
       ...(this.error === undefined ? {} : { error: this.error }),
       hasApiKey,
+      ...(this.runtime.historySource === undefined ? {} : { historySource: this.runtime.historySource }),
       sessions: partitioned.active,
       archivedSessions: partitioned.archived,
       ...(active === undefined ? {} : { active }),
@@ -560,20 +572,15 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.fireChange()
   }
 
-  /**
-   * Creates a fresh session, deduplicating concurrent callers. A ＋ click storm
-   * (or a mode switch racing a click) must not fan out into N parallel
-   * `createSession()` runs: each would `git worktree add` (serialized on git's
-   * global worktree lock) and issue its own session/create RPC, so they queue
-   * on the lock, every one drags past the RPC timeout, and the user ends up
-   * with several blank drafts plus a "timed out" toast. In-flight calls with
-   * the same preset share one creation promise.
-   */
-  async createSession(agentPreset?: string): Promise<string> {
-    const key = agentPreset ?? ''
+  /** Create one native conversation in the selected project folder; coalesce duplicate clicks. */
+  async createSession(agentPreset?: string, folder?: string): Promise<string> {
+    if (folder === undefined && this.currentWorkspaceCwds().length > 1) throw new Error(vscode.l10n.t('Choose a project folder before creating a session.'))
+    const cwd = folder ?? this.currentWorkspaceCwd()
+    if (!cwd || !this.currentWorkspaceCwds().some(root => sameWorkspacePath(root, cwd))) throw new Error(vscode.l10n.t('Open a project folder before creating a session.'))
+    const key = JSON.stringify([agentPreset ?? '', cwd])
     const inFlight = this.creatingSessions.get(key)
     if (inFlight !== undefined) return inFlight
-    const creating = this.doCreateSession(agentPreset)
+    const creating = this.doCreateSession(agentPreset, cwd)
     this.creatingSessions.set(key, creating)
     // Swallow the finally-chained rejection: callers await the original
     // `creating` promise directly, so a failure surfaces to them, and the
@@ -584,43 +591,19 @@ export class HarnessGatewayService implements vscode.Disposable {
     return creating
   }
 
-  private async doCreateSession(agentPreset?: string): Promise<string> {
+  private async doCreateSession(agentPreset: string | undefined, folder: string): Promise<string> {
     const client = this.requireClient()
     const config = this.configuration.get()
     const selectedPreset = agentPreset ?? config.agentPreset
-    // A2 isolation: preallocate a session id so the worktree can be created
-    // under that id before the session exists, then hand the worktree path as
-    // the session cwd (the sandbox root). Non-git workspaces fall back to the
-    // shared workspace folder.
-    const sessionId = newSessionId()
-    const baseCwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd()
-    const prepared = await this.worktrees.prepare(sessionId, baseCwd)
-    let created
-    try {
-      created = await client.sessionCreate({ cwd: prepared.cwd, sessionId: sessionId as SessionId, agentPreset: selectedPreset })
-    } catch (cause) {
-      // Roll back the freshly created worktree so a failed create cannot leak it.
-      if (prepared.isolated) await this.worktrees.discard(sessionId).catch(() => undefined)
-      throw cause
-    }
-    if (!prepared.isolated && prepared.reason !== undefined) {
-      const note = prepared.reason === 'git-not-found'
-        ? vscode.l10n.t('Git was not found on this machine, so this session shares the workspace folder instead of an isolated worktree. Review, Merge and Discard stay unavailable until Git is on PATH.')
-        : prepared.reason === 'no-git-repo'
-          ? vscode.l10n.t('The workspace is not a git repository, so this session shares the workspace folder instead of an isolated worktree.')
-          : prepared.reason === 'detached-head'
-            ? vscode.l10n.t('The repository has no active branch (detached HEAD), so this session shares the workspace folder instead of an isolated worktree.')
-            : vscode.l10n.t('Could not create an isolated worktree for this session, so it shares the workspace folder.')
-      if (prepared.reason === 'git-not-found') {
-        void vscode.window.showInformationMessage(note, vscode.l10n.t('Install Git')).then((selection) => {
-          if (selection !== undefined) void vscode.env.openExternal(vscode.Uri.parse('https://git-scm.com/downloads'))
-        })
-      } else {
-        void vscode.window.showInformationMessage(note)
-      }
-    }
+    const project = await this.sessionLocations.refresh(folder)
+    if (project.exists !== true) throw new Error(vscode.l10n.t('The project folder is missing or inaccessible.'))
+    const workspace = await client.workspaceCreate(project.cwd)
+    const created = await client.sessionCreate({ workspaceId: workspace.workspace.workspaceId, agentPreset: selectedPreset })
+    this.projectCwds.set(String(created.sessionId), project.cwd)
     if (agentPreset !== undefined) await this.configuration.setAgentPresetIfKnown(agentPreset)
     await this.refreshSessionList()
+    this.execution.set(String(created.sessionId), { status: 'ready' })
+    this.effectiveCwds.set(String(created.sessionId), project.cwd)
     await this.selectSession(String(created.sessionId))
     // Applying the persisted provider/model pair can fail when the two were
     // persisted out of sync (e.g. provider switched to `commandcode` while the
@@ -645,116 +628,29 @@ export class HarnessGatewayService implements vscode.Disposable {
     return String(created.sessionId)
   }
 
-  /** True when the session lives in its own git worktree (A2 isolation). */
-  private isSessionIsolated(sessionId: string): boolean {
-    return this.worktrees.recordFor(sessionId) !== undefined
-  }
-
-  /**
-   * Moves an un-isolated session into a fresh isolated worktree before its
-   * next message, carrying the conversation as a hidden lead block (the same
-   * mechanism mode switches use). Safety gate: if the shared checkout has
-   * uncommitted changes, the migration is skipped — those changes would be
-   * invisible from the new worktree and the continuation would silently break.
-   */
-  private async migrateUnisolatedSession(sourceId: string): Promise<void> {
-    const preset = this.summaries.get(sourceId)?.agentPreset ?? this.configuration.get().agentPreset
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (workspaceRoot !== undefined && await this.worktrees.workingTreeDirty(workspaceRoot)) {
-      // The checkout is dirty; do not strand its changes. The user can still
-      // open a fresh isolated session with the ＋ button.
-      this.output.appendLine(vscode.l10n.t(
-        '[gateway] Session {0} has no isolated worktree; auto-isolation skipped because the workspace has uncommitted changes.',
-        sourceId,
-      ))
-      return
-    }
-    // Snapshot the conversation BEFORE createSession() switches the active
-    // session and resets the entry cache.
-    const carried = this.buildCarryOverForActiveSession(preset, preset)
-    const isolatedId = await this.createSession(preset)
-    if (carried !== undefined) {
-      this.pendingCarryOver = { targetSessionId: isolatedId, message: carried }
-      this.output.appendLine(vscode.l10n.t(
-        '[gateway] Session {0} had no isolated worktree; moved to isolated session {1} with the conversation carried over.',
-        sourceId,
-        isolatedId,
-      ))
-    }
-  }
-
-  /**
-   * Condenses the active conversation right before a mode switch opens a
-   * fresh session: the digest rides as a hidden lead block on the next send
-   * (see domain/carry-over), so the new mode keeps the previous context.
-   */
-  private buildCarryOverForActiveSession(fromPreset: string, toPreset: string): string | undefined {
-    const sourceId = this.requireActiveSession()
-    const turns: CarryTurn[] = []
-    let toolCalls = 0
-    for (const { event } of this.entries) {
-      if (event.type === 'user/message') {
-        const source = event.data.source
-        if (source.kind !== 'user') continue
-        turns.push({ role: 'user', text: carryEventText(event.data.content) })
-      } else if (event.type === 'assistant/message') {
-        turns.push({ role: 'assistant', text: carryEventText(event.data.message.content) })
-      } else if (event.type === 'tool/call') {
-        toolCalls += 1
-      }
-    }
-    return buildCarryOverMessage({ sourceSessionId: sourceId, fromPreset, toPreset, turns, skippedToolCalls: toolCalls })
-  }
-
-  /** Peeks an armed carry-over payload without consuming it; cleared only after a successful send. */
-  private peekCarryOverFor(sessionId: string): string | undefined {
-    if (this.pendingCarryOver?.targetSessionId !== sessionId) return undefined
-    return this.pendingCarryOver.message
-  }
-
-  private clearCarryOver(sessionId: string): void {
-    if (this.pendingCarryOver?.targetSessionId === sessionId) this.pendingCarryOver = undefined
-  }
-
-  /**
-   * Commits composer choices immediately before the next prompt. Harness locks
-   * an Agent Preset after a conversation starts, so changing DSH mode opens a
-   * fresh session under the requested preset while model/reasoning changes
-   * remain session-local. A digest of the previous conversation is attached to
-   * the next outgoing message as a hidden lead block (collapsed into a context
-   * card in the transcript), keeping continuity without forking into a locked
-   * old preset.
-   */
-  async applyPromptConfiguration(selection: PromptConfiguration, signals?: PromptEffortSignals): Promise<void> {
+  /** Apply a blank-session preset or ordinary model changes without creating another conversation. */
+  async applyPromptConfiguration(selection: PromptConfiguration, signals?: PromptEffortSignals): Promise<{ sessionId: string; generation: number }> {
     if (this.subagentAddress !== undefined) {
       throw new Error(vscode.l10n.t('Sub-agent configuration is fixed by its parent session.'))
     }
+    let generation = this.selectionGeneration
     let sessionId = this.activeSessionId
     if (sessionId === undefined) {
       sessionId = await this.createSession(selection.agentPreset)
+      generation += 1
     } else {
       const summary = this.summaries.get(sessionId)
-      const currentPreset = summary?.agentPreset ?? this.configuration.get().agentPreset
+      const currentPreset = this.sessionPreset(summary) ?? this.configuration.get().agentPreset
       const transition = agentPresetTransition(summary?.blank === true, currentPreset, selection.agentPreset)
       if (transition === 'select-blank-session') {
         await this.selectPreset(selection.agentPreset)
-      } else if (transition === 'create-session') {
-        // Snapshot the conversation BEFORE createSession() selects the fresh
-        // session and resets the entry cache.
-        const carried = this.buildCarryOverForActiveSession(currentPreset, selection.agentPreset)
-        sessionId = await this.createSession(selection.agentPreset)
-        if (carried !== undefined) {
-          this.pendingCarryOver = { targetSessionId: sessionId, message: carried }
-          this.output.appendLine(vscode.l10n.t(
-            '[gateway] Mode switch opened session {0} under preset "{1}"; the previous context rides with the next message.',
-            sessionId,
-            selection.agentPreset,
-          ))
-        }
+      } else if (transition === 'reject-locked') {
+        throw new Error(vscode.l10n.t('This session preset is fixed. Create a new session explicitly to use another preset.'))
       } else {
         await this.configuration.setAgentPresetIfKnown(selection.agentPreset)
       }
     }
+    this.assertSelection({ sessionId, generation })
     // 'auto' is an extension-side selection layer carried as a separated intent:
     // the concrete tier in `selection.reasoningEffort` is what the UI shows.
     const intent = selection.reasoningIntent === 'auto' ? selection.reasoningIntent : selection.reasoningEffort
@@ -772,6 +668,8 @@ export class HarnessGatewayService implements vscode.Disposable {
       if (autoModel !== undefined && autoModel !== targetModel) targetModel = autoModel
     }
     await this.selectModel(selection.provider, targetModel, intent, true, signals)
+    this.assertSelection({ sessionId, generation })
+    return { sessionId, generation }
   }
 
   /** The models currently advertised by one provider, in provider order. */
@@ -784,10 +682,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     if (normalized === '') return []
     const result = await this.requireClient().sessionSearch({ query: normalized })
     return result.items
-      .filter((item) => {
-        const summary = this.summaries.get(String(item.sessionId))
-        return summary !== undefined && this.inCurrentWorkspace(summary)
-      })
+      .filter((item) => this.summaries.has(String(item.sessionId)))
       .map((item) => ({ sessionId: String(item.sessionId), snippet: item.snippet }))
   }
 
@@ -808,13 +703,141 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   /** Native DSH Schedule delivery history, kept read-only for the workbench. */
-  async scheduleHistory(sessionId: string, scheduleId: string, limit = 20): Promise<unknown> {
-    return await this.requireClient().scheduleHistory({ sessionId: sessionId as SessionId, id: scheduleId as never, limit })
+  async scheduleHistory(_sessionId: string, scheduleId: string, limit = 20): Promise<unknown> {
+    return await this.requireClient().scheduleHistory({ id: scheduleId as never, limit })
+  }
+
+  /** Browse an exact native cut without invoking follow's implicit promotion. */
+  async refreshSessionPreview(sessionId = this.activeSessionId): Promise<void> {
+    if (!sessionId || this.activeSessionId !== sessionId) return
+    const generation = this.selectionGeneration
+    const client = this.requireClient()
+    this.previewLoadedAt = Date.now()
+    const revision = ++this.previewRevision
+    try {
+      const preview = await client.sessionPreview(sessionId)
+      if (!this.isCurrentSelection(sessionId, generation) || client !== this.client || revision !== this.previewRevision) return
+      const page = await client.sessionPage({ address: this.activeFollowAddress() ?? { kind: 'session', sessionId: sessionId as SessionId }, throughSeq: preview.cursor, maxMessages: 80 })
+      if (!this.isCurrentSelection(sessionId, generation) || client !== this.client || revision !== this.previewRevision) return
+      if (preview.cwd) this.effectiveCwds.set(sessionId, preview.cwd)
+      if (preview.projectCwd) this.projectCwds.set(sessionId, preview.projectCwd)
+      const summary = this.summaries.get(sessionId)
+      if (summary && preview.agentPreset) this.summaries.set(sessionId, { ...summary, agentPreset: preview.agentPreset })
+      if (this.execution.get(sessionId)?.status === 'ready') { this.fireChange(); return }
+      const records = NodeGatewayClient.expandRecords(page.records as unknown[]) as HistoryEntry[]
+      const first = records[0]?.event.seq ?? 0
+      // A fresh native read replaces temporary interrupted-turn closers at the same sequence.
+      this.entries = [...this.entries.filter(entry => entry.event.seq < first && entry.event.seq <= preview.cursor), ...records]
+      this.assistantStream.reset()
+      this.historyProjectionDirty = true
+      this.hasMore = this.hasMore || page.hasMore
+      this.followCursor.set(sessionId, preview.cursor as never)
+      this.projections = preview.projections
+      this.applyTitleProjection(sessionId, projectionTitle(preview.projections), preview.cursor, true)
+      this.syncModelSelection()
+      if (this.execution.get(sessionId)?.error === vscode.l10n.t('This session could not be read. Refresh to retry; the original history is preserved.')) this.execution.delete(sessionId)
+      this.fireChange()
+    } catch (cause) {
+      if (!this.isCurrentSelection(sessionId, generation) || client !== this.client || revision !== this.previewRevision) return
+      if (this.execution.get(sessionId)?.status !== 'ready') this.execution.set(sessionId, { status: 'unavailable', error: vscode.l10n.t('This session could not be read. Refresh to retry; the original history is preserved.') })
+      this.output.appendLine(`[session preview] ${errorMessage(cause)}`)
+      this.fireChange()
+    }
+  }
+
+  /** Explicit user action: acquire the native writer without forking, moving cwd, or adding a prompt. */
+  async resumeSession(): Promise<void> {
+    const id = this.requireActiveSession()
+    if (this.execution.get(id)?.status === 'resuming') return
+    const client = this.requireClient()
+    const generation = this.selectionGeneration
+    if (this.archives.isArchived(id)) throw new Error(vscode.l10n.t('Restore this archived session before continuing.'))
+    const attempt = { status: 'resuming' as const }
+    this.execution.set(id, attempt)
+    this.fireChange()
+    try {
+      const preview = await client.sessionPreview(id)
+      if (!preview.cwd) throw new Error(vscode.l10n.t('The session working directory is unknown.'))
+      const location = await this.sessionLocations.refresh(preview.cwd)
+      const project = await this.sessionProjectLocation(id, preview.projectCwd)
+      const roots = await Promise.all(this.currentWorkspaceCwds().map(cwd => this.sessionLocations.refresh(cwd)))
+      if (location.exists !== true) throw new Error(vscode.l10n.t('The session working directory is missing or inaccessible.'))
+      if (!roots.some(root => sameWorkspacePath(project?.cwd, root.cwd))) throw new Error(vscode.l10n.t('Open the session project in a VS Code window before continuing.'))
+      if (!this.isCurrentSelection(id, generation) || client !== this.client) return
+      this.effectiveCwds.set(id, preview.cwd)
+      await client.sessionResume(id, preview.cwd)
+      if (!this.isCurrentSelection(id, generation) || client !== this.client) return
+      this.execution.set(id, { status: 'ready' })
+      await this.selectSession(id)
+    } catch (cause) {
+      if (!this.isCurrentSelection(id, generation) || client !== this.client) return
+      const occupied = codeOf(cause).code === 'session/writer-held'
+      this.execution.set(id, { status: occupied ? 'occupied' : 'unavailable', error: occupied
+        ? vscode.l10n.t('Another DSH runtime owns this session. Release it there, then retry. History remains readable.')
+        : vscode.l10n.t('Unable to continue this session: {0}', errorMessage(cause)) })
+      this.fireChange()
+    } finally {
+      if (this.execution.get(id) === attempt) { this.execution.delete(id); this.fireChange() }
+    }
+  }
+
+  /** Host-side guard also protects stale webview messages and automatic context attachment. */
+  async assertSessionWritable(): Promise<void> {
+    const before = this.activeSessionId
+    const authorized = before !== undefined && (this.execution.get(before)?.status === 'ready' || this.interruptedExecution.has(before))
+    if (this.runtimeMutationTask) {
+      await this.runtimeMutationTask
+      if (authorized && this.activeSessionId === before && this.execution.get(before!)?.status !== 'ready') await this.resumeSession()
+    }
+    if (this.subagentAddress?.mode === 'one-shot') throw new Error(vscode.l10n.t('One-shot sub-agent history is read-only.'))
+    const id = this.requireActiveSession()
+    if (this.execution.get(id)?.status !== 'ready') throw new Error(vscode.l10n.t('This session is in preview. Choose Continue here first.'))
+    if (this.archives.isArchived(id)) throw new Error(vscode.l10n.t('Restore this archived session before continuing.'))
+    const client = this.requireClient()
+    const selection = this.selectionToken()
+    const preview = await client.sessionPreview(id)
+    if (!preview.cwd) throw new Error(vscode.l10n.t('The session working directory is unknown.'))
+    const location = await this.sessionLocations.refresh(preview.cwd)
+    const project = await this.sessionProjectLocation(id, preview.projectCwd)
+    const roots = await Promise.all(this.currentWorkspaceCwds().map(cwd => this.sessionLocations.refresh(cwd)))
+    this.assertSelection(selection)
+    if (client !== this.client) throw new Error(vscode.l10n.t('The selected session changed. Please send again.'))
+    this.effectiveCwds.set(id, preview.cwd)
+    if (location.exists !== true || !roots.some(root => sameWorkspacePath(project?.cwd, root.cwd))) {
+      this.execution.delete(id)
+      this.fireChange()
+      throw new Error(vscode.l10n.t('Open the session project in a VS Code window before continuing.'))
+    }
+  }
+
+  canAttachEditorContext(): boolean {
+    const summary = this.activeSessionId ? this.summaries.get(this.activeSessionId) : undefined
+    return summary !== undefined && this.sessionListItemWithIsolation(summary).management?.editorContextAvailable === true
+  }
+
+  private async sessionProjectLocation(id: string, origin?: string) {
+    const original = origin ?? this.projectCwds.get(id) ?? this.summaries.get(id)?.cwd
+    if (!original) return undefined
+    this.projectCwds.set(id, original)
+    const legacy = this.worktrees.recordFor(id)
+    const project = legacy && sameWorkspacePath(original, legacy.worktreePath) ? legacy.repoRoot : original
+    return this.sessionLocations.refresh(project)
+  }
+
+  /** Resolve only from the viewed session's original project, never its mutable cwd. */
+  async openSessionProject(): Promise<void> {
+    const id = this.requireActiveSession()
+    const preview = await this.requireClient().sessionPreview(id)
+    if (!preview.cwd) throw new Error(vscode.l10n.t('The session working directory is unknown.'))
+    const location = await this.sessionProjectLocation(id, preview.projectCwd)
+    if (!location || location.exists !== true) throw new Error(vscode.l10n.t('The session working directory is missing or inaccessible.'))
+    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(location.cwd), { forceNewWindow: true })
   }
 
   async selectSession(sessionId: string): Promise<void> {
     if (!this.summaries.has(sessionId)) await this.refreshSessionList()
     if (!this.summaries.has(sessionId)) throw new Error(vscode.l10n.t('Session not found.'))
+    this.officialChanges.retryFailed(sessionId)
     // Remember the selection so a reload/reinstall resumes this conversation
     // instead of silently opening a different (or blank) session.
     await this.globalState.update(LAST_SESSION_STATE_KEY, sessionId).then(
@@ -853,6 +876,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.subagentCount = 0
     this.subagents = []
     this.projections = {}
+    this.previewLoadedAt = 0
     this.commands = projectionCommands(undefined, this.labels)
     this.fireChange()
 
@@ -864,12 +888,12 @@ export class HarnessGatewayService implements vscode.Disposable {
     // (this service owns it only after startEventStreams ran); wait for the
     // snapshot batch so a cold session is useful even if its preset can no
     // longer be resumed.
-    if (this.streamAbort !== undefined) await this.waitForFollowSnapshot(sessionId)
+    if (this.execution.get(sessionId)?.status === 'ready') {
+      if (this.streamAbort !== undefined) await this.waitForFollowSnapshot(sessionId)
+    } else await this.refreshSessionPreview(sessionId)
     if (!this.isCurrentSelection(sessionId, generation)) return
 
-    // session/modelCatalog owns the official cold-session resume path. It must
-    // settle before skills/list: the latter intentionally never attaches an
-    // Agent and otherwise races into "not found (not attached)" on startup.
+    // The model catalog is Host-wide. This read does not resume the viewed Session.
     try {
       const models = await client.sessionModelCatalog()
       await this.loadModelMetadata(models)
@@ -925,12 +949,15 @@ export class HarnessGatewayService implements vscode.Disposable {
     const address = this.activeFollowAddress()
     if (address === undefined) return
     const cursor = this.followCursor.get(sessionId)
-    const page = await this.requireClient().sessionPage({
+    const generation = this.selectionGeneration
+    const client = this.requireClient()
+    const page = await client.sessionPage({
       address,
       throughSeq: cursor ?? 0,
       ...(beforeSeq === undefined ? {} : { beforeSeq }),
       maxMessages: 60,
     })
+    if (sessionId !== this.activeSessionId || generation !== this.selectionGeneration || client !== this.client) return
     const records = NodeGatewayClient.expandRecords(page.records as unknown[]) as HistoryEntry[]
     const existing = new Set(this.entries.map((entry) => entry.event.seq))
     this.entries = [...records.filter((entry) => !existing.has(entry.event.seq)), ...this.entries]
@@ -958,8 +985,7 @@ export class HarnessGatewayService implements vscode.Disposable {
    *  - busy path: the configuration rides a FIFO pending queue aligned with
    *    the runtime queue and is applied at the next turn boundary, when no
    *    turn is believed to be running;
-   *  - preset changes that open a fresh session are always applied
-   *    immediately, because the fork is a brand-new idle session.
+   *  - locked preset changes are rejected without creating another session.
    */
   async sendPrompt(
     text: string,
@@ -972,24 +998,21 @@ export class HarnessGatewayService implements vscode.Disposable {
     // A profile mutation reserves this gate before stopping the runtime.
     // Waiting here prevents a first-run install/restart from dropping a prompt
     // submitted while the mutation was being scheduled.
-    if (this.runtimeMutationTask !== undefined) await this.runtimeMutationTask
+    const admittedSession = this.activeSessionId
+    const hadExecution = admittedSession !== undefined && (this.execution.get(admittedSession)?.status === 'ready' || this.interruptedExecution.has(admittedSession))
+    if (this.runtimeMutationTask !== undefined) {
+      await this.runtimeMutationTask
+      if (hadExecution && this.activeSessionId === admittedSession && this.execution.get(admittedSession!)?.status !== 'ready') await this.resumeSession()
+    }
     const normalized = text.trim()
     if (normalized === '' && attachments.length === 0) return
     if (this.activeSessionId === undefined) await this.createSession()
     const sessionId = this.requireActiveSession()
 
-    // Auto-isolation: sessions created through the host's native fork path
-    // (uuid id, parentSession) inherit the parent's shared cwd and have no
-    // worktree, so their work is not fenced. Before the first message lands,
-    // move the conversation into a fresh isolated worktree when the shared
-    // checkout is clean; a dirty checkout is left alone (migrating would
-    // strand its uncommitted changes outside the new worktree).
-    if (this.subagentAddress === undefined && !this.isSessionIsolated(sessionId)) {
-      await this.migrateUnisolatedSession(sessionId)
-      // createSession() inside the migration switches the active session, so
-      // the subsequent requireActiveSession() below already resolves the new id.
-    }
+    await this.assertSessionWritable()
 
+    let submission = this.selectionToken()
+    const submissionClient = this.requireClient()
     let deferredEntry: PendingConfigEntry | undefined
     if (configuration !== undefined) {
       const summary = this.summaries.get(sessionId)
@@ -997,7 +1020,7 @@ export class HarnessGatewayService implements vscode.Disposable {
         ? 'keep-session'
         : agentPresetTransition(
           summary.blank === true,
-          summary.agentPreset ?? this.configuration.get().agentPreset,
+          this.sessionPreset(summary) ?? this.configuration.get().agentPreset,
           configuration.agentPreset,
         )
       // Image admission is checked against the session's live selection when
@@ -1013,10 +1036,9 @@ export class HarnessGatewayService implements vscode.Disposable {
         && (current.provider !== configuration.provider
           || currentModel !== stagedModel)
       const carriesImages = attachments.some((attachment) => attachment.kind === 'image')
-      if (transition === 'create-session' || !this.pendingQueue.isBusy(sessionId) || (carriesImages && changesRoute)) {
-        // Fresh-session forks are idle by construction; the idle fast path
-        // applies in-order ahead of admission.
-        await this.applyPromptConfiguration(configuration, signals)
+      if (transition === 'reject-locked' || !this.pendingQueue.isBusy(sessionId) || (carriesImages && changesRoute)) {
+        // Reject a locked preset immediately; otherwise apply an idle draft in order.
+        submission = await this.applyPromptConfiguration(configuration, signals)
       } else {
         const entry: PendingConfigEntry = {
           configuration,
@@ -1037,7 +1059,9 @@ export class HarnessGatewayService implements vscode.Disposable {
       return
     }
     // The preset-fork path may have selected a new session above.
-    const target = this.requireActiveSession()
+    this.assertSelection(submission)
+    if (submissionClient !== this.client) throw new Error(vscode.l10n.t('The selected session changed. Please send again.'))
+    const target = submission.sessionId
     const subagentAddress = this.subagentAddress
     const promptClient = this.requireClient()
     const ordinarySession = subagentAddress === undefined
@@ -1046,12 +1070,6 @@ export class HarnessGatewayService implements vscode.Disposable {
     // see this session as busy even before the turn events arrive.
     if (ordinarySession) this.pendingQueue.admit(target)
 
-    // A mode-switch digest rides as its own leading text block so the
-    // transcript can collapse it (see the webview carry-over card) while the
-    // model still reads it before the attachments and the user's message. The
-    // payload stays armed until the ordinary-session send succeeds, so a
-    // failed submit can retry without losing the context.
-    const carried = ordinarySession ? this.peekCarryOverFor(target) : undefined
     try {
     const parts: PromptContentPart[] = []
     for (const attachment of attachments) {
@@ -1067,10 +1085,10 @@ export class HarnessGatewayService implements vscode.Disposable {
       }
     }
     const content: PromptContentPart[] = [
-      ...(carried === undefined ? [] : [{ type: 'text' as const, text: carried }]),
       ...parts,
       ...(normalized === '' ? [] : [{ type: 'text' as const, text: normalized }]),
     ]
+      this.assertSelection(submission)
       if (subagentAddress === undefined) {
         await promptClient.sessionPrompt({
           requestId: requestId === undefined ? newPromptRequestId() : requestId as DshSessionRequestId,
@@ -1094,12 +1112,15 @@ export class HarnessGatewayService implements vscode.Disposable {
           clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         })
       }
-      if (ordinarySession) this.clearCarryOver(target)
     } catch (cause) {
       // The message never entered the queue: roll back the admission marker
       // and the pending slot so nothing is applied for a prompt that will
       // never run.
       if (ordinarySession) this.pendingQueue.forget(target)
+      if (codeOf(cause).code === 'session/writer-held') {
+        this.execution.set(target, { status: 'occupied', error: vscode.l10n.t('Another DSH runtime owns this session. Release it there, then retry. History remains readable.') })
+        this.fireChange()
+      }
       if (deferredEntry !== undefined) this.pendingQueue.unpend(sessionId, deferredEntry)
       throw cause
     }
@@ -1123,6 +1144,7 @@ export class HarnessGatewayService implements vscode.Disposable {
    * contract.
    */
   async steerQueued(itemId: string): Promise<void> {
+    await this.assertSessionWritable()
     const sessionId = this.requireActiveSession()
     const client = this.requireClient()
     let response: { readonly code?: string; readonly message?: string }
@@ -1176,6 +1198,7 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   /** Withdraws one still-pending queued prompt before the agent claims it. */
   async removeQueued(itemId: string): Promise<void> {
+    await this.assertSessionWritable()
     const sessionId = this.requireActiveSession()
     await this.requireClient().sessionUpdateQueue({ sessionId: sessionId as SessionId, itemId: itemId as MessageId, action: { kind: 'remove' } })
     // Removing an item breaks the FIFO alignment between the runtime queue
@@ -1186,6 +1209,7 @@ export class HarnessGatewayService implements vscode.Disposable {
 
   /** Rewrites the text of one still-pending queued prompt. */
   async editQueued(itemId: string, text: string): Promise<void> {
+    await this.assertSessionWritable()
     const sessionId = this.requireActiveSession()
     await this.requireClient().sessionUpdateQueue({ sessionId: sessionId as SessionId, itemId: itemId as MessageId, action: { kind: 'edit', content: [{ type: 'text', text }] } })
     // Same alignment concern as removeQueued: an edited item still occupies
@@ -1246,13 +1270,16 @@ export class HarnessGatewayService implements vscode.Disposable {
       childSessionId: childSessionId as SessionId,
       mode,
     }
+    const parentReady = this.execution.get(String(parentSessionId))?.status === 'ready'
     const list = await this.requireClient().subagentList(childSessionId)
     if (generation !== this.selectionGeneration) return
     this.followAbort?.abort()
     this.jobsAbort?.abort()
     this.jobOutput.stop()
     this.subagentAddress = address
+    if (parentReady && mode === 'continuable') this.execution.set(childSessionId, { status: 'ready' })
     this.activeSessionId = childSessionId
+    this.previewLoadedAt = 0
     this.followCursor.set(childSessionId, 0)
     this.entries = []
     this.historyProjectionDirty = true
@@ -1275,6 +1302,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   async selectModel(provider: string, model: string, reasoningEffort?: string, persist = true, signals?: PromptEffortSignals): Promise<void> {
+    if (this.execution.get(this.requireActiveSession())?.status !== 'ready') throw new Error(vscode.l10n.t('This session is in preview. Choose Continue here first.'))
     if (this.subagentAddress !== undefined) throw new Error(vscode.l10n.t('Sub-agents use the model selected when they were created.'))
     const sessionId = this.requireActiveSession()
     // Relay catalogs advertise prefixed ids (`deepseek/deepseek-v4-flash`
@@ -1297,12 +1325,14 @@ export class HarnessGatewayService implements vscode.Disposable {
     if (reasoningEffort !== undefined && reasoningEffort !== '') {
       resolved = resolveEffortIntent(reasoningEffort as EffortIntent, this.reasoningEffortOptions(provider, resolvedModel), this.autoSignals(signals))
     }
+    const selectedAt = this.selectionToken()
     const selected = await this.requireClient().sessionSelectModel({
       sessionId: sessionId as SessionId,
       provider,
       model: resolvedModel,
       ...(resolved === undefined ? {} : { reasoningEffort: resolved }),
     })
+    this.assertSelection(selectedAt)
     if (this.models !== undefined) this.models = { ...this.models, current: selected.selected }
     // Commit the per-session intent only after the harness accepted the
     // change, so a failed RPC cannot leave a stale intent behind.
@@ -1353,13 +1383,19 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   async selectPreset(agentPreset: string): Promise<void> {
-    await this.configuration.setAgentPresetIfKnown(agentPreset)
-    const sessionId = this.activeSessionId
+    if (this.execution.get(this.requireActiveSession())?.status !== 'ready') throw new Error(vscode.l10n.t('This session is in preview. Choose Continue here first.'))
+    const presetTarget = this.selectionToken()
+    const current = this.summaries.get(presetTarget.sessionId)
+    if (current?.blank !== true && this.sessionPreset(current) !== agentPreset) throw new Error(vscode.l10n.t('This session preset is fixed. Create a new session explicitly to use another preset.'))
+    this.assertSelection(presetTarget)
+    const sessionId = presetTarget.sessionId
     const summary = sessionId === undefined ? undefined : this.summaries.get(sessionId)
     if (sessionId !== undefined && summary?.blank === true) {
       await this.requireClient().agentPresetSelect(sessionId as SessionId, agentPreset)
+      this.assertSelection(presetTarget)
       this.summaries.set(sessionId, { ...summary, agentPreset })
     }
+    await this.configuration.setAgentPresetIfKnown(agentPreset)
     this.fireChange()
   }
 
@@ -1393,11 +1429,13 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   async createGoal(objective: string): Promise<void> {
+    await this.assertSessionWritable()
     const sessionId = this.requireActiveSession()
     await this.requireClient().goalCreate(sessionId as SessionId, { objective })
   }
 
   async mutateGoal(action: 'pause' | 'resume' | 'complete' | 'clear'): Promise<void> {
+    await this.assertSessionWritable()
     const sessionId = this.requireActiveSession()
     const goal = projectionGoal(this.projections.goal)
     if (goal === undefined) throw new Error(vscode.l10n.t('The current session has no goal.'))
@@ -1406,9 +1444,10 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   async rename(title: string): Promise<void> {
+    await this.assertSessionWritable()
     const sessionId = this.requireActiveSession()
     const renamed = await this.requireClient().sessionRename({ sessionId: sessionId as SessionId, title })
-    this.applyTitleProjection(sessionId, renamed.title)
+    this.applyTitleProjection(sessionId, renamed.title, renamed.seq)
     this.fireChange()
   }
 
@@ -1425,9 +1464,34 @@ export class HarnessGatewayService implements vscode.Disposable {
   /** Reloads the session list after an external import and optionally opens one. */
   async reloadSessions(selectSessionId?: string): Promise<void> {
     await this.refreshSessionList()
+    await this.hydrateHistoryTitles()
     if (selectSessionId !== undefined && this.summaries.has(selectSessionId)) {
       await this.selectSession(selectSessionId)
     }
+  }
+
+  /** A new shared root can lack this Host's title cache. Warm visible metadata without resuming Agents. */
+  private async hydrateHistoryTitles(): Promise<void> {
+    const client = this.requireClient()
+    const pending = this.orderedSummaries().filter(summary => this.inCurrentWorkspace(summary)
+      && !this.archives.isArchived(String(summary.sessionId))).slice(0, 40)
+    const run = async (): Promise<void> => {
+      while (pending.length && client === this.client) {
+        const summary = pending.shift()!
+        const id = String(summary.sessionId)
+        try {
+          const preview = await client.sessionPreview(id)
+          if (client !== this.client || !this.summaries.has(id)) continue
+          const current = this.summaries.get(id)!
+          if (current.projections?.kind === 'sequenced' && current.projections.asOfSeq > preview.cursor) continue
+          this.applyTitleProjection(id, projectionTitle(preview.projections), preview.cursor, true)
+          if (preview.agentPreset) this.summaries.set(id, { ...this.summaries.get(id)!, agentPreset: preview.agentPreset })
+          if (preview.projectCwd) this.projectCwds.set(id, preview.projectCwd)
+        } catch { /* A damaged old record remains visible; selection exposes its native read failure. */ }
+      }
+    }
+    await Promise.all(Array.from({ length: 4 }, run))
+    if (client === this.client) this.fireChange()
   }
 
   /**
@@ -1463,20 +1527,6 @@ export class HarnessGatewayService implements vscode.Disposable {
     return this.worktrees.diffText(sessionId)
   }
 
-  /**
-   * Diff of the most recently concluded turn: the isolated worktree diff when
-   * the session runs in one, else the shared checkout's uncommitted diff
-   * against HEAD. Used by the "Review" action on the edited-files card.
-   */
-  async recentTurnDiff(sessionId: string | undefined): Promise<string | undefined> {
-    if (sessionId === undefined) return undefined
-    const isolated = await this.worktrees.diffText(sessionId)
-    if (isolated !== undefined) return isolated
-    const repoRoot = this.worktrees.repoRootFor(sessionId)
-    if (repoRoot === undefined) return undefined
-    return this.worktrees.workingTreeDiff(repoRoot)
-  }
-
   /** The worktree record for one session, if isolated (host-side triage reads it). */
   worktreeRecord(sessionId: string): { readonly baseBranch: string; readonly branch: string } | undefined {
     const record = this.worktrees.recordFor(sessionId)
@@ -1494,7 +1544,7 @@ export class HarnessGatewayService implements vscode.Disposable {
    * so links point at the copy the agent actually edited.
    */
   activeWorktreeRoot(): string | undefined {
-    return this.activeSessionId === undefined ? undefined : this.worktrees.recordFor(this.activeSessionId)?.worktreePath
+    return this.activeSessionId === undefined ? undefined : this.effectiveCwds.get(this.activeSessionId) ?? this.summaries.get(this.activeSessionId)?.cwd
   }
 
   /** Merges an isolated session's branch back into its base branch. */
@@ -1506,52 +1556,6 @@ export class HarnessGatewayService implements vscode.Disposable {
     }
     return outcome
   }
-
-  /**
-   * Auto-merge for `worktreeAutoMerge = onTurnEnd`: when a conversation turn
-   * completes, the session's worktree changes are merged back into the base
-   * branch and — when the main checkout was clean — synced into the main
-   * working tree, so the project reflects the session's work without a manual
-   * step. The session keeps its worktree for the next turn; consecutive turns
-   * merge their incremental delta. Safe by construction: a dirty main checkout
-   * is never clobbered (the branch still advances, reported `merged-dirty`),
-   * and a conflicting merge leaves the worktree intact for manual triage.
-   */
-  private maybeAutoMergeWorktree(sessionId: string): void {
-    if (this.configuration.get().worktreeAutoMerge !== 'onTurnEnd') return
-    if (this.worktrees.recordFor(sessionId) === undefined) return
-    if (this.autoMergingSessions.has(sessionId)) return
-    this.autoMergingSessions.add(sessionId)
-    void this.worktreeMerge(sessionId)
-      .then((outcome) => {
-        if (outcome.ok) {
-          if (outcome.message === 'merged-dirty') {
-            void vscode.window.showWarningMessage(vscode.l10n.t(
-              'Session {0} changes were merged into {1}, but your working tree had uncommitted changes and still trails the branch.',
-              sessionId,
-              this.worktrees.recordFor(sessionId)?.baseBranch ?? 'the base branch',
-            ))
-          }
-          // 'merged' and 'no-changes' need no user attention.
-          return
-        }
-        if (outcome.message !== 'no-worktree') {
-          void vscode.window.showErrorMessage(vscode.l10n.t(
-            'Could not auto-merge session {0}: {1}. The session worktree was kept for manual triage.',
-            sessionId,
-            outcome.message,
-          ))
-        }
-      })
-      .catch((cause: unknown) => {
-        this.output.appendLine(vscode.l10n.t('[gateway] Auto-merge failed for session {0}: {1}', sessionId, errorMessage(cause)))
-      })
-      .finally(() => {
-        this.autoMergingSessions.delete(sessionId)
-      })
-  }
-
-
 
   /** Removes an isolated session's worktree and branch; the session log stays. */
   async worktreeDiscard(sessionId: string): Promise<{ ok: boolean; message: string }> {
@@ -1610,6 +1614,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   dispose(): void {
     this.disconnect()
     this.runtimeSubscription.dispose()
+    this.sessionLocations.dispose()
     this.changeEmitter.dispose()
     this.completionEmitter.dispose()
   }
@@ -1703,6 +1708,11 @@ export class HarnessGatewayService implements vscode.Disposable {
         continue
       }
       const sessionId = this.activeSessionId
+      if (this.execution.get(sessionId)?.status !== 'ready') {
+        if (Date.now() - this.previewLoadedAt > 5_000) await this.refreshSessionPreview(sessionId).catch(() => undefined)
+        await this.waitToReconnect(signal)
+        continue
+      }
       const address = this.activeFollowAddress()
       if (address === undefined) {
         await this.waitToReconnect(signal)
@@ -1742,6 +1752,7 @@ export class HarnessGatewayService implements vscode.Disposable {
         continue
       }
       const sessionId = this.activeSessionId
+      if (this.execution.get(sessionId)?.status !== 'ready' && this.subagentAddress === undefined) { await pauseJobStream(signal); continue }
       const jobsAbort = new AbortController()
       this.jobsAbort = jobsAbort
       const onSharedAbort = (): void => jobsAbort.abort()
@@ -1796,9 +1807,11 @@ export class HarnessGatewayService implements vscode.Disposable {
       for (const { event } of this.entries) this.assistantStream.settle(event)
       this.hasMore = frame.hasMore
       this.projections = recordValue((frame.projections as { readonly values?: Record<string, unknown> } | undefined)?.values)
+      const directory = this.projections.workingDirectory
+      if (typeof directory === 'string') this.effectiveCwds.set(sessionId, directory)
       this.queue = inboxQueue(this.projections.inbox)
       this.syncModelSelection()
-      this.applyTitleProjection(sessionId, projectionTitle((frame.projections as { readonly values?: Record<string, unknown> } | undefined)?.values))
+      this.applyTitleProjection(sessionId, projectionTitle((frame.projections as { readonly values?: Record<string, unknown> } | undefined)?.values), frame.cursor)
       this.resolveFollowSnapshotWaiter(sessionId)
       this.fireChange()
       return
@@ -1816,7 +1829,6 @@ export class HarnessGatewayService implements vscode.Disposable {
     }
     if (event.type === 'turn/end') {
       this.pendingQueue.release(sessionId)
-      this.maybeAutoMergeWorktree(sessionId)
       // Background-session turn/end notifications are NOT raised here: this handler is only ever invoked
       // by pumpActiveFollow(), which breaks its loop the moment activeSessionId changes (see the check just
       // before handleFollowFrame is called) — so `sessionId` below is always the active session already.
@@ -1839,20 +1851,23 @@ export class HarnessGatewayService implements vscode.Disposable {
           }
           const summary = this.summaries.get(sessionId)
           if (summary) this.summaries.set(sessionId, { ...summary, projections: { ...projection, kind: 'sequenced' } })
-          this.applyTitleProjection(sessionId, projectionTitle(value))
+          this.applyTitleProjection(sessionId, projectionTitle(value), projection.asOfSeq)
         }
       }
     } else if (frame.type === 'projection') {
       const summary = this.summaries.get(String(frame.sessionId))
       if (summary) this.summaries.set(String(frame.sessionId), { ...summary, projections: {
         kind: 'sequenced', asOfSeq: frame.seq,
-        values: { ...summary.projections?.values, [frame.key]: frame.value },
+        values: { ...summary.projections?.values, ...Object.fromEntries(frame.changes.map(change => [change.key, change.val])) },
       } })
-      if (String(frame.sessionId) === active) {
-        this.projections[frame.key] = frame.value
-        if (frame.key === 'inbox') this.queue = inboxQueue(frame.value)
+      for (const { key, val } of frame.changes) {
+        if (String(frame.sessionId) === active) {
+          this.projections[key] = val
+          if (key === 'inbox') this.queue = inboxQueue(val)
+          if (key === 'workingDirectory' && typeof val === 'string') this.effectiveCwds.set(String(frame.sessionId), val)
+        }
+        if (key === 'title') this.applyTitleProjection(String(frame.sessionId), typeof val === 'string' ? val : undefined, frame.seq)
       }
-      if (frame.key === 'title') this.applyTitleProjection(String(frame.sessionId), typeof frame.value === 'string' ? frame.value : undefined)
     }
     this.syncModelSelection()
     this.fireChange()
@@ -1865,6 +1880,11 @@ export class HarnessGatewayService implements vscode.Disposable {
       void this.refreshSessionList()
     } else if (event === 'api-session/removed') {
       const removed = String(args[0] ?? '')
+      this.officialChanges.remove(removed)
+      this.execution.delete(removed)
+      this.effectiveCwds.delete(removed)
+      this.projectCwds.delete(removed)
+      this.observedTitles.delete(removed)
       this.summaries.delete(removed)
       this.pendingQueue.dropForSession(removed)
       this.pendingQueue.forget(removed)
@@ -2092,7 +2112,11 @@ export class HarnessGatewayService implements vscode.Disposable {
     const items = await this.requireClient().sessionList()
     const seen = new Set(items.map((summary) => String(summary.sessionId)))
     for (const key of [...this.summaries.keys()]) if (!seen.has(key)) this.summaries.delete(key)
-    for (const summary of items) this.summaries.set(String(summary.sessionId), summary)
+    for (const summary of items) {
+      const id = String(summary.sessionId)
+      const preset = summary.projections?.values.agentPreset ?? this.summaries.get(id)?.agentPreset
+      this.summaries.set(id, typeof preset === 'string' ? { ...summary, agentPreset: preset } : summary)
+    }
     this.fireChange()
   }
 
@@ -2126,6 +2150,8 @@ export class HarnessGatewayService implements vscode.Disposable {
 
 
   private sessionTitle(sessionId: string): string {
+    const observed = this.observedTitles.get(sessionId)
+    if (observed !== undefined) return observed.title
     const summary = this.summaries.get(sessionId)
     if (summary !== undefined) return sessionListItem(summary, this.labels).title
     return sessionId
@@ -2137,14 +2163,37 @@ export class HarnessGatewayService implements vscode.Disposable {
 
 
 
-  private sessionListItemWithIsolation(summary: SessionSummary): ReturnType<typeof sessionListItem> {
-    const item = sessionListItem(summary, this.labels)
-    if (this.worktrees.recordFor(String(summary.sessionId)) !== undefined) return { ...item, isolated: true }
-    // No worktree: the session runs directly in the shared workspace folder
-    // (git missing, non-git workspace, detached HEAD, or worktree-add failure).
-    // Mark it so the user can tell fenced sessions from ones that share the
-    // same code with every other non-isolated session.
-    return { ...item, shared: true }
+  private sessionPreset(summary: SessionSummary | undefined): string | undefined {
+    const active = summary && String(summary.sessionId) === this.activeSessionId ? this.projections.agentPreset : undefined
+    const stored = summary?.projections?.values.agentPreset
+    return typeof active === 'string' ? active : typeof stored === 'string' ? stored : summary?.agentPreset
+  }
+
+  private sessionListItemWithIsolation(summary: SessionSummary): SessionListItem {
+    const native = sessionListItem(summary, this.labels)
+    const id = String(summary.sessionId)
+    const item = { ...native, title: this.observedTitles.get(id)?.title ?? native.title }
+    const projected = summary.projections?.values.workingDirectory
+    const cwd = this.effectiveCwds.get(id) ?? (typeof projected === 'string' ? projected : summary.cwd)
+    const location = this.sessionLocations.get(cwd)
+    const record = this.worktrees.recordFor(id)
+    const original = this.projectCwds.get(id) ?? summary.cwd
+    const projectPath = sessionProjectFolder(original, this.sessionLocations.get(original), record, record ? this.sessionLocations.get(record.repoRoot) : undefined)
+    const managed = record !== undefined && sameWorkspacePath(record.worktreePath, location?.cwd ?? cwd)
+    const current = this.currentWorkspaceCwds().some(root => sameWorkspacePath(projectPath, this.sessionLocations.get(root)?.cwd ?? root))
+    const execution = this.execution.get(id)
+    const archived = this.archives.isArchived(id)
+    const management: SessionManagementView = {
+      status: execution?.status ?? 'preview', projectCurrent: current, managedWorktree: managed, archived,
+      editorContextAvailable: this.currentWorkspaceCwds().some(root => sameWorkspacePath(this.sessionLocations.get(root)?.cwd ?? root, location?.cwd ?? cwd)),
+      canResume: summary.origin !== 'subagent' && current && location?.exists === true && !archived && execution?.status !== 'resuming',
+      ...(location ? { location } : {}), ...(execution?.error ? { error: execution.error } : {}),
+    }
+    return { ...item, management, projectCurrent: current,
+      ...(projectPath ? { projectPath, projectLabel: projectPath.replaceAll('\\', '/').split('/').filter(Boolean).pop() ?? projectPath } : {}),
+      ...(location?.kind === 'worktree' ? { isolated: true } : {}),
+      ...(location?.kind === 'directory' ? { shared: true } : {}),
+    }
   }
 
   /** Reloads the agent preset roster, substituting localized copy for built-ins. */
@@ -2165,6 +2214,9 @@ export class HarnessGatewayService implements vscode.Disposable {
         const leftRank = this.nativePinRank(String(left.sessionId))
         const rightRank = this.nativePinRank(String(right.sessionId))
         if (leftRank !== rightRank) return leftRank - rightRank
+        const leftCurrent = this.inCurrentWorkspace(left)
+        const rightCurrent = this.inCurrentWorkspace(right)
+        if (leftCurrent !== rightCurrent) return leftCurrent ? -1 : 1
         const leftOrder = this.workspaceSessionRank(String(left.sessionId))
         const rightOrder = this.workspaceSessionRank(String(right.sessionId))
         if (leftOrder !== rightOrder && (leftOrder <= this.workspaceSessionOrder.length || rightOrder <= this.workspaceSessionOrder.length)) {
@@ -2190,17 +2242,29 @@ export class HarnessGatewayService implements vscode.Disposable {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
   }
 
+  /** Every workspace folder open in this window (multi-root aware). */
+  private currentWorkspaceCwds(): readonly string[] {
+    return (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath)
+  }
+
   /**
-   * Whether a session belongs to the project currently open in this window.
-   * With no workspace folder open there is no project to scope by, so every
-   * session is visible; otherwise only sessions recorded against that exact
-   * folder are shown (history follows the project, nothing is deleted). An
-   * isolated session's cwd is its worktree inside the repo, so scoping maps it
-   * back to the repository root first.
+   * Whether a session belongs to a project currently open in this window.
+   * A session in `<repo>/.dsh-worktrees/<id>` belongs to `<repo>` even when
+   * this extension has no local worktree record for it (for example a session
+   * created by the official DSH backend). With no workspace folder open there
+   * is no project to scope by, so nothing is listed; the all-projects view in
+   * the history panel is the explicit way to browse everything.
    */
   private inCurrentWorkspace(summary: SessionSummary): boolean {
-    const cwd = this.worktrees.displayCwd(String(summary.sessionId), summary.cwd)
-    return sameWorkspacePath(cwd, this.currentWorkspaceCwd())
+    return this.sessionListItemWithIsolation(summary).projectCurrent === true
+  }
+
+  selectionToken(): { sessionId: string; generation: number } {
+    return { sessionId: this.requireActiveSession(), generation: this.selectionGeneration }
+  }
+
+  assertSelection(token: { sessionId: string; generation: number }): void {
+    if (!this.isCurrentSelection(token.sessionId, token.generation)) throw new Error(vscode.l10n.t('The selected session changed. Please send again.'))
   }
 
   private isCurrentSelection(sessionId: string, generation: number): boolean {
@@ -2208,6 +2272,7 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   private async commandsFor(sessionId: string): Promise<readonly CommandEntry[]> {
+    if (this.execution.get(sessionId)?.status !== 'ready') return []
     const client = this.requireClient()
     return projectionCommands(await client.listCommands(sessionId), this.labels)
   }
@@ -2236,18 +2301,24 @@ export class HarnessGatewayService implements vscode.Disposable {
   }
 
   private async executeHostCommand(line: string): Promise<void> {
+    const commandTarget = this.selectionToken()
+    await this.assertSessionWritable()
     if (this.subagentAddress !== undefined) throw new Error(vscode.l10n.t('Sub-agents do not support host slash commands.'))
     const client = this.requireClient()
     if (!(client instanceof NodeGatewayClient)) throw new Error(vscode.l10n.t('The current Gateway does not support host slash commands.'))
-    const execution = await client.executeCommand(this.requireActiveSession(), line)
+    this.assertSelection(commandTarget)
+    const execution = await client.executeCommand(commandTarget.sessionId, line)
     if (execution === undefined) throw new Error(vscode.l10n.t('Harness did not recognize command: {0}', line))
     if (execution.result?.kind === 'error') throw new Error(execution.result.text ?? vscode.l10n.t('Command failed: {0}', line))
   }
 
-  private applyTitleProjection(sessionId: string, title: string | undefined): void {
+  private applyTitleProjection(sessionId: string, title: string | undefined, asOfSeq = -1, logBacked = false): void {
     if (title === undefined) return
+    const prior = this.observedTitles.get(sessionId)
+    if (prior && (prior.asOfSeq > asOfSeq || (prior.asOfSeq === asOfSeq && prior.logBacked && !logBacked))) return
     const summary = this.summaries.get(sessionId)
     if (summary === undefined) return
+    this.observedTitles.set(sessionId, { title, asOfSeq, logBacked })
     const existing = summary.projections
     const projections: SessionSummary['projections'] = existing === undefined
       ? { kind: 'sequenced', asOfSeq: -1, values: { title } }
@@ -2329,7 +2400,10 @@ export class HarnessGatewayService implements vscode.Disposable {
     this.client?.abortPendingRequests?.()
     this.client = undefined
     this.officialChanges.clear()
-    this.requestedChanges.clear()
+    this.execution.clear()
+    this.effectiveCwds.clear()
+    this.projectCwds.clear()
+    this.observedTitles.clear()
     this.modelMetadata.clear()
     this.pinnedFromHost = []
     this.workspaceSessionOrder = []
@@ -2348,31 +2422,11 @@ export class HarnessGatewayService implements vscode.Disposable {
     const sessionId = this.activeSessionId
     const client = this.client
     if (!sessionId || !client) return
+    const latest = new Map<number, number>()
     for (const { event } of this.entries) {
-      if (String(event.type) !== 'workspace/changes') continue
-      const key = `${sessionId}/${event.seq}`
-      if (this.requestedChanges.has(key)) continue
-      this.requestedChanges.add(key)
-      void client.changesSummary(sessionId, event.seq).then((summary) => {
-        if (client !== this.client) return
-        const values = this.officialChanges.get(sessionId) ?? new Map<number, SessionChangesView | undefined>()
-        values.set(event.seq, summary === undefined ? undefined : officialChangesView(sessionId, event.seq, summary))
-        this.officialChanges.set(sessionId, values)
-        this.fireChange()
-      }).catch((cause: unknown) => {
-        this.output.appendLine(`[gateway] Change summary unavailable: ${errorMessage(cause)}`)
-      })
+      if (event.type === 'workspace/changes') latest.set(event.data.turn, event.seq)
     }
-  }
-
-  async officialTurnDiff(sessionId: string, seq: number, index?: number): Promise<string | undefined> {
-    const client = this.requireClient()
-    const summary = await client.changesSummary(sessionId, seq)
-    if (!summary) return undefined
-    const indices = index === undefined ? summary.files.map((_, i) => i) : [index]
-    const diffs = await Promise.all(indices.map((i) => client.changesDiff(sessionId, seq, i)))
-    if (diffs.some((diff) => diff === undefined)) return undefined
-    return diffs.map((diff) => formatWorkspaceDiff(diff!)).join('\n')
+    for (const seq of latest.values()) this.officialChanges.load(sessionId, seq, () => client.changesSummary(sessionId, seq))
   }
 
   private fireChange(): void {

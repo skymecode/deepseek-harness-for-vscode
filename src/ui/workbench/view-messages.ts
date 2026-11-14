@@ -67,6 +67,8 @@ export interface WorkbenchViewActions {
   /** Dispatches one validated webview message to its host capability. */
   export async function handleWorkbenchMessage(ctx: WorkbenchMessageContext, value: unknown): Promise<void> {
   if (!isRecord(value) || typeof value.type !== 'string') return
+  if (['resumeSession', 'refreshSessionPreview', 'openSessionProject', 'setPermission', 'setPlan', 'createGoal', 'mutateGoal', 'rename', 'fork', 'compact', 'editQueued', 'removeQueued', 'steerQueued'].includes(value.type) && typeof value.sessionId === 'string' && value.sessionId !== ctx.gateway.openSessionId()) throw new Error(vscode.l10n.t('The selected session changed. Please send again.'))
+  if (['rename', 'setPermission', 'setPlan', 'createGoal', 'mutateGoal', 'compact', 'editQueued', 'removeQueued', 'steerQueued'].includes(value.type)) await ctx.gateway.assertSessionWritable()
   switch (value.type) {
     case 'ready':
       await ctx.publishState()
@@ -105,6 +107,9 @@ export interface WorkbenchViewActions {
     case 'openSettings':
       await ctx.actions.openSettings()
       break
+    case 'manageMcp':
+      await vscode.commands.executeCommand('deepseekHarness.manageMcp')
+      break
     case 'loadPlugins':
       await ctx.pluginCenter.load(value.force === true)
       break
@@ -125,13 +130,22 @@ export interface WorkbenchViewActions {
     case 'showLogs':
       ctx.actions.showLogs()
       break
+    case 'historySourceDetails': {
+      const state = await ctx.gateway.snapshot()
+      const document = await vscode.workspace.openTextDocument({ language: 'json', content: JSON.stringify(state.historySource ?? {}, null, 2) })
+      await vscode.window.showTextDocument(document, { preview: true })
+      break
+    }
     case 'refreshSessions':
       await ctx.gateway.ensureStarted()
       await ctx.gateway.reloadSessions()
       break
     case 'newSession':
       try {
-        await ctx.gateway.createSession()
+        const folders = vscode.workspace.workspaceFolders ?? []
+        if (folders.length === 0) { await vscode.commands.executeCommand('vscode.openFolder'); break }
+        const folder = folders.length === 1 ? folders[0] : await vscode.window.showWorkspaceFolderPick({ placeHolder: vscode.l10n.t('Choose the project folder for this conversation.') })
+        if (folder) await ctx.gateway.createSession(undefined, folder.uri.fsPath)
       } finally {
         // Re-arm the ＋ button in the webview even when creation failed: the
         // webview disables it on click so a storm cannot fan out, and only the
@@ -145,6 +159,15 @@ export interface WorkbenchViewActions {
       await ctx.postToHosts({ type: 'searchResults', query, results })
       break
     }
+    case 'resumeSession':
+      await ctx.gateway.resumeSession()
+      break
+    case 'refreshSessionPreview':
+      await ctx.gateway.refreshSessionPreview()
+      break
+    case 'openSessionProject':
+      await ctx.gateway.openSessionProject()
+      break
     case 'selectSession':
       await ctx.gateway.openSession(requiredString(value, 'sessionId'))
       break
@@ -163,18 +186,22 @@ export interface WorkbenchViewActions {
       const requestId = optionalString(value.requestId)
       try {
         const text = typeof value.text === 'string' ? value.text : ''
+        const selected = ctx.gateway.selectionToken()
+        if (typeof value.sessionId === 'string' && value.sessionId !== selected.sessionId) throw new Error(vscode.l10n.t('The selected session changed. Please send again.'))
         const staged = promptConfiguration(value.configuration)
         if (value.configuration !== undefined && staged === undefined) {
           throw new Error(vscode.l10n.t('Invalid model or mode configuration.'))
         }
+        await ctx.gateway.assertSessionWritable()
         const context = promptContextInput(value.context)
         const selectionIds = context === undefined
-          ? (ctx.configuration.get().autoAttachSelection
+          ? (ctx.configuration.get().autoAttachSelection && ctx.gateway.canAttachEditorContext()
               ? [ctx.editorSelection.current()?.id].filter((id): id is string => id !== undefined)
               : [])
           : context.selectionIds
+        const worktreeRoot = ctx.gateway.activeWorktreeRoot()
         const selections = selectionIds.flatMap((id) => {
-          const attachment = ctx.editorSelection.attachment(id)
+          const attachment = ctx.editorSelection.attachment(id, worktreeRoot)
           return attachment === undefined ? [] : [attachment]
         })
         // Snapshot the exact pin generations consumed by this prompt before the
@@ -199,6 +226,7 @@ export interface WorkbenchViewActions {
         // The gateway owns configuration staging: idle prompts apply it ahead
         // of admission; queued prompts keep it in a FIFO pending queue applied
         // at the next turn boundary. No snapshot check races here.
+        ctx.gateway.assertSelection(selected)
         await ctx.gateway.sendPrompt(
           text,
           value.mode === 'steer' ? 'steer' : 'queue',
@@ -313,12 +341,13 @@ export interface WorkbenchViewActions {
       await ctx.gateway.setPlanMode(value.active === true)
       break
     case 'createGoal': {
+      const selected = ctx.gateway.selectionToken()
       const objective = await vscode.window.showInputBox({
         title: vscode.l10n.t('Create Harness Goal'),
         prompt: vscode.l10n.t('Harness will pursue this goal until it is completed, paused, or reaches its round limit.'),
         validateInput: (input) => input.trim() === '' ? vscode.l10n.t('The goal cannot be empty.') : undefined,
       })
-      if (objective !== undefined) await ctx.gateway.createGoal(objective.trim())
+      if (objective !== undefined) { ctx.gateway.assertSelection(selected); await ctx.gateway.createGoal(objective.trim()) }
       break
     }
     case 'mutateGoal': {
@@ -327,13 +356,14 @@ export interface WorkbenchViewActions {
       break
     }
     case 'rename': {
+      const selected = ctx.gateway.selectionToken()
       const current = await ctx.gateway.snapshot()
       const title = await vscode.window.showInputBox({
         title: vscode.l10n.t('Rename Harness session'),
         value: current.active?.title ?? '',
         validateInput: (input) => input.trim() === '' ? vscode.l10n.t('The title cannot be empty.') : undefined,
       })
-      if (title !== undefined) await ctx.gateway.rename(title)
+      if (title !== undefined) { ctx.gateway.assertSelection(selected); await ctx.gateway.rename(title) }
       break
     }
     case 'fork':

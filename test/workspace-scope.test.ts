@@ -18,7 +18,6 @@ describe('workspace-scope', () => {
     it('matches the same folder', () => {
       expect(sameWorkspacePath('/Users/me/project', '/Users/me/project')).toBe(true)
     })
-
     it('tolerates a trailing separator on either side', () => {
       expect(sameWorkspacePath('/Users/me/project/', '/Users/me/project')).toBe(true)
       expect(sameWorkspacePath('/Users/me/project', '/Users/me/project/')).toBe(true)
@@ -57,4 +56,5 @@ describe('workspace-scope', () => {
       },
     )
   })
+
 })

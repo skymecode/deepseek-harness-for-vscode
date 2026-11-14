@@ -17,16 +17,16 @@ export async function openFormatViewStore(sourceHome: string, format: 'zstd' | '
   const viewHome = await mkdtemp(join(tmpdir(), 'dsh-history-format-view-'))
   const original = await openHistoryStore(sourceHome, format)
   try {
-    const deferred = await copyFormatSessions(original, join(sourceHome, 'sessions'), join(viewHome, 'sessions'), format)
+    const deferredIds = await copyFormatSessions(original, join(sourceHome, 'sessions'), join(viewHome, 'sessions'), format)
     const view = await openHistoryStore(viewHome, format)
-    return { ...view, deferred, cleanup: async () => { await rm(viewHome, { recursive: true, force: true }) } }
+    return { ...view, deferred: deferredIds.length, deferredIds, cleanup: async () => { await rm(viewHome, { recursive: true, force: true }) } }
   } catch (error) {
     await rm(viewHome, { recursive: true, force: true })
     throw error
   } finally { await original.fiber.dispose() }
 }
 
-async function copyFormatSessions(store: Store, sourceRoot: string, targetRoot: string, format: 'zstd' | 'none'): Promise<number> {
+async function copyFormatSessions(store: Store, sourceRoot: string, targetRoot: string, format: 'zstd' | 'none'): Promise<string[]> {
   // No public directory-lease seam exists in the pinned DSH runtime. This guarded
   // adapter deliberately reuses the pinned implementation, including its
   // Windows semaphore identity and POSIX inode verification. Refuse recovery
@@ -34,7 +34,7 @@ async function copyFormatSessions(store: Store, sourceRoot: string, targetRoot: 
   const acquire = Reflect.get(store.context.sessionPersistence, 'acquireLease') as unknown
   if (typeof acquire !== 'function') throw new Error('Pinned Harness directory lease is unavailable; original histories preserved.')
   const projects = await readdir(sourceRoot, { withFileTypes: true })
-  let deferred = 0
+  const deferred = new Set<string>()
   for (const project of projects) {
     if (!project.isDirectory()) continue
     const sourceProject = join(sourceRoot, project.name)
@@ -54,9 +54,9 @@ async function copyFormatSessions(store: Store, sourceRoot: string, targetRoot: 
         for (const file of matching) await cp(join(sourceSession, file.name), join(targetSession, file.name), { preserveTimestamps: true })
       } catch (error) {
         if ((error as Error).name !== 'SessionAlreadyOwnedError') throw error
-        deferred++
+        deferred.add(session.name)
       } finally { await lease?.release() }
     }
   }
-  return deferred
+  return [...deferred]
 }

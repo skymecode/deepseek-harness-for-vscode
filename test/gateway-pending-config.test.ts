@@ -1,3 +1,4 @@
+import type { SessionLocationView } from '../src/domain/session-management.js'
 import { describe, expect, it, vi } from 'vitest'
 import type { ControlFrame, FollowFrame } from '../src/gateway/gateway-wire.js'
 
@@ -28,6 +29,9 @@ import type { Memento, OutputChannel } from 'vscode'
 interface TestClient {
   abortPendingRequests: ReturnType<typeof vi.fn>
   probe: ReturnType<typeof vi.fn>
+  workspaceCreate: ReturnType<typeof vi.fn>
+  sessionPreview: ReturnType<typeof vi.fn>
+  sessionResume: ReturnType<typeof vi.fn>
   sessionList: ReturnType<typeof vi.fn>
   sessionCreate: ReturnType<typeof vi.fn>
   sessionSelectModel: ReturnType<typeof vi.fn>
@@ -69,6 +73,9 @@ function createService(configOverride: Record<string, unknown> = {}): { service:
   const client: TestClient = {
     abortPendingRequests: vi.fn(),
     probe: vi.fn(),
+    workspaceCreate: vi.fn().mockResolvedValue({ workspace: { workspaceId: 'workspace-repo', path: '/repo' }, created: false }),
+    sessionPreview: vi.fn().mockResolvedValue({ projectCwd: '/repo', cwd: '/repo', cursor: 0, projections: {} }),
+    sessionResume: vi.fn().mockResolvedValue({ projectCwd: '/repo', cwd: '/repo', cursor: 0, projections: {} }),
     sessionList: vi.fn().mockResolvedValue([]),
     sessionCreate: vi.fn().mockResolvedValue({ sessionId: 's2', agentPreset: 'code' }),
     sessionSelectModel: vi.fn().mockResolvedValue({ selected: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } }),
@@ -148,7 +155,6 @@ function createService(configOverride: Record<string, unknown> = {}): { service:
     mergeBack: vi.fn(async () => ({ ok: false, message: 'stub' })),
     discard: vi.fn(async () => ({ ok: false, message: 'stub' })),
     workingTreeDirty: vi.fn(async () => false),
-    workingTreeDiff: vi.fn(async () => undefined),
     dispose: vi.fn(),
   } as unknown as WorktreeService
 
@@ -161,6 +167,10 @@ function createService(configOverride: Record<string, unknown> = {}): { service:
     worktrees,
   ) as unknown as GatewayTestHarness
 
+  ;(vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { fsPath: '/repo' } }]
+  service.sessionLocations = { get: cwd => cwd ? { cwd, exists: true, kind: 'directory', projectPath: cwd } : undefined,
+    refresh: async cwd => ({ cwd, exists: true, kind: 'directory', projectPath: cwd }), dispose: () => {} }
+  service.execution.set('s1', { status: 'ready' })
   service.activeSessionId = 's1'
   service.summaries.set('s1', { running: false, blank: false, agentPreset: 'standard', updatedAt: 1 })
   service.client = client
@@ -179,17 +189,23 @@ function createService(configOverride: Record<string, unknown> = {}): { service:
 
 /** Structural view of the private gateway state the tests drive directly. */
 interface GatewayTestHarness {
+  execution: Map<string, { status: string; error?: string }>
+  sessionLocations: { get(cwd?: string): SessionLocationView | undefined; refresh(cwd: string): Promise<SessionLocationView>; dispose(): void }
+  selectSession(id: string): Promise<void>
+  resumeSession(): Promise<void>
+  refreshSessionPreview(): Promise<void>
   client: TestClient | undefined
   activeSessionId: string | undefined
   summaries: Map<string, { running?: boolean; blank?: boolean; agentPreset?: string; updatedAt?: number }>
   pendingQueue: { pending: Map<string, unknown[]>; admitted: Set<string> }
+  loadOlder: () => Promise<void>
+  hasMore: boolean
   entries: unknown[]
   projections: Record<string, unknown>
   selectSubagent: (id: string, mode: 'one-shot' | 'continuable') => Promise<void>
   followAbort?: AbortController
   jobsAbort?: AbortController
   selectionGeneration: number
-  pendingCarryOver: { targetSessionId: string; message: string } | undefined
   metaStore: { effortIntents: Map<string, string>; metaBySession: Map<string, unknown> }
   models:
     | {
@@ -208,7 +224,7 @@ interface GatewayTestHarness {
   createSession: (agentPreset?: string) => Promise<string>
   queue: readonly { id: string; message: { content: readonly { type: string; text?: string }[] } }[]
   selectModel: (provider: string, model: string, reasoningEffort?: string, persist?: boolean, signals?: unknown) => Promise<void>
-  mutateRuntime: <T>(mutation: () => Promise<T>) => Promise<T>
+  mutateRuntime: <T>(mutation: () => Promise<T>, beforeStop?: () => void) => Promise<T>
 }
 
 function config(reasoningEffort: string, agentPreset = 'standard'): unknown {
@@ -258,7 +274,7 @@ describe('official control projections', () => {
     } } } as unknown as ControlFrame)
     expect(service.queue.map((item) => item.id)).toEqual(['pending'])
     expect(service.models?.current).toEqual(model)
-    service.handleControl({ type: 'projection', sessionId: 's2', key: 'inbox', value: {}, seq: 9 } as unknown as ControlFrame)
+    service.handleControl({ type: 'projection', sessionId: 's2', changes: [{ key: 'inbox', val: {} }], seq: 9 } as unknown as ControlFrame)
     expect(service.queue.map((item) => item.id)).toEqual(['pending'])
     service.handleControl({ type: 'baseline', value: { jobs: {}, projections: {} } } as unknown as ControlFrame)
     expect(service.queue).toEqual([])
@@ -417,25 +433,13 @@ describe('gateway staged configuration', () => {
     expect(service.pendingQueue.pending.get('s1')).toHaveLength(1)
   })
 
-  it('keeps carry-over ahead of the prompt when a mode switch creates a session', async () => {
-    const { service, client } = createService()
-    client.sessionList.mockResolvedValue([
-      { sessionId: 's1', running: false, blank: false, agentPreset: 'standard', updatedAt: 1 },
-      { sessionId: 's2', running: false, blank: true, agentPreset: 'code', updatedAt: 2 },
-    ])
-    service.summaries.set('s1', { running: false, blank: false, agentPreset: 'standard', updatedAt: 1 })
-    service.entries = [{ event: {
-      type: 'user/message',
-      data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'prior context' }] },
-    } }]
-
-    await service.sendPrompt('continue', 'queue', [], config('max', 'code'))
-
-    const request = client.sessionPrompt.mock.calls.at(-1)?.[0] as { sessionId: string; content: Array<{ type: string; text?: string }> }
-    expect(request.sessionId).toBe('s2')
-    expect(request.content[0]?.text).toContain('<context-carry')
-    expect(request.content.at(-1)?.text).toBe('continue')
-    expect(service.pendingCarryOver).toBeUndefined()
+  it('rejects locked preset changes without forking or copying the conversation', async () => {
+    const { service, client, worktrees } = createService()
+    await expect(service.sendPrompt('continue', 'queue', [], config('max', 'code'))).rejects.toThrow('preset is fixed')
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+    expect(worktrees.prepare).not.toHaveBeenCalled()
+    expect(service.activeSessionId).toBe('s1')
   })
 
   it('rolls back the pending slot when admission fails', async () => {
@@ -555,8 +559,8 @@ describe('gateway auto model matching', () => {
   })
 })
 
-describe('gateway auto-isolation of host-forked sessions', () => {
-  it('moves a worktree-less session into a fresh isolated session on first send', async () => {
+describe('gateway preserves existing session identity', () => {
+  it('continues a worktree-less session in its original directory without silently forking', async () => {
     const { service, client, worktrees } = createService()
     // A session that arrived through the host's native fork path has no
     // worktree record (uuid id, inherited shared cwd).
@@ -570,9 +574,10 @@ describe('gateway auto-isolation of host-forked sessions', () => {
 
     // The conversation moved: a fresh session was created (createSession) and
     // the prompt was admitted against the new isolated session.
-    expect(client.sessionCreate).toHaveBeenCalledTimes(1)
-    expect(service.activeSessionId).toBe('s2')
-    expect(client.sessionPrompt).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's2' }))
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+    expect(worktrees.prepare).not.toHaveBeenCalled()
+    expect(service.activeSessionId).toBe('s1')
+    expect(client.sessionPrompt).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }))
   })
 
   it('skips auto-isolation when the shared checkout has uncommitted changes', async () => {
@@ -604,67 +609,14 @@ describe('gateway auto-isolation of host-forked sessions', () => {
   })
 })
 
-describe('gateway worktree auto-merge', () => {
-  it('merges an isolated session back on turn/end when worktreeAutoMerge is onTurnEnd', async () => {
-    const { service, worktrees } = createService({ worktreeAutoMerge: 'onTurnEnd' })
-    vi.mocked(worktrees.mergeBack!).mockResolvedValue({ ok: true, message: 'merged' })
-
+describe('legacy worktrees stay untouched', () => {
+  it.each(['never', 'onTurnEnd'])('does not auto-merge with legacy setting %s', async worktreeAutoMerge => {
+    const { service, worktrees } = createService({ worktreeAutoMerge })
+    service.handleFollowFrame('s1', turnEndFrame('s1'))
     service.handleFollowFrame('s1', turnEndFrame('s1'))
     await tick()
-    await tick()
-
-    expect(worktrees.mergeBack).toHaveBeenCalledTimes(1)
-    expect(worktrees.mergeBack).toHaveBeenCalledWith('s1')
-  })
-
-  it('keeps the worktree untouched on turn/end when worktreeAutoMerge is never', async () => {
-    const { service, worktrees } = createService({ worktreeAutoMerge: 'never' })
-
-    service.handleFollowFrame('s1', turnEndFrame('s1'))
-    await tick()
-
     expect(worktrees.mergeBack).not.toHaveBeenCalled()
-  })
-
-  it('defaults to manual review when the setting is not configured', async () => {
-    const { service, worktrees } = createService()
-    service.handleFollowFrame('s1', turnEndFrame('s1'))
-    await tick()
-    await tick()
-
-    expect(worktrees.mergeBack).not.toHaveBeenCalled()
-  })
-
-  it('skips auto-merge for sessions without an isolated worktree', async () => {
-    const { service, worktrees } = createService({ worktreeAutoMerge: 'onTurnEnd' })
-    vi.mocked(worktrees.recordFor!).mockReturnValue(undefined)
-
-    service.handleFollowFrame('s1', turnEndFrame('s1'))
-    await tick()
-
-    expect(worktrees.mergeBack).not.toHaveBeenCalled()
-  })
-
-  it('does not run concurrent merges for the same session', async () => {
-    const { service, worktrees } = createService({ worktreeAutoMerge: 'onTurnEnd' })
-    let resolveMerge: (() => void) | undefined
-    let calls = 0
-    vi.mocked(worktrees.mergeBack!).mockImplementation(async () => {
-      calls += 1
-      await new Promise<void>((resolve) => { resolveMerge = resolve })
-      return { ok: true, message: 'merged' }
-    })
-
-    // Two adjacent turn/end events arrive before the first merge settles.
-    service.handleFollowFrame('s1', turnEndFrame('s1'))
-    service.handleFollowFrame('s1', turnEndFrame('s1'))
-    await tick()
-    expect(calls).toBe(1)
-
-    resolveMerge?.()
-    await tick()
-    await tick()
-    expect(calls).toBe(1)
+    expect(worktrees.discard).not.toHaveBeenCalled()
   })
 })
 
@@ -707,7 +659,9 @@ describe('gateway createSession deduplication', () => {
 
     expect(calls).toBe(1)
     expect(results).toEqual(['s2', 's2', 's2'])
-    expect(worktrees.prepare).toHaveBeenCalledTimes(1)
+    expect(worktrees.prepare).not.toHaveBeenCalled()
+    expect(client.workspaceCreate).toHaveBeenCalledWith('/repo')
+    expect(client.sessionCreate).toHaveBeenCalledWith({ workspaceId: 'workspace-repo', agentPreset: 'standard' })
   }, 15_000)
 
   it('starts a fresh creation after the previous one settles', async () => {
@@ -932,5 +886,244 @@ describe('start baseline watchdog', () => {
     await mutation
     await prompt
     expect(client.sessionPrompt).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a configuration invalidated while waiting without stopping the live runtime', async () => {
+    vi.useFakeTimers()
+    try {
+      const { service, runtime, client } = createService()
+      const restart = vi.fn(async () => {})
+      ;(service as unknown as { start: () => Promise<void> }).start = restart
+      service.summaries.set('background', { running: true, blank: false, agentPreset: 'standard', updatedAt: 1 })
+      let valid = true
+      const edit = vi.fn(async () => {})
+      const mutation = service.mutateRuntime(edit, () => { if (!valid) throw new Error('Invalid MCP configuration') })
+      const rejected = expect(mutation).rejects.toThrow('Invalid MCP configuration')
+      await vi.advanceTimersByTimeAsync(100)
+      valid = false
+      service.summaries.set('background', { running: false, blank: false, agentPreset: 'standard', updatedAt: 1 })
+      await vi.advanceTimersByTimeAsync(100)
+      await rejected
+      expect(runtime.stop).not.toHaveBeenCalled()
+      expect(client.abortPendingRequests).not.toHaveBeenCalled()
+      expect(restart).not.toHaveBeenCalled()
+      expect(edit).not.toHaveBeenCalled()
+      await service.sendPrompt('continue using the existing runtime')
+      expect(client.sessionPrompt).toHaveBeenCalledOnce()
+    } finally { vi.useRealTimers() }
+  })
+})
+
+describe('history page ownership', () => {
+  it.each(['session', 'generation', 'client'])('ignores a page when the %s changes before it resolves', async changed => {
+    const { service, client } = createService()
+    const original = { event: { seq: 30, type: 'turn/end', data: { turn: 3 } } }
+    service.entries = [original]
+    service.hasMore = true
+    let resolve!: (value: unknown) => void
+    client.sessionPage.mockReturnValue(new Promise(done => { resolve = done }))
+    const pending = service.loadOlder()
+    expect(client.sessionPage).toHaveBeenCalledOnce()
+    if (changed === 'session') service.activeSessionId = 's2'
+    if (changed === 'generation') service.selectionGeneration += 1
+    if (changed === 'client') service.client = undefined
+    resolve({ records: [], hasMore: false })
+    await pending
+    expect(service.entries).toEqual([original])
+    expect(service.hasMore).toBe(true)
+  })
+})
+
+describe('explicit session execution ownership', () => {
+  it('opens history through read-only preview/page without resolving command contexts or forking', async () => {
+    const { service, client } = createService()
+    service.execution.clear()
+    await service.selectSession('s1')
+    expect(client.sessionPreview).toHaveBeenCalledWith('s1')
+    expect(client.sessionPage).toHaveBeenCalled()
+    expect(client.sessionFollow).not.toHaveBeenCalled()
+    expect(client.listCommands).not.toHaveBeenCalled()
+    expect(client.sessionResume).not.toHaveBeenCalled()
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+    await expect(service.sendPrompt('should not send')).rejects.toThrow('preview')
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+  })
+
+  it('resumes only on explicit action and preserves native session identity', async () => {
+    const { service, client, worktrees } = createService()
+    service.execution.clear()
+    await service.resumeSession()
+    expect(client.sessionResume).toHaveBeenCalledWith('s1', '/repo')
+    expect(service.execution.get('s1')?.status).toBe('ready')
+    expect(worktrees.prepare).not.toHaveBeenCalled()
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+  })
+
+  it('shows native writer conflicts without preventing read-only history', async () => {
+    const { service, client } = createService()
+    service.execution.clear()
+    client.sessionResume.mockRejectedValue(Object.assign(new Error('held'), { code: 'session/writer-held' }))
+    await service.resumeSession()
+    expect(service.execution.get('s1')?.status).toBe('occupied')
+    await service.refreshSessionPreview()
+    expect(service.execution.get('s1')?.status).toBe('occupied')
+    expect(client.sessionPage).toHaveBeenCalled()
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+  })
+
+  it.each(['missing', 'other-project'])('refuses execution in a %s directory before native resume', async reason => {
+    const { service, client } = createService()
+    service.execution.clear()
+    client.sessionPreview.mockResolvedValue({ projectCwd: reason === 'missing' ? '/repo' : '/another-project', cwd: reason === 'missing' ? '/missing' : '/another-project', cursor: 0, projections: {} })
+    if (reason === 'missing') service.sessionLocations.refresh = async cwd => ({ cwd, kind: 'missing', exists: false })
+    await service.resumeSession()
+    expect(client.sessionResume).not.toHaveBeenCalled()
+    expect(service.execution.get('s1')?.status).toBe('unavailable')
+  })
+})
+
+describe('session read and submission races', () => {
+  it('replaces temporary cold-read closers with newly committed messages at the same sequence', async () => {
+    const { service, client } = createService()
+    service.execution.clear()
+    service.entries = [{ event: { seq: 5, time: 1, type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } } }]
+    client.sessionPreview.mockResolvedValue({ projectCwd: '/repo', cwd: '/repo', cursor: 6, projections: {} })
+    const answer = { type: 'event', event: { seq: 5, time: 2, type: 'assistant/message', data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'Actual answer' }] } } } }
+    client.sessionPage.mockResolvedValue({ records: [answer], hasMore: false })
+    await service.refreshSessionPreview()
+    expect(JSON.stringify(service.entries)).toContain('Actual answer')
+    expect(JSON.stringify(service.entries)).not.toContain('interrupted')
+  })
+
+  it('rejects a late prompt configuration after switching to another preview session', async () => {
+    const { service, client } = createService()
+    let release!: (value: unknown) => void
+    client.sessionSelectModel.mockReturnValue(new Promise(resolve => { release = resolve }))
+    const pending = service.sendPrompt('Only for A', 'queue', [], config('high'))
+    await vi.waitFor(() => expect(client.sessionSelectModel).toHaveBeenCalledOnce())
+    service.activeSessionId = 'other'
+    service.selectionGeneration++
+    release({ selected: { provider: 'deepseek-official', model: 'deepseek-v4-flash' } })
+    await expect(pending).rejects.toThrow('selected session changed')
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+  })
+
+  it('does not let a slow preview overwrite a newer cut', async () => {
+    const { service, client } = createService()
+    service.execution.clear()
+    let release!: (value: unknown) => void
+    client.sessionPreview.mockReturnValueOnce(new Promise(resolve => { release = resolve }))
+    const old = service.refreshSessionPreview()
+    client.sessionPreview.mockResolvedValueOnce({ projectCwd: '/repo', cwd: '/repo', cursor: 20, projections: { marker: 'latest' } })
+    await service.refreshSessionPreview()
+    release({ projectCwd: '/repo', cwd: '/repo', cursor: 2, projections: { marker: 'old' } })
+    await old
+    expect(service.projections.marker).toBe('latest')
+    expect(client.sessionPage).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('readonly operation boundaries', () => {
+  it('keeps a running session writable after a read-only refresh fails', async () => {
+    const { service, client } = createService()
+    client.sessionPreview.mockRejectedValue(new Error('503'))
+    await service.refreshSessionPreview()
+    expect(service.execution.get('s1')?.status).toBe('ready')
+  })
+
+  it('blocks goal and rename operations from preview at the actual service boundary', async () => {
+    const { service, client } = createService()
+    service.execution.clear()
+    const actions = service as unknown as { createGoal(s: string): Promise<void>; mutateGoal(s: 'resume'): Promise<void>; rename(s: string): Promise<void> }
+    await expect(actions.createGoal('should not start')).rejects.toThrow('preview')
+    await expect(actions.mutateGoal('resume')).rejects.toThrow('preview')
+    await expect(actions.rename('new title')).rejects.toThrow('preview')
+    expect(client.goalCreate).not.toHaveBeenCalled()
+    expect(client.goalAction).not.toHaveBeenCalled()
+    expect(client.sessionRename).not.toHaveBeenCalled()
+  })
+})
+
+describe('continuable child admission', () => {
+  it('keeps child delivery on the native parent address without ordinary-session resume', async () => {
+    const { service, client } = createService()
+    await service.selectSubagent('child', 'continuable')
+    await service.sendPrompt('continue child')
+    expect(service.execution.get('child')?.status).toBe('ready')
+    expect(client.subagentPrompt).toHaveBeenCalledWith(expect.objectContaining({ parentSessionId: 's1', childSessionId: 'child', mode: 'continuable' }))
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
+    expect(client.sessionResume).not.toHaveBeenCalled()
+  })
+
+  it('keeps one-shot child history read-only', async () => {
+    const { service, client } = createService()
+    await service.selectSubagent('child', 'one-shot')
+    await expect(service.sendPrompt('should not start')).rejects.toThrow('read-only')
+    expect(client.subagentPrompt).not.toHaveBeenCalled()
+  })
+})
+
+describe('project identity and native creation', () => {
+  it('keeps a session under its original folder after DSH changes its execution cwd', async () => {
+    const { service } = createService()
+    const view = service as unknown as {
+      effectiveCwds: Map<string, string>
+      sessionListItemWithIsolation(summary: unknown): { projectPath?: string; projectCurrent?: boolean; management?: { location?: { cwd: string } } }
+    }
+    view.effectiveCwds.set('s1', '/another-working-directory')
+    const row = view.sessionListItemWithIsolation({ sessionId: 's1', cwd: '/repo', running: false, blank: false, updatedAt: 1, agentAvailable: false })
+    expect(row.projectPath).toBe('/repo')
+    expect(row.projectCurrent).toBe(true)
+    expect(row.management?.location?.cwd).toBe('/another-working-directory')
+  })
+  it('does not create a hidden project from the extension process cwd when no folder is open', async () => {
+    const { service, client, worktrees } = createService()
+    ;(vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = undefined
+    await expect(service.createSession()).rejects.toThrow('Open a project folder')
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+    expect(worktrees.prepare).not.toHaveBeenCalled()
+  })
+})
+
+describe('native preset identity and multi-root creation', () => {
+  it('uses native preset projections after a list refresh instead of the global default', async () => {
+    const { service, client } = createService()
+    const api = service as unknown as { refreshSessionList(): Promise<void>; sessionPreset(summary: unknown): string | undefined }
+    client.sessionList.mockResolvedValue([{ sessionId: 's1', cwd: '/repo', running: false, blank: false, updatedAt: 2, agentAvailable: true, projections: { kind: 'sequenced', asOfSeq: 10, values: { agentPreset: 'ptc' } } }])
+    await api.refreshSessionList()
+    expect(api.sessionPreset(service.summaries.get('s1'))).toBe('ptc')
+    await service.sendPrompt('stay in original preset', 'queue', [], config('high', 'ptc'))
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+    expect(client.sessionPrompt).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }))
+  })
+  it('requires an explicit folder in multi-root windows', async () => {
+    const { service, client } = createService()
+    ;(vscode.workspace as { workspaceFolders: unknown }).workspaceFolders = [{ uri: { fsPath: '/repo' } }, { uri: { fsPath: '/other' } }]
+    await expect(service.createSession()).rejects.toThrow('Choose a project folder')
+    expect(client.workspaceCreate).not.toHaveBeenCalled()
+    expect(client.sessionCreate).not.toHaveBeenCalled()
+  })
+})
+
+describe('shared history title cache', () => {
+  it('hydrates missing titles from native read observations without acquiring execution ownership', async () => {
+    const { service, client } = createService()
+    service.execution.clear()
+    client.sessionList.mockResolvedValue([{ sessionId: 's1', cwd: '/repo', running: false, blank: false, agentAvailable: false, updatedAt: 2 }])
+    client.sessionPreview.mockResolvedValue({ cursor: 5, projectCwd: '/repo', cwd: '/repo', agentPreset: 'standard', projections: { title: 'Official conversation' } })
+    await (service as unknown as { reloadSessions(): Promise<void> }).reloadSessions()
+    const summary = service.summaries.get('s1') as unknown as { projections: { values: { title: string } } }
+    expect(summary.projections.values.title).toBe('Official conversation')
+    const reads = service as unknown as { refreshSessionList(): Promise<void>; sessionListItemWithIsolation(s: unknown): { title: string } }
+    await reads.refreshSessionList()
+    expect(reads.sessionListItemWithIsolation(service.summaries.get('s1')).title).toBe('Official conversation')
+    service.handleControl({ type: 'baseline', value: { projections: { s1: { asOfSeq: 2, values: { title: 'stale' } } } } } as unknown as ControlFrame)
+    expect(reads.sessionListItemWithIsolation(service.summaries.get('s1')).title).toBe('Official conversation')
+    service.handleControl({ type: 'projection', sessionId: 's1', seq: 6, changes: [{ key: 'title', val: 'New native title' }] } as unknown as ControlFrame)
+    expect(reads.sessionListItemWithIsolation(service.summaries.get('s1')).title).toBe('New native title')
+    expect(client.sessionResume).not.toHaveBeenCalled()
+    expect(client.sessionFollow).not.toHaveBeenCalled()
+    expect(client.sessionPrompt).not.toHaveBeenCalled()
   })
 })

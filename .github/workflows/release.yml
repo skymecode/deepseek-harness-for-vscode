@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             target: darwin-arm64
           - os: ubuntu-22.04
             target: linux-x64
@@ -28,9 +28,8 @@ jobs:
             target: linux-arm64
           - os: windows-2022
             target: win32-x64
-          # darwin-x64 / win32-arm64: GitHub has no hosted Intel macOS or
-          # Windows ARM runners anymore. To build them, add entries pointing
-          # at self-hosted runners with those architectures.
+          # Additional architectures need matching bundled runtime dependencies
+          # and their own validation before adding them to this release matrix.
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +41,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -102,6 +101,10 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ github.event_name == 'push' && github.ref_name || inputs.tag_name }} 正式版
           tag_name: ${{ github.event_name == 'push' && github.ref_name || inputs.tag_name }}
           files: artifacts/**/*.vsix
           body_path: RELEASE_NOTES.md
+          fail_on_unmatched_files: true
+          prerelease: false
+          make_latest: true

@@ -12,6 +12,7 @@ const MAX_CACHED_SELECTIONS = 64
 const SELECTION_DEBOUNCE_MS = 60
 
 interface CachedSelection {
+  readonly filePath?: string
   readonly view: EditorSelectionView
   readonly attachment: PromptAttachment
 }
@@ -63,9 +64,15 @@ export class EditorSelectionService implements vscode.Disposable {
   }
 
   /** Resolves an opaque selection token without trusting Webview-supplied text. */
-  attachment(id: string | undefined): PromptAttachment | undefined {
+  attachment(id: string | undefined, root?: string): PromptAttachment | undefined {
     if (id === undefined) return undefined
-    return (this.retained.get(id) ?? this.cached.get(id))?.attachment
+    const selected = this.retained.get(id) ?? this.cached.get(id)
+    if (root !== undefined) {
+      if (!selected?.filePath) return undefined
+      const relative = path.relative(root, selected.filePath)
+      if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) return undefined
+    }
+    return selected?.attachment
   }
 
   /** Returns the display metadata for an id previously published to the Webview. */
@@ -144,6 +151,7 @@ function captureActiveSelection(): CachedSelection | undefined {
     ...(tooLong ? { tooLong: true } : {}),
   }
   return {
+    ...(document.uri.scheme === 'file' ? { filePath: document.uri.fsPath } : {}),
     view,
     attachment: {
       kind: 'selection',

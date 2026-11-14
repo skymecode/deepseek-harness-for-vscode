@@ -81,7 +81,7 @@ export class WorkspaceFileService implements vscode.Disposable {
       : indexed !== undefined && vscode.workspace.getWorkspaceFolder(indexed.uri) !== undefined ? indexed.uri : undefined
     // Bare names from model prose (e.g. `manifest.test.ts`) carry no directory
     // segments, so fall back to an exact basename lookup in the file index.
-    if (uri === undefined && request.id === undefined && request.path !== undefined) {
+    if (uri === undefined && roots === undefined && request.id === undefined && request.path !== undefined) {
       const matches = matchBareFileName((await this.ensureIndex()).map((file) => file.view), request.path.trim())
       const match = matches[0] === undefined ? undefined : this.filesById.get(matches[0].id)
       if (match !== undefined && vscode.workspace.getWorkspaceFolder(match.uri) !== undefined) uri = match.uri
@@ -117,6 +117,7 @@ export class WorkspaceFileService implements vscode.Disposable {
     if (folders.length === 0) return false
     const uri = await resolveWorkspaceReference(reference, roots)
     if (uri !== undefined) return true
+    if (roots !== undefined) return false
     const matches = matchBareFileName((await this.ensureIndex()).map((file) => file.view), reference)
     const match = matches[0] === undefined ? undefined : this.filesById.get(matches[0].id)
     return match !== undefined && vscode.workspace.getWorkspaceFolder(match.uri) !== undefined
@@ -177,8 +178,7 @@ async function resolveWorkspaceReference(raw: string | undefined, roots?: readon
   // Isolated sessions resolve relative references against their own worktree
   // first (the copy the agent actually edited), then the workspace folders.
   const rootCandidates = [
-    ...(roots ?? []).filter((root) => root !== ''),
-    ...folders.filter((folder) => folder.uri.scheme === 'file').map((folder) => folder.uri.fsPath),
+    ...(roots ?? folders.filter((folder) => folder.uri.scheme === 'file').map((folder) => folder.uri.fsPath)).filter(root => root !== ''),
   ]
   const matchingFolder = rootCandidates.length > 1 && segments[0] !== undefined
     ? rootCandidates.find((root) => path.basename(root) === segments[0])

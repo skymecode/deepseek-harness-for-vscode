@@ -13,10 +13,21 @@ function byId<T extends HTMLElement>(id: string): T {
 }
 
 export const elements: ChatElements = {
+  sessionAccess: byId<HTMLElement>('session-access'),
+  sessionAccessStatus: byId<HTMLElement>('session-access-status'),
+  sessionAccessLocation: byId<HTMLElement>('session-access-location'),
+  sessionAccessHint: byId<HTMLElement>('session-access-hint'),
+  sessionResume: byId<HTMLButtonElement>('session-resume'),
+  sessionRefresh: byId<HTMLButtonElement>('session-refresh'),
+  sessionOpenProject: byId<HTMLButtonElement>('session-open-project'),
   connection: byId<HTMLElement>('connection'),
   historyToggle: byId<HTMLElement>('history-toggle'),
+  manageMcp: byId<HTMLButtonElement>('manage-mcp'),
   historyPanel: byId<HTMLElement>('history-panel'),
   historyClose: byId<HTMLElement>('history-close'),
+  historySource: byId<HTMLElement>('history-source'),
+  historySourceLabel: byId<HTMLElement>('history-source-label'),
+  historySourceDetails: byId<HTMLButtonElement>('history-source-details'),
   historySearch: byId<HTMLInputElement>('history-search'),
   sessionList: byId<HTMLElement>('session-list'),
   newSession: byId<HTMLButtonElement>('new-session'),
@@ -26,6 +37,7 @@ export const elements: ChatElements = {
   importSession: byId<HTMLElement>('import-session'),
   historyImport: byId<HTMLElement>('history-import'),
   historyArchived: byId<HTMLButtonElement>('history-archived'),
+  historyScope: byId<HTMLButtonElement>('history-scope'),
   exportSession: byId<HTMLElement>('export-session'),
   sessionStats: byId<HTMLElement>('session-stats'),
   sessionUsage: byId<HTMLElement>('session-usage'),
@@ -87,7 +99,7 @@ export const elements: ChatElements = {
 }
 
 export function post(type: string, data: Record<string, unknown> = {}): void {
-  vscode.postMessage({ type, ...data })
+  vscode.postMessage({ type, ...(payload?.state.active?.id ? { sessionId: payload.state.active.id } : {}), ...data })
 }
 
 export function node(tag: string, className = '', text = ''): HTMLElement {

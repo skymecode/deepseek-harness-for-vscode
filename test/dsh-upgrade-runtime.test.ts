@@ -9,13 +9,13 @@ import { describe, expect, it } from 'vitest'
 import type { SessionPromptRequest } from '../src/gateway/domain-api.js'
 import { bootSmokeRuntime } from './helpers/runtime-smoke.js'
 
-describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('DSH 0.2.1 official contracts', () => {
+describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('DSH 0.2.2 official contracts', () => {
   it('installs, toggles and removes a local bundle through the running official plugin manager', async () => {
     const name = 'dsh-vscode-upgrade-fixture'
     let fixture = ''
     let importer = ''
     const runtime = await bootSmokeRuntime('http://127.0.0.1:1', { prepare: async (home, extensionRoot) => {
-      importer = join(extensionRoot, 'vendor/plugins/dsh-chat-import-0.22.2.tgz')
+      importer = join(extensionRoot, 'vendor/plugins/dsh-chat-import-0.26.4.tgz')
       fixture = join(home, 'fixture-bundle')
       await mkdir(fixture)
       await writeFile(join(fixture, 'package.json'), JSON.stringify({ name, version: '1.0.0', type: 'module', main: './index.js', dsh: { bundle: { patch: './cordis.patch.yml' } } }))
@@ -29,7 +29,8 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('DSH 0.2.1 official contra
       expect((await client.pluginListBundles()).some((bundle) => bundle.name === name)).toBe(true)
       expect(await client.pluginSetEnabled(name, false)).toMatchObject({ application: 'applied' })
       expect(await client.pluginSetEnabled(name, true)).toMatchObject({ application: 'applied' })
-      expect(await client.pluginRemove(name)).toMatchObject({ application: 'applied' })
+      const removed = await client.pluginRemove(name)
+      expect(removed, JSON.stringify(removed)).toMatchObject({ application: 'applied' })
       expect((await client.pluginListBundles()).some((bundle) => bundle.name === name)).toBe(false)
       const imported = await client.pluginInstall(importer, randomUUID())
       expect(imported, JSON.stringify(imported)).toMatchObject({ application: 'applied' })

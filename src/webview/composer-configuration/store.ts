@@ -19,9 +19,7 @@ export class ComposerConfigurationStore {
 
   update(input: ComposerConfigurationInput): ComposerConfigurationSnapshot | undefined {
     if (this.draft !== undefined && this.draft.sessionId !== input.sessionId) {
-      this.draft = this.draft.submitted
-        ? { ...this.draft, sessionId: input.sessionId }
-        : undefined
+      this.draft = undefined
     }
     this.input = input
     const current = normalizeSelection(input.current, input)
@@ -60,7 +58,7 @@ export class ComposerConfigurationStore {
       autoActive: selection.reasoningIntent === 'auto',
       effortTone: selection.reasoningIntent === 'auto' ? 'auto' : effortTone(effort.id, effortIndex, reasoning.length),
       dirty: !configurationEquals(selection, current),
-      modeStartsNewConversation: !input.blank && selection.agentPreset !== current.agentPreset,
+      presetLocked: !input.blank,
       experimentalAutoEffort: input.experimentalAutoEffort === true,
     }
   }
@@ -94,7 +92,7 @@ export class ComposerConfigurationStore {
 
   selectPreset(agentPreset: string): ComposerConfigurationSnapshot | undefined {
     const snapshot = this.snapshot()
-    if (snapshot === undefined || !snapshot.input.presets.some((option) => option.id === agentPreset)) return snapshot
+    if (snapshot === undefined || !snapshot.input.blank || !snapshot.input.presets.some((option) => option.id === agentPreset)) return snapshot
     return this.stage({ ...snapshot.selection, agentPreset })
   }
 
@@ -179,7 +177,7 @@ function normalizeSelection(
     ?? modelsForSource(input.models, requested.provider)[0]
     ?? findModel(input.models, input.current.provider, input.current.model)
     ?? input.models[0]
-  const preset = input.presets.find((option) => option.id === requested.agentPreset)
+  const preset = input.presets.find((option) => option.id === (input.blank ? requested.agentPreset : input.current.agentPreset))
     ?? input.presets.find((option) => option.id === input.current.agentPreset)
     ?? input.presets[0]
   if (model === undefined || preset === undefined) return undefined
