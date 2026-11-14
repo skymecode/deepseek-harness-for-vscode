@@ -177,6 +177,10 @@ export interface WorkbenchViewActions {
           const attachment = ctx.editorSelection.attachment(id)
           return attachment === undefined ? [] : [attachment]
         })
+        // Snapshot the exact pin generations consumed by this prompt before the
+        // first await: a repin during the @file reads must not be cleared by
+        // this older submission.
+        const consumedPins = ctx.snapshotPins(selectionIds)
         const files = await ctx.workspaceFiles.attachments(context?.fileIds ?? [])
         const images = promptImageAttachments(value.images)
         const attachments = [...selections, ...files, ...images]
@@ -192,9 +196,6 @@ export interface WorkbenchViewActions {
           attachmentCount: attachments.length,
           imageCount: images.length,
         }
-        // Snapshot the exact pin generations consumed by this prompt before
-        // awaiting admission; a pin added or repinned meanwhile must survive.
-        const consumedPins = ctx.snapshotPins(selectionIds)
         // The gateway owns configuration staging: idle prompts apply it ahead
         // of admission; queued prompts keep it in a FIFO pending queue applied
         // at the next turn boundary. No snapshot check races here.

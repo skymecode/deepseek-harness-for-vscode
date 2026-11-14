@@ -165,7 +165,7 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
       this.pinRevisions.delete(id)
       this.editorSelection.release(id)
     }
-    this.postPinnedSelections()
+    this.postPinnedSelections(undefined, true)
   }
 
   /** Releases subscriptions, the editor panel and historical documents. */
@@ -268,8 +268,8 @@ export class WorkbenchViewProvider implements vscode.WebviewViewProvider, vscode
    * Sends the host-owned pin snapshot to one host after its `ready` message,
    * or to every ready host when no target is given.
    */
-  private postPinnedSelections(target?: 'view' | 'panel'): void {
-    const message = { type: 'pinnedSelections', selections: this.pinnedSelections }
+  private postPinnedSelections(target?: 'view' | 'panel', consumed = false): void {
+    const message = { type: 'pinnedSelections', selections: this.pinnedSelections, ...(consumed ? { consumed: true } : {}) }
     if ((target === undefined || target === 'view') && this.view !== undefined && this.viewReady) {
       void this.view.webview.postMessage(message)
     }

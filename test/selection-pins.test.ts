@@ -96,8 +96,8 @@ describe('host-owned selection pins', () => {
 
     f.provider.clearPinnedSelections()
     expect(f.editorSelection.release.mock.calls.map(([id]) => id)).toEqual(['a', 'b'])
-    expect(f.viewPost).toHaveBeenLastCalledWith({ type: 'pinnedSelections', selections: [] })
-    expect(f.panelPost).toHaveBeenLastCalledWith({ type: 'pinnedSelections', selections: [] })
+    expect(f.viewPost).toHaveBeenLastCalledWith({ type: 'pinnedSelections', selections: [], consumed: true })
+    expect(f.panelPost).toHaveBeenLastCalledWith({ type: 'pinnedSelections', selections: [], consumed: true })
   })
 
   it('clears only the pin generations consumed by one prompt', () => {
@@ -107,7 +107,7 @@ describe('host-owned selection pins', () => {
     f.provider.pinSelection(selection('b'))
     const consumed = f.provider.snapshotPins(['a'])
     f.provider.clearPinnedSelections(consumed)
-    expect(f.viewPost).toHaveBeenLastCalledWith({ type: 'pinnedSelections', selections: [selection('b')] })
+    expect(f.viewPost).toHaveBeenLastCalledWith({ type: 'pinnedSelections', selections: [selection('b')], consumed: true })
     expect(f.editorSelection.release).toHaveBeenCalledExactlyOnceWith('a')
   })
 

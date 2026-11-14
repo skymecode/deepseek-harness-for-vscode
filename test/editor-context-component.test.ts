@@ -123,9 +123,22 @@ describe('editor context selection staging', () => {
     f.component.updateSelection(first)
     f.component.setPinnedSelections([first])
     expect(f.component.input().selectionIds).toEqual(['selection-1'])
-    f.component.setPinnedSelections([])
+    f.component.setPinnedSelections([], true)
     expect(f.component.input().selectionIds).toEqual(['selection-1'])
     expect(document.querySelectorAll('#editor-context-list .selection-context-chip')).toHaveLength(1)
+  })
+
+  it('does not restore a manually removed current pin', () => {
+    const f = fixture()
+    f.component.setAutoAttach(true)
+    f.component.updateSelection(first)
+    f.component.setPinnedSelections([first])
+    const remove = document.querySelector<HTMLButtonElement>('#editor-context-list .editor-context-remove')
+    expect(remove).not.toBeNull()
+    remove!.click()
+    expect(f.onUnpinSelection).toHaveBeenCalledExactlyOnceWith('selection-1')
+    f.component.setPinnedSelections([])
+    expect(f.component.input().selectionIds).toEqual([])
   })
 
   it('does not displace an explicit pin when disabling auto-attach with eight pins', () => {

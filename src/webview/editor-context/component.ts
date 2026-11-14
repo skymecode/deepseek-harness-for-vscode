@@ -17,7 +17,7 @@ export interface PromptContextInput {
 
 export interface EditorContextComponent {
   readonly updateSelection: (selection: EditorSelectionView | undefined) => void
-  readonly setPinnedSelections: (selections: readonly EditorSelectionView[]) => void
+  readonly setPinnedSelections: (selections: readonly EditorSelectionView[], consumed?: boolean) => void
   readonly setAutoAttach: (enabled: boolean) => void
   readonly addFile: (file: WorkspaceFileView) => void
   readonly input: () => PromptContextInput
@@ -74,16 +74,17 @@ export function createEditorContextComponent(options: EditorContextComponentOpti
     render()
   }
 
-  /** Replaces the host-owned pin list, dropping a duplicate auto card or restoring one after consumption. */
-  const setPinnedSelections = (selections: readonly EditorSelectionView[]): void => {
+  /** Replaces the host-owned pin list; only a consumed pin restores the auto card. */
+  const setPinnedSelections = (selections: readonly EditorSelectionView[], consumed = false): void => {
     pinnedSelections = selections.slice(0, MAX_SELECTIONS)
     if (autoSelection !== undefined && pinnedSelections.some((item) => item.id === autoSelection?.id)) {
       autoSelection = undefined
-    } else if (autoSelection === undefined && autoAttach && availableSelection !== undefined
+    } else if (consumed && autoSelection === undefined && autoAttach && availableSelection !== undefined
       && availableSelection.id !== ignoredSelectionId
       && !pinnedSelections.some((item) => item.id === availableSelection?.id)) {
-      // The pin that replaced the automatic card was consumed; show the
-      // still-active selection again instead of silently dropping it.
+      // The pin that replaced the automatic card was consumed by a prompt;
+      // show the still-active selection again instead of silently dropping it.
+      // A manual unpin must not restore it.
       autoSelection = availableSelection
     }
     render()

@@ -52,7 +52,10 @@ window.addEventListener('message', (event) => {
     return
   }
   if (event.data?.type === 'pinnedSelections') {
-    components.editorContext.setPinnedSelections(Array.isArray(event.data.selections) ? event.data.selections : [])
+    components.editorContext.setPinnedSelections(
+      Array.isArray(event.data.selections) ? event.data.selections : [],
+      event.data.consumed === true,
+    )
     return
   }
   if (event.data?.type === 'workspaceFileSuggestions') {
