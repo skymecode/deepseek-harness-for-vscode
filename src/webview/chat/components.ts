@@ -63,6 +63,8 @@ components.editorContext = createEditorContextComponent({
   document,
   translate: t,
   onRequestSelection: () => post('attachSelection'),
+  onPinSelection: (selectionId) => post('pinSelection', { selectionId }),
+  onUnpinSelection: (selectionId) => post('unpinSelection', { selectionId }),
   onOpenFile: (reference) => post('openFile', reference),
 })
 
