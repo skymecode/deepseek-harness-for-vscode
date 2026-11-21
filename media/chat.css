@@ -2,6 +2,20 @@
   color-scheme: light dark;
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
+  /* Antigravity / Material-3 inspired tonal surface hierarchy over VS Code tokens. */
+  --dsh-surface-canvas: var(--vscode-sideBar-background);
+  --dsh-surface-low: color-mix(in srgb, var(--vscode-foreground) 3.5%, var(--vscode-sideBar-background));
+  --dsh-surface-container: color-mix(in srgb, var(--vscode-foreground) 6.5%, var(--vscode-sideBar-background));
+  --dsh-surface-hover: color-mix(in srgb, var(--vscode-foreground) 9%, transparent);
+  --dsh-surface-high: color-mix(in srgb, var(--vscode-editorWidget-background, var(--vscode-input-background)) 92%, var(--vscode-foreground) 3%);
+  --dsh-outline-subtle: color-mix(in srgb, var(--vscode-foreground) 9%, transparent);
+  --dsh-outline-default: color-mix(in srgb, var(--vscode-foreground) 15%, transparent);
+  --dsh-radius-sm: 8px;
+  --dsh-radius-md: 12px;
+  --dsh-radius-lg: 16px;
+  --dsh-radius-xl: 20px;
+  --dsh-shadow-floating: 0 4px 18px color-mix(in srgb, var(--vscode-widget-shadow, var(--vscode-foreground)) 16%, transparent);
+  --dsh-shadow-overlay: 0 10px 30px color-mix(in srgb, var(--vscode-widget-shadow, var(--vscode-foreground)) 26%, transparent);
   /* The workbench chrome must never render colorful emoji (Windows Segoe UI
      Emoji vs macOS monochrome is a cross-platform inconsistency). Icons are
      inline SVGs (src/webview/icons.ts); this forces any stray emoji-eligible
@@ -9,6 +23,10 @@
      content is overridden back to the platform default so real emoji in
      replies still render. */
   font-variant-emoji: text;
+}
+body.vscode-high-contrast {
+  --dsh-outline-subtle: var(--vscode-contrastBorder, var(--vscode-widget-border));
+  --dsh-outline-default: var(--vscode-contrastBorder, var(--vscode-widget-border));
 }
 .message-body,
 .markdown-body,
@@ -59,9 +77,8 @@ button:disabled {
 .shell-header {
   grid-row: 1;
   position: relative;
-  padding: 6px 8px;
-  border-bottom: 1px solid
-    var(--vscode-sideBar-border, var(--vscode-widget-border));
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--dsh-outline-subtle);
   background: var(--vscode-sideBar-background);
   z-index: 5;
 }
@@ -98,11 +115,12 @@ body.vscode-high-contrast .brand-logo {
   color: var(--vscode-icon-foreground);
   background: transparent;
   border: 0;
-  border-radius: 8px;
+  border-radius: 999px;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 .icon-button:hover,
 .text-button:hover {
-  background: var(--vscode-toolbar-hoverBackground);
+  background: var(--dsh-surface-hover);
 }
 .icon-button.compact {
   width: 23px;
@@ -152,19 +170,23 @@ body.vscode-high-contrast .brand-logo {
 .title-button {
   min-width: 0;
   flex: 1;
-  padding: 1px 3px;
+  padding: 2px 6px;
   overflow: hidden;
   color: var(--vscode-foreground);
   background: transparent;
   border: 0;
+  border-radius: var(--dsh-radius-sm);
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   font-size: var(--vscode-font-size);
+  transition: background-color 140ms ease, color 140ms ease;
 }
 .title-button:hover {
-  color: var(--vscode-textLink-foreground);
+  color: var(--vscode-foreground);
+  background: var(--dsh-surface-hover);
 }
 .header-menu {
   position: absolute;
@@ -172,13 +194,13 @@ body.vscode-high-contrast .brand-logo {
   right: 8px;
   width: min(268px, calc(100vw - 16px));
   max-height: calc(100vh - 56px);
-  padding: 5px;
+  padding: 6px;
   overflow-y: auto;
-  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-  border-radius: 10px;
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-md);
   color: var(--vscode-foreground);
-  background: var(--vscode-editorWidget-background);
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--vscode-widget-shadow, transparent) 80%, transparent);
+  background: var(--dsh-surface-high);
+  box-shadow: var(--dsh-shadow-overlay);
 }
 .header-menu-action {
   display: flex;
@@ -188,14 +210,15 @@ body.vscode-high-contrast .brand-logo {
   min-height: 30px;
   padding: 6px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--dsh-radius-sm);
   color: inherit;
   background: transparent;
   text-align: left;
   font-size: calc(var(--vscode-font-size) - 1px);
   overflow-wrap: anywhere;
+  transition: background-color 120ms ease;
 }
-.header-menu-action:hover:not(:disabled) { background: var(--vscode-list-hoverBackground); }
+.header-menu-action:hover:not(:disabled) { background: var(--dsh-surface-hover); }
 .header-menu-action:focus-visible, .header-row button:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
@@ -251,10 +274,12 @@ body.vscode-high-contrast .brand-logo {
 .key-banner button,
 .primary-button,
 .secondary-button {
-  padding: 4px 9px;
-  border-radius: 8px;
+  padding: 5px 12px;
+  border-radius: 999px;
   border: 1px solid transparent;
+  font-weight: 500;
   white-space: nowrap;
+  transition: background-color 140ms ease;
 }
 .key-banner button,
 .primary-button {
@@ -301,12 +326,13 @@ body.history-open .composer-dock {
 }
 .search-input {
   width: 100%;
-  padding: 6px 8px;
+  padding: 7px 10px;
   color: var(--vscode-input-foreground);
   background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, transparent);
-  border-radius: 9px;
+  border: 1px solid var(--dsh-outline-default);
+  border-radius: 10px;
   outline: 0;
+  transition: border-color 140ms ease;
 }
 .search-input:focus {
   border-color: var(--vscode-focusBorder);
@@ -320,17 +346,18 @@ body.history-open .composer-dock {
 }
 .session-row {
   width: 100%;
-  padding: 7px 8px;
+  padding: 8px 10px;
   display: grid;
   gap: 3px;
   color: var(--vscode-foreground);
   background: transparent;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--dsh-radius-sm);
   text-align: left;
+  transition: background-color 120ms ease;
 }
 .session-row:hover {
-  background: var(--vscode-list-hoverBackground);
+  background: var(--dsh-surface-hover);
 }
 .session-row.active {
   color: var(--vscode-list-activeSelectionForeground);
@@ -339,10 +366,10 @@ body.history-open .composer-dock {
 /* The 30px reserved action gutter sits outside the button, so hover it with
    the row: the whole row (including the gutter) highlights together. */
 .session-row-wrap:hover .session-row {
-  background: var(--vscode-list-hoverBackground);
+  background: var(--dsh-surface-hover);
 }
 .session-row-wrap:focus-within .session-row {
-  background: var(--vscode-list-hoverBackground);
+  background: var(--dsh-surface-hover);
 }
 .session-row-wrap:hover .session-row.active,
 .session-row-wrap:focus-within .session-row.active {
@@ -593,23 +620,16 @@ body.history-open .composer-dock {
 }
 .plugin-card {
   min-width: 0;
-  padding: 8px;
+  padding: 10px;
   display: grid;
   gap: 6px;
-  background: color-mix(
-    in srgb,
-    var(--vscode-editorWidget-background) 76%,
-    transparent
-  );
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 11px;
+  background: var(--dsh-surface-low);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-md);
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
 .plugin-card:hover {
-  border-color: color-mix(
-    in srgb,
-    var(--vscode-focusBorder) 55%,
-    var(--vscode-widget-border)
-  );
+  border-color: var(--dsh-outline-default);
 }
 .plugin-card-heading {
   min-width: 0;
@@ -915,7 +935,18 @@ body.history-open .composer-dock {
   flex: none;
   display: flow-root;
   z-index: 20;
+  padding: 2px 0 8px;
   background: var(--vscode-sideBar-background);
+}
+.composer-dock::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 24px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--vscode-sideBar-background));
 }
 .workbench,
 .chat,
@@ -939,7 +970,7 @@ body.history-open .composer-dock {
 .conversation {
   min-height: 0;
   flex: 1 0 auto;
-  padding: 9px 8px 14px;
+  padding: 10px 12px 24px;
   overflow-x: hidden;
 }
 .messages {
@@ -989,7 +1020,7 @@ body.vscode-high-contrast .empty-logo {
 .messages {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 14px;
+  gap: 16px;
   /* Reserve the timeline corridor even before the first step and after the
      turn finishes. Toggling the rail must not indent or rewrap the transcript. */
   position: relative;
@@ -1159,38 +1190,51 @@ body.vscode-high-contrast .empty-logo {
   gap: 5px;
   width: fit-content;
   max-width: 100%;
-  padding: 5px 0;
+  margin-left: -8px;
+  padding: 3px 10px 3px 8px;
   list-style: none;
   cursor: pointer;
   color: var(--vscode-descriptionForeground);
+  border-radius: 999px;
   font-size: calc(var(--vscode-font-size) - 1px);
+  font-weight: 500;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 .turn-process > summary::-webkit-details-marker { display: none; }
-.turn-process > summary:hover { color: var(--vscode-foreground); }
+.turn-process > summary:hover {
+  color: var(--vscode-foreground);
+  background: var(--dsh-surface-hover);
+}
 .turn-process > summary:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 3px;
-  border-radius: 4px;
+  outline-offset: 2px;
+  border-radius: 999px;
 }
 .turn-process-label { overflow-wrap: anywhere; min-width: 0; }
-.turn-process-chevron { display: inline-flex; flex: none; }
+.turn-process-chevron {
+  display: inline-flex;
+  flex: none;
+  transition: transform 150ms cubic-bezier(0.2, 0, 0, 1);
+}
 .turn-process[open] > summary .turn-process-chevron { transform: rotate(90deg); }
 .turn-process-content {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 14px;
-  padding: 9px 0 4px;
+  gap: 10px;
+  margin-left: 4px;
+  padding: 6px 0 4px 12px;
+  border-left: 1.5px solid var(--dsh-outline-subtle);
 }
 .turn-process-content > .message > .message-label { display: none; }
 .message.user {
-  justify-items: end;
+  justify-items: start;
+  margin-top: 6px;
+}
+.messages > .message.user:first-child {
+  margin-top: 0;
 }
 .message-label {
-  color: var(--vscode-descriptionForeground);
-  font-size: 10px;
-}
-.message.user .message-label {
-  padding-right: 5px;
+  display: none;
 }
 /* The finished conclusion gets a clear break so the final answer reads as a
    distinct result. When the message carries its own reasoning block the
@@ -1199,19 +1243,17 @@ body.vscode-high-contrast .empty-logo {
    copy footer only exists on the finished conclusion, so these target exactly
    the moment the turn ends. */
 .message:has(.message-copy-footer):not(:has(.reasoning-block)) {
-  margin-top: 5px;
-  padding-top: 10px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--vscode-widget-border) 65%, transparent);
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--dsh-outline-subtle);
 }
 .message:has(.message-copy-footer)
   .message-body
   > .reasoning-block
   + .content-block {
-  margin-top: 9px;
-  padding-top: 10px;
-  border-top: 1px solid
-    color-mix(in srgb, var(--vscode-widget-border) 65%, transparent);
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--dsh-outline-subtle);
 }
 .message-copy-footer {
   display: inline-flex;
@@ -1219,11 +1261,11 @@ body.vscode-high-contrast .empty-logo {
   gap: 5px;
   justify-self: start;
   margin-top: 4px;
-  padding: 4px 10px;
+  padding: 3px 10px;
   color: var(--vscode-descriptionForeground);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 999px;
   font-size: 11px;
   line-height: 1.4;
   cursor: pointer;
@@ -1240,8 +1282,8 @@ body.vscode-high-contrast .empty-logo {
 .message-copy-footer:hover {
   opacity: 1;
   color: var(--vscode-foreground);
-  background: var(--vscode-toolbar-hoverBackground);
-  border-color: var(--vscode-widget-border);
+  background: var(--dsh-surface-hover);
+  border-color: var(--dsh-outline-subtle);
 }
 .message-copy-footer .copy-label {
   display: none;
@@ -1261,19 +1303,19 @@ body.vscode-high-contrast .empty-logo {
   font-size: calc(var(--vscode-font-size) + 1px);
   /* Looser leading than the tool cards so paragraphs read as prose, not a
      wall of same-height lines. */
-  line-height: 1.7;
+  line-height: 1.72;
+  letter-spacing: -0.005em;
   overflow-wrap: anywhere;
 }
 .message.user .message-body {
-  max-width: 88%;
-  padding: 8px 12px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 10px 14px;
   color: var(--vscode-foreground);
-  background: color-mix(
-    in srgb,
-    var(--vscode-editorWidget-background) 78%,
-    var(--vscode-sideBar-background)
-  );
-  border-radius: 14px 14px 4px 14px;
+  background: var(--dsh-surface-container);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-lg);
+  line-height: 1.6;
 }
 .content-block {
   min-width: 0;
@@ -1297,7 +1339,7 @@ body.vscode-high-contrast .empty-logo {
   margin-bottom: 0;
 }
 .markdown-body p {
-  margin: 0 0 0.85em;
+  margin: 0 0 0.88em;
 }
 .markdown-body h1,
 .markdown-body h2,
@@ -1324,11 +1366,11 @@ body.vscode-high-contrast .empty-logo {
 }
 .markdown-body ul,
 .markdown-body ol {
-  margin: 0.6em 0 0.9em;
-  padding-left: 1.9em;
+  margin: 0.55em 0 0.9em;
+  padding-left: 1.6em;
 }
 .markdown-body li + li {
-  margin-top: 0.35em;
+  margin-top: 0.42em;
 }
 .markdown-body blockquote {
   margin: 0.9em 0;
@@ -1341,35 +1383,25 @@ body.vscode-high-contrast .empty-logo {
   margin-bottom: 0;
 }
 .markdown-body code {
-  padding: 0.15em 0.4em;
+  padding: 0.14em 0.45em;
   color: var(
     --vscode-textPreformat-foreground,
     var(--vscode-editor-foreground)
   );
-  background: var(
-    --vscode-textCodeBlock-background,
-    var(--vscode-editor-background)
-  );
-  border-radius: 3px;
+  background: var(--dsh-surface-container);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: 6px;
   font-family: var(--vscode-editor-font-family);
-  font-size: 0.92em;
+  font-size: 0.89em;
 }
 .markdown-body pre {
   max-width: 100%;
   margin: 0.85em 0;
   padding: 12px;
   overflow: auto;
-  /* Quiet recessed code surface: only a whisper of the theme foreground is
-     blended in (6%, not 14%) so the block reads as a slightly distinct panel
-     instead of a bright grey slab. The border carries the separation. */
-  background: color-mix(
-    in srgb,
-    var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 94%,
-    var(--vscode-foreground) 6%
-  );
-  border: 1px solid
-    color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
-  border-radius: 8px;
+  background: var(--dsh-surface-low);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-md);
   white-space: pre;
   line-height: 1.6;
 }
@@ -1377,6 +1409,7 @@ body.vscode-high-contrast .empty-logo {
   padding: 0;
   color: inherit;
   background: transparent;
+  border: 0;
   border-radius: 0;
 }
 /* highlight.js token colours. Fixed palettes (not theme tokens) by design:
@@ -1508,28 +1541,18 @@ body.vscode-light .markdown-body .hljs-deletion {
 .markdown-body .md-codeblock {
   margin: 0.65em 0;
   overflow: hidden;
-  border: 1px solid
-    color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
-  border-radius: 6px;
-  background: color-mix(
-    in srgb,
-    var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 94%,
-    var(--vscode-foreground) 6%
-  );
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-md);
+  background: var(--dsh-surface-low);
 }
 .markdown-body .md-codeblock-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 3px 8px;
+  padding: 5px 10px;
   color: var(--vscode-descriptionForeground);
-  background: color-mix(
-    in srgb,
-    var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 88%,
-    var(--vscode-foreground) 9%
-  );
-  border-bottom: 1px solid
-    color-mix(in srgb, var(--vscode-foreground) 16%, transparent);
+  background: var(--dsh-surface-container);
+  border-bottom: 1px solid var(--dsh-outline-subtle);
   font-size: 11px;
 }
 .markdown-body .md-codeblock-lang {
@@ -1625,9 +1648,10 @@ body.vscode-light .markdown-body .hljs-deletion {
   margin: 2px 0 6px;
   overflow: hidden;
   color: var(--vscode-descriptionForeground);
-  background: color-mix(in srgb, var(--vscode-editorWidget-background) 28%, transparent);
-  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-  border-radius: 10px;
+  background: var(--dsh-surface-low);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-md);
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
 /* Keep card geometry unchanged as the step transitions from live to history. */
 .reasoning-block.running {
@@ -1638,8 +1662,8 @@ body.vscode-light .markdown-body .hljs-deletion {
   );
 }
 .reasoning-block summary {
-  min-height: 38px;
-  padding: 8px 12px;
+  min-height: 36px;
+  padding: 7px 12px;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -1647,6 +1671,10 @@ body.vscode-light .markdown-body .hljs-deletion {
   list-style: none;
   font-size: var(--vscode-font-size);
   user-select: none;
+  transition: background-color 140ms ease;
+}
+.reasoning-block summary:hover {
+  background: var(--dsh-surface-hover);
 }
 .reasoning-block summary::-webkit-details-marker {
   display: none;
@@ -1715,7 +1743,7 @@ body.vscode-light .markdown-body .hljs-deletion {
   max-height: min(38vh, 320px);
   margin: 0;
   padding: 10px 12px;
-  border-top: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border-top: 1px solid var(--dsh-outline-subtle);
   overflow-y: auto;
   /* One step above tool cards, one below the message body: the thought text
      stays readable without competing with the actual answer. */
@@ -1812,9 +1840,10 @@ body.vscode-light .markdown-body .hljs-deletion {
   );
 }
 .tool-card {
-  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--vscode-editorWidget-background) 28%, transparent);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-md);
+  background: var(--dsh-surface-low);
+  transition: border-color 140ms ease, background-color 140ms ease;
 }
 /* Give consecutive tool cards more breathing room than the default message gap. */
 .tool-item + .tool-item {
@@ -1831,11 +1860,15 @@ body.vscode-light .markdown-body .hljs-deletion {
   font-size: 11px;
 }
 .tool-card > summary {
-  min-height: 38px;
-  padding: 8px 12px;
+  min-height: 36px;
+  padding: 7px 12px;
   gap: 9px;
   list-style: none;
   font-size: var(--vscode-font-size);
+  transition: background-color 140ms ease;
+}
+.tool-card > summary:hover {
+  background: var(--dsh-surface-hover);
 }
 .tool-card > summary::-webkit-details-marker {
   display: none;
@@ -2030,16 +2063,30 @@ body.vscode-light .markdown-body .hljs-deletion {
   color: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
 }
 .notice {
-  padding: 6px 8px;
-  display: grid;
-  gap: 2px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 10px;
   color: var(--vscode-descriptionForeground);
-  background: var(--vscode-textBlockQuote-background);
-  border-left: 2px solid var(--vscode-textBlockQuote-border);
-  font-size: 10px;
+  background: var(--dsh-surface-low);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.notice > strong {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-weight: 500;
+  color: var(--vscode-foreground);
+  opacity: 0.85;
 }
 .notice.error {
   color: var(--vscode-errorForeground);
+  border-color: color-mix(in srgb, var(--vscode-errorForeground) 35%, transparent);
+  background: color-mix(in srgb, var(--vscode-errorForeground) 8%, transparent);
 }
 
 /* Producer notices stay compact; full model-facing context is opt-in below. */
@@ -2303,10 +2350,10 @@ body.vscode-light .markdown-body .hljs-deletion {
   display: grid;
   gap: 2px;
   overflow-y: auto;
-  background: var(--vscode-editorWidget-background);
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 14px;
-  box-shadow: 0 12px 34px color-mix(in srgb, #000 28%, transparent);
+  background: var(--dsh-surface-high);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-lg);
+  box-shadow: var(--dsh-shadow-overlay);
 }
 .timeline-panel-header {
   padding: 6px 8px 7px;
@@ -2557,12 +2604,12 @@ body.vscode-light .markdown-body .hljs-deletion {
   overflow: auto;
 }
 .interaction-card {
-  padding: 9px;
+  padding: 10px 12px;
   display: grid;
   gap: 7px;
-  background: var(--vscode-editorWidget-background);
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 12px;
+  background: var(--dsh-surface-high);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-md);
   font-size: 11px;
 }
 .interaction-card.warning {
@@ -2619,19 +2666,23 @@ body.vscode-light .markdown-body .hljs-deletion {
 }
 
 .composer-shell {
-  margin: 2px 6px 4px;
+  margin: 0 10px 2px;
   overflow: visible;
   flex: none;
   /* Retain the positioning context for menus, without covering messages. */
   position: relative;
   z-index: 20;
-  background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
-  border-radius: 12px;
-  box-shadow: 0 2px 8px color-mix(in srgb, #000 8%, transparent);
+  background: var(--dsh-surface-high);
+  border: 1px solid var(--dsh-outline-default);
+  border-radius: var(--dsh-radius-xl);
+  box-shadow: var(--dsh-shadow-floating);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 .composer-shell:focus-within {
-  border-color: var(--vscode-focusBorder);
+  border-color: color-mix(in srgb, var(--vscode-focusBorder) 72%, transparent);
+  box-shadow:
+    0 6px 20px color-mix(in srgb, var(--vscode-focusBorder) 14%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder) 32%, transparent);
 }
 .queued-panel {
   max-height: 140px;
@@ -2715,20 +2766,15 @@ body.vscode-light .markdown-body .hljs-deletion {
    surface instead of a full-bleed strip, and the file list follows the
    transcript semantics ("+170 −2" per row). */
 .changes-bar {
-  margin: 0 2px 4px;
-  padding: 9px 11px;
+  margin: 0 10px 6px;
+  padding: 9px 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   color: var(--vscode-foreground);
-  background: color-mix(
-    in srgb,
-    var(--vscode-editorWidget-background) 82%,
-    transparent
-  );
-  border: 1px solid
-    color-mix(in srgb, var(--vscode-widget-border) 72%, transparent);
-  border-radius: 12px;
+  background: var(--dsh-surface-low);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-lg);
   font-size: 11.5px;
 }
 .changes-top {
@@ -2904,10 +2950,10 @@ body.vscode-light .markdown-body .hljs-deletion {
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
-  background: var(--vscode-editorWidget-background);
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 15px;
-  box-shadow: 0 14px 36px color-mix(in srgb, #000 34%, transparent);
+  background: var(--dsh-surface-high);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-lg);
+  box-shadow: var(--dsh-shadow-overlay);
 }
 .configuration-panel-header {
   padding: 9px 10px 5px 12px;
@@ -3994,14 +4040,14 @@ body.vscode-light .effort-control[data-effort="max"] {
   bottom: calc(100% + 6px);
   z-index: 22;
   max-height: min(52vh, 360px);
-  padding: 5px;
+  padding: 6px;
   display: grid;
   gap: 2px;
   overflow-y: auto;
-  background: var(--vscode-editorWidget-background);
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 12px;
-  box-shadow: 0 8px 22px color-mix(in srgb, #000 25%, transparent);
+  background: var(--dsh-surface-high);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-md);
+  box-shadow: var(--dsh-shadow-overlay);
 }
 .file-mention-item {
   min-width: 0;
@@ -4068,14 +4114,14 @@ body.vscode-light .effort-control[data-effort="max"] {
   bottom: calc(100% + 6px);
   z-index: 20;
   max-height: 46vh;
-  padding: 5px;
+  padding: 6px;
   display: grid;
   gap: 2px;
   overflow-y: auto;
-  background: var(--vscode-editorWidget-background);
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 12px;
-  box-shadow: 0 8px 22px color-mix(in srgb, #000 25%, transparent);
+  background: var(--dsh-surface-high);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-md);
+  box-shadow: var(--dsh-shadow-overlay);
 }
 .command-menu-item {
   padding: 7px 9px;
@@ -4087,11 +4133,11 @@ body.vscode-light .effort-control[data-effort="max"] {
   color: var(--vscode-foreground);
   background: transparent;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--dsh-radius-sm);
   font-size: 11px;
 }
 .command-menu-item:hover {
-  background: var(--vscode-list-hoverBackground);
+  background: var(--dsh-surface-hover);
 }
 .command-menu-item.active {
   background: var(--vscode-list-activeSelectionBackground);
@@ -4117,29 +4163,26 @@ body.vscode-light .effort-control[data-effort="max"] {
 .command-menu-item.active .command-hint {
   color: var(--vscode-list-activeSelectionForeground);
 }
-.composer-shell:focus-within {
-  border-color: var(--vscode-focusBorder);
-}
 #prompt {
   width: 100%;
-  min-height: 58px;
+  min-height: 54px;
   max-height: 190px;
-  padding: 13px 13px 8px;
+  padding: 13px 16px 8px;
   resize: none;
   overflow-y: auto;
   color: var(--vscode-input-foreground);
   background: transparent;
   border: 0;
   outline: 0;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: calc(var(--vscode-font-size) + 1px);
+  line-height: 1.55;
 }
 #prompt::placeholder {
   color: var(--vscode-input-placeholderForeground);
 }
 .composer-bar {
-  min-height: 38px;
-  padding: 4px 6px 7px 8px;
+  min-height: 40px;
+  padding: 4px 8px 8px 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4203,25 +4246,25 @@ body.vscode-light .effort-control[data-effort="max"] {
   min-width: 0;
   max-width: 180px;
   height: 30px;
-  padding: 2px 6px;
+  padding: 2px 8px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
   color: var(--vscode-descriptionForeground);
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: 10px;
   font-size: var(--vscode-font-size);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   flex-shrink: 0;
-  transition: background-color 160ms ease;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 .permission-toggle:hover,
 .permission-toggle.active {
   color: var(--vscode-foreground);
-  background-color: var(--vscode-toolbar-hoverBackground);
+  background-color: var(--dsh-surface-hover);
 }
 .permission-toggle.danger,
 .permission-toggle.danger:hover,
@@ -4254,10 +4297,10 @@ body.vscode-light .effort-control[data-effort="max"] {
   gap: 4px;
   padding: 6px;
   color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
-  background: var(--vscode-editorWidget-background);
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 12px;
-  box-shadow: 0 10px 28px color-mix(in srgb, #000 34%, transparent);
+  background: var(--dsh-surface-high);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-md);
+  box-shadow: var(--dsh-shadow-overlay);
 }
 .permission-popup-title {
   padding: 3px 6px 2px;
@@ -4322,15 +4365,15 @@ body.vscode-light .effort-control[data-effort="max"] {
   gap: 7px;
   padding: 10px 11px;
   color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
-  background: var(--vscode-editorWidget-background);
+  background: var(--dsh-surface-high);
   border: 1px solid
     color-mix(
       in srgb,
-      var(--vscode-errorForeground, #f14c4c) 45%,
-      var(--vscode-widget-border)
+      var(--vscode-errorForeground) 45%,
+      var(--dsh-outline-default)
     );
-  border-radius: 12px;
-  box-shadow: 0 10px 28px color-mix(in srgb, #000 34%, transparent);
+  border-radius: var(--dsh-radius-md);
+  box-shadow: var(--dsh-shadow-overlay);
 }
 .permission-confirm-title {
   color: var(--vscode-errorForeground, #f14c4c);
@@ -4394,23 +4437,24 @@ body.vscode-light .effort-control[data-effort="max"] {
   font-size: 10px;
 }
 .context-meter {
-  --context-color: var(--vscode-charts-blue, #4d8cff);
+  --context-color: var(--vscode-charts-blue, var(--vscode-textLink-foreground));
   --context-progress: 0%;
-  height: 27px;
+  height: 28px;
   flex: none;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 6px;
+  padding: 2px 7px;
   color: var(--vscode-descriptionForeground);
   background: none;
   border: none;
-  border-radius: 7px;
+  border-radius: 10px;
   font-size: 10px;
   cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 .context-meter:hover {
-  background: var(--vscode-toolbar-hoverBackground);
+  background: var(--dsh-surface-hover);
   color: var(--vscode-foreground);
 }
 .context-meter:focus-visible {
@@ -4439,7 +4483,7 @@ body.vscode-light .effort-control[data-effort="max"] {
   content: "";
   position: absolute;
   inset: 3px;
-  background: var(--vscode-input-background);
+  background: var(--dsh-surface-high);
   border-radius: 50%;
 }
 .context-meter-value {
@@ -4451,7 +4495,7 @@ body.vscode-light .effort-control[data-effort="max"] {
   min-width: 0;
   max-width: min(240px, 60vw);
   height: 30px;
-  padding: 0 6px;
+  padding: 0 8px;
   flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
@@ -4460,14 +4504,14 @@ body.vscode-light .effort-control[data-effort="max"] {
   color: var(--vscode-foreground);
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: 10px;
   font-size: var(--vscode-font-size);
   box-shadow: none;
-  transition: background-color 160ms ease;
+  transition: background-color 140ms ease;
 }
 .configuration-toggle:hover,
 .configuration-toggle.active {
-  background: var(--vscode-toolbar-hoverBackground);
+  background: var(--dsh-surface-hover);
 }
 .configuration-toggle.pending .configuration-toggle-model {
   color: var(--vscode-textLink-foreground);
@@ -4502,8 +4546,8 @@ body.vscode-light .effort-control[data-effort="max"] {
   transform: rotate(180deg);
 }
 .send-button {
-  width: 31px;
-  height: 31px;
+  width: 32px;
+  height: 32px;
   flex: none;
   padding: 0;
   color: var(--vscode-button-foreground);
@@ -4513,10 +4557,18 @@ body.vscode-light .effort-control[data-effort="max"] {
   font-size: 16px;
   font-weight: 700;
   box-shadow: 0 2px 8px
-    color-mix(in srgb, var(--vscode-button-background) 45%, transparent);
+    color-mix(in srgb, var(--vscode-button-background) 32%, transparent);
   transition:
-    background-color 160ms ease,
-    transform 120ms ease;
+    background-color 150ms ease,
+    transform 120ms ease,
+    box-shadow 150ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-process-chevron,
+  .send-button,
+  .composer-shell {
+    transition: none;
+  }
 }
 .send-button:hover {
   background: var(--vscode-button-hoverBackground);
@@ -4559,10 +4611,10 @@ body.vscode-light .effort-control[data-effort="max"] {
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
-  background: var(--vscode-editorWidget-background);
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 15px;
-  box-shadow: 0 14px 36px color-mix(in srgb, #000 34%, transparent);
+  background: var(--dsh-surface-high);
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-lg);
+  box-shadow: var(--dsh-shadow-overlay);
 }
 .settings-header {
   padding: 9px 10px 5px 12px;
@@ -4612,11 +4664,11 @@ body.vscode-light .effort-control[data-effort="max"] {
 }
 .settings-field input {
   width: 100%;
-  padding: 6px 8px;
+  padding: 7px 10px;
   color: var(--vscode-input-foreground);
   background: var(--vscode-input-background);
-  border: 1px solid var(--vscode-input-border, transparent);
-  border-radius: 9px;
+  border: 1px solid var(--dsh-outline-default);
+  border-radius: 10px;
   outline: 0;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 11px;
@@ -4625,15 +4677,15 @@ body.vscode-light .effort-control[data-effort="max"] {
   border-color: var(--vscode-focusBorder);
 }
 .settings-field input.invalid {
-  border-color: var(--vscode-inputValidation-errorBorder, #f14c4c);
+  border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
 }
 .settings-select {
   width: 100%;
-  padding: 6px 8px;
+  padding: 7px 10px;
   color: var(--vscode-dropdown-foreground);
   background: var(--vscode-dropdown-background);
-  border: 1px solid var(--vscode-dropdown-border, transparent);
-  border-radius: 9px;
+  border: 1px solid var(--dsh-outline-default);
+  border-radius: 10px;
   outline: 0;
   font-size: 11px;
 }
@@ -5016,18 +5068,18 @@ body.vscode-light .effort-control[data-effort="max"] {
 
 /* Session identity and execution remain visible above a read-only transcript. */
 .session-access {
-  margin: 0 10px 8px;
-  padding: 9px 11px;
-  border: 1px solid var(--vscode-widget-border);
-  border-radius: 8px;
-  background: var(--vscode-editorWidget-background);
+  margin: 6px 12px 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--dsh-outline-subtle);
+  border-radius: var(--dsh-radius-md);
+  background: var(--dsh-surface-low);
   color: var(--vscode-foreground);
   font-size: calc(var(--vscode-font-size) - 1px);
   min-width: 0;
 }
-.session-access-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.session-access-location { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--vscode-descriptionForeground); }
-.session-access p { margin: 5px 0 8px; overflow-wrap: anywhere; line-height: 1.5; }
+.session-access-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 500; }
+.session-access-location { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--vscode-descriptionForeground); font-size: 11px; opacity: 0.85; }
+.session-access p { margin: 3px 0 6px; overflow-wrap: anywhere; color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.45; }
 .session-access-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .session-access-actions button { white-space: normal; }
 .session-project-heading { margin: 12px 6px 4px; color: var(--vscode-descriptionForeground); font-size: 11px; overflow-wrap: anywhere; }

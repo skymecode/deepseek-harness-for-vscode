@@ -8,15 +8,16 @@
   padding: 0;
   flex: none;
   border: 0;
-  border-radius: 8px;
+  border-radius: 999px;
   color: var(--vscode-descriptionForeground);
   background: transparent;
   cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 .composer-add-toggle:hover,
 .composer-add-toggle[aria-expanded="true"] {
   color: var(--vscode-foreground);
-  background: var(--vscode-toolbar-hoverBackground);
+  background: var(--dsh-surface-hover, var(--vscode-toolbar-hoverBackground));
 }
 .composer-add-menu {
   position: fixed;
@@ -26,11 +27,11 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 6px;
-  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-  border-radius: 12px;
+  border: 1px solid var(--dsh-outline-subtle, var(--vscode-widget-border, var(--vscode-panel-border)));
+  border-radius: var(--dsh-radius-md, 12px);
   color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
-  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
-  box-shadow: 0 6px 20px var(--vscode-widget-shadow);
+  background: var(--dsh-surface-high, var(--vscode-editorWidget-background, var(--vscode-editor-background)));
+  box-shadow: var(--dsh-shadow-overlay, 0 6px 20px var(--vscode-widget-shadow));
   font-size: var(--vscode-font-size);
 }
 .composer-action-heading {
@@ -46,7 +47,7 @@
   width: 100%;
   padding: 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--dsh-radius-sm, 8px);
   color: inherit;
   background: transparent;
   font: inherit;

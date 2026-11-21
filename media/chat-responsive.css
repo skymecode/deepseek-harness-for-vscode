@@ -198,7 +198,7 @@ body {
   }
 
   .message.user .message-body {
-    max-width: 94%;
+    max-width: 100%;
   }
 
   .settings-panel {
