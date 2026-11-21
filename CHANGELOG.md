@@ -1,5 +1,17 @@
 # 更新日志
 
+## 0.6.3
+
+> 2026-11-21 更新。内置 DeepSeek Harness 升级至 `0.2.2-rc.5`，继续随包独立 Node `24.22.2`；内置 DSH 仍为候选版本，升级前请备份共享历史目录及扩展私有目录。
+
+### 内核升级与官方对齐
+
+- **DSH 升级至 `0.2.2-rc.5`**：更新 `@deepseek-ai/dsh`、`allowScripts` 与连接探测补丁白名单（`scripts/patch-dsh-llm-pi-ai.mjs`），同步接入上游子代理、工具与运行时稳定性修复。
+- **路由感知默认联网搜索（`auto`）**：`deepseekHarness.webSearchProvider` 新增 `"auto"` 并设为默认值，对齐上游路由选择策略——DeepSeek 模型默认使用服务端 Messages 搜索（不按次收费），其他第三方或自定义模型默认使用 DeepSeek Search API，网页抓取默认使用本地 HTTP；保留 `"messages"` 与 `"search-api"` 显式覆盖选项，并适配 `dsh-web-deepseek-api` 的 `searchBaseURL` / `searchApiKeyEnv` / `fetchBaseURL` / `fetchApiKeyEnv` 配置协议。
+- **Office 与安装包精简适配**：将已移除的 `office-to-pdf` 替换为禁用 `office-kit`；`.vscodeignore` 同步排除 `libreoffice-kit-wasm` 与 `libreoffice-kit`，同时保留 `dsh-office-kit` 以满足 `dsh-tool-office` 的静态导入需求。
+- **子代理与插件管理协议对齐**：适配 `SubagentPromptRequest` 移除 `parentSessionId` 与 `mode`，并将子代理中断调用从 `subagents/interruptByParent` 迁移至 `subagents/interruptByUser`；同步更新 `BundleInfo` 测试夹具。
+- **连接设置支持 Google Gemini**：自定义提供商协议下拉列表新增 `Google Gemini`（`google-generative-ai`），对齐 `@deepseek-ai/dsh-llm-pi-ai` 的原生 Gemini 支持。
+
 ## 0.6.2
 
 > 2026-11-08 正式发布。内置 DeepSeek Harness `0.2.2-rc.1` 与独立 Node `24.22.2`。扩展为正式版，内置 DSH 仍为候选版本；升级前请备份共享历史目录及扩展私有目录。

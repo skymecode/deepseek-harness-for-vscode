@@ -2,7 +2,7 @@
 
 This platform extension bundle contains:
 
-- `@deepseek-ai/dsh` 0.2.2-rc.1 and its `@deepseek-ai/dsh-*` dependencies
+- `@deepseek-ai/dsh` 0.2.2-rc.5 and its `@deepseek-ai/dsh-*` dependencies
   - Copyright: DeepSeek contributors
   - License: MIT
   - Source: https://github.com/deepseek-ai/deepseek-harness
@@ -12,7 +12,7 @@ This platform extension bundle contains:
   - License: MIT
   - Source: https://github.com/Nwflower/dsh-chat-import
 
-- Node.js 22.22.3
+- Node.js 24.22.2
   - Copyright: Node.js contributors
   - License: MIT and included third-party licenses
   - Source: https://github.com/nodejs/node

@@ -11,7 +11,7 @@ import type { McpServerConfiguration } from '../../src/config/mcp.js'
 
 interface SmokeOptions {
   readonly webSearch?: boolean
-  readonly webSearchProvider?: 'messages' | 'search-api'
+  readonly webSearchProvider?: 'auto' | 'messages' | 'search-api'
   readonly mcpServers?: McpServerConfiguration[]
   readonly home?: string
   readonly historyHome?: string
@@ -40,13 +40,13 @@ export async function bootSmokeRuntime(modelBaseUrl: string, options: SmokeOptio
     mcpServers: options.mcpServers ?? [],
     model: 'deepseek-flash', provider: 'deepseek-official', reasoningEffort: 'high',
     agentPreset: 'minimal', permissionMode: options.permissionMode ?? 'read-only', webSearch: options.webSearch ?? false,
-    webSearchProvider: options.webSearchProvider ?? 'messages',
+    webSearchProvider: options.webSearchProvider ?? 'auto',
     autoAttachSelection: false, experimentalAutoEffort: false, worktreeAutoMerge: 'never',
   }, gatewayPlugin, options.historyHome).replace('reasoningEffort: high', `reasoningEffort: high\n    apiKeyEnv: DSH_SMOKE_API_KEY\n    baseURL: ${JSON.stringify(modelBaseUrl)}`) : renderOverlay({
     mcpServers: options.mcpServers ?? [],
     model: 'deepseek-v4-flash', provider: 'smoke', reasoningEffort: 'high',
     agentPreset: 'minimal', permissionMode: options.permissionMode ?? 'read-only', webSearch: options.webSearch ?? false,
-    webSearchProvider: options.webSearchProvider ?? 'messages',
+    webSearchProvider: options.webSearchProvider ?? 'auto',
     autoAttachSelection: false, experimentalAutoEffort: false, worktreeAutoMerge: 'never',
   }, gatewayPlugin, options.historyHome).replace('provider: "deepseek-official"', 'provider: "smoke"')
   if (!messages) {

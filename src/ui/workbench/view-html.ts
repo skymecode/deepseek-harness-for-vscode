@@ -324,7 +324,7 @@ export function workbenchHtml(webview: vscode.Webview, extensionUri: vscode.Uri)
         </div>
         <label class="settings-field" id="settings-api-field">
           <span class="settings-label">${text('providerProtocol')}</span>
-          <select id="settings-api"><option value="openai-completions">OpenAI Chat Completions</option><option value="anthropic-messages">Anthropic Messages</option></select>
+          <select id="settings-api"><option value="openai-completions">OpenAI Chat Completions</option><option value="anthropic-messages">Anthropic Messages</option><option value="google-generative-ai">Google Gemini</option></select>
         </label>
         <div class="settings-field" id="settings-base-url-field">
           <span class="settings-label">${text('baseUrl')}</span>

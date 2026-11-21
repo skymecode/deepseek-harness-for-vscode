@@ -47,17 +47,19 @@ node_modules/**/CHANGELOG*
 node_modules/**/test/**
 node_modules/**/tests/**
 # The native workbench disables DSH's official Web Office preview service.
-# These platform engines are otherwise pulled into the Web profile solely for
-# Office-to-PDF conversion and account for roughly 259 MB on macOS arm64.
+# These platform and WASM engines are otherwise pulled into the Web profile
+# solely for OfficeKit conversion and account for hundreds of MB in the VSIX.
 node_modules/@deepseek-ai/libreoffice-kit-darwin-arm64/**
 node_modules/@deepseek-ai/libreoffice-kit-darwin-x64/**
 node_modules/@deepseek-ai/libreoffice-kit-linux-x64/**
 node_modules/@deepseek-ai/libreoffice-kit-linux-arm64/**
 node_modules/@deepseek-ai/libreoffice-kit-win32-x64/**
 node_modules/@deepseek-ai/libreoffice-kit-win32-arm64/**
+node_modules/@deepseek-ai/libreoffice-kit-wasm/**
+node_modules/@deepseek-ai/libreoffice-kit/**
 # The document-preview client is part of the disabled official Web UI row.
+# Keep @deepseek-ai/dsh-office-kit because @deepseek-ai/dsh-tool-office imports its errors statically.
 node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview/**
-node_modules/@deepseek-ai/dsh-office-to-pdf/**
 # Experimental voice input is not mounted by the native workbench profile.
 node_modules/sherpa-onnx-*/**
 node_modules/@deepseek-ai/dsh-experimental-voice-input-bundle/**

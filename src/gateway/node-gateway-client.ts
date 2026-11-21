@@ -394,9 +394,9 @@ export class NodeGatewayClient {
     return await this.callRaw<SubagentPromptReceipt>('subagents/prompt', { request })
   }
 
-  /** Sub-agent interrupt (Typert `subagents/interruptByParent`). */
-  async subagentInterrupt(childSessionId: unknown, parentSessionId: unknown): Promise<SubagentInterruptReceipt> {
-    return await this.callRaw<SubagentInterruptReceipt>('subagents/interruptByParent', { childSessionId, parentSessionId, mode: 'continuable' })
+  /** Sub-agent interrupt (Typert `subagents/interruptByUser`). */
+  async subagentInterrupt(childSessionId: unknown): Promise<SubagentInterruptReceipt> {
+    return await this.callRaw<SubagentInterruptReceipt>('subagents/interruptByUser', { childSessionId })
   }
 
   /** Human-invocable skill catalog (Typert `skills/list`). */

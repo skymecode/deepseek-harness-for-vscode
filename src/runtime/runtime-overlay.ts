@@ -11,7 +11,11 @@ export function renderOverlay(configuration: HarnessConfiguration, gatewayPlugin
   disabled: true
 
 `
-  const directWebApi = configuration.webSearch && configuration.webSearchProvider === 'search-api'
+  const webSearchProvider = configuration.webSearchProvider ?? 'auto'
+  const directWebApi = configuration.webSearch && webSearchProvider === 'search-api'
+  const searchProviderLine = !configuration.webSearch || webSearchProvider === 'auto'
+    ? ''
+    : `\n    searchProvider: ${directWebApi ? 'deepseek-search-api' : 'deepseek-official'}`
   const historyRows = historyHome === undefined ? '' : `
 - id: session-persistence-jsonl
   config:
@@ -31,9 +35,9 @@ ${historyRows}
   disabled: true
 
 # The native VS Code workbench does not mount the official Web document
-# preview. Keep DSH's file APIs available, but do not start its Office-to-PDF
+# preview. Keep DSH's file APIs available, but do not start its OfficeKit
 # host service or require the platform LibreOffice engine in the VSIX.
-- id: office-to-pdf
+- id: office-kit
   disabled: true
 - id: ui-sidebar-documentpreview
   disabled: true
@@ -56,8 +60,7 @@ ${mcpRows === '' ? '' : `
 ${mcpRows}`}
 
 ${webSearchRow}- id: web
-  config:
-    searchProvider: ${directWebApi ? 'deepseek-search-api' : 'deepseek-official'}
+  config:${searchProviderLine}
     fetchProvider: ${directWebApi ? 'deepseek-fetch-api' : 'http'}
 
 - id: llm-deepseek

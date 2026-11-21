@@ -54,15 +54,19 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('native Search and Fetch A
       runtime = await bootSmokeRuntime(`${endpoint}/anthropic`, {
         protocol: 'messages', webSearch: enabled, webSearchProvider: 'search-api',
         permissionMode: 'danger-full-access',
-        prepare: async () => `\n- id: web-deepseek-api\n  config:\n    baseURL: ${JSON.stringify(`${endpoint}/web`)}\n    apiKeyEnv: DSH_SMOKE_API_KEY\n    sendOriginalQuestion: false\n`,
+        prepare: async () => `\n- id: web-deepseek-api\n  config:\n    searchBaseURL: ${JSON.stringify(`${endpoint}/web`)}\n    searchApiKeyEnv: DSH_SMOKE_API_KEY\n    fetchBaseURL: ${JSON.stringify(`${endpoint}/web`)}\n    fetchApiKeyEnv: DSH_SMOKE_API_KEY\n    sendOriginalQuestion: false\n`,
       })
       const { client } = runtime
       // rc.3 Web credentials prefer saved values over launch environment values.
       await client.credentialsSet('DSH_SMOKE_API_KEY', 'saved-fixture-key')
       const namespaces = (await client.settingsDescribe()).namespaces
-      expect(namespaces.find(ns => ns.ns === 'web')?.value).toMatchObject(enabled
-        ? { searchProvider: 'deepseek-search-api', fetchProvider: 'deepseek-fetch-api' }
-        : { searchProvider: 'deepseek-official', fetchProvider: 'http' })
+      const webValue = namespaces.find(ns => ns.ns === 'web')?.value as Record<string, unknown> | undefined
+      if (enabled) {
+        expect(webValue).toMatchObject({ searchProvider: 'deepseek-search-api', fetchProvider: 'deepseek-fetch-api' })
+      } else {
+        expect(webValue).toMatchObject({ fetchProvider: 'http' })
+        expect(webValue?.searchProvider).toBeUndefined()
+      }
       const { sessionId } = await client.sessionCreate({ cwd: runtime.home, agentPreset: 'standard' })
       let finished = false
       for await (const frame of client.sessionFollow({ address: { kind: 'session', sessionId } }, AbortSignal.timeout(20_000))) {
@@ -81,7 +85,7 @@ describe.runIf(process.env.DSH_RUNTIME_SMOKE === '1')('native Search and Fetch A
         expect(requests[1]?.body).toEqual({ url: 'https://example.invalid/page' })
         expect(requests.every(entry => entry.authorization === 'Bearer saved-fixture-key')).toBe(true)
       } else {
-        expect(results.join('\n')).toMatch(/not registered|configured.*missing/i)
+        expect(results.join('\n')).toMatch(/no usable web provider|not registered|configured.*missing|unavailable/i)
         expect(modelSawSources).toBe(false)
       }
     } finally {

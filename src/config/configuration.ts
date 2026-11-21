@@ -42,8 +42,8 @@ export interface HarnessConfiguration {
   readonly permissionMode: PermissionMode
   /** Whether the built-in DeepSeek web-search provider stays enabled. */
   readonly webSearch: boolean
-  /** Native DSH web provider pair. Omitted keeps Messages search + local HTTP fetch. */
-  readonly webSearchProvider?: 'messages' | 'search-api'
+  /** Native DSH web provider selection. Omitted or `auto` follows the conversation model route with local HTTP fetch. */
+  readonly webSearchProvider?: 'auto' | 'messages' | 'search-api'
   /** Auto-attach the active editor selection as context when sending. */
   readonly autoAttachSelection: boolean
   /** Whether experimental automatic reasoning effort mode is enabled. */
@@ -84,7 +84,7 @@ export class ConfigurationService implements vscode.Disposable {
       provider: nonEmpty(config.get<string>('provider'), 'deepseek-official'),
       permissionMode: permissionMode(config.get<string>('permissionMode')),
       webSearch: config.get<boolean>('webSearch', true),
-      webSearchProvider: config.get<string>('webSearchProvider') === 'search-api' ? 'search-api' : 'messages',
+      webSearchProvider: webSearchProviderMode(config.get<string>('webSearchProvider')),
       autoAttachSelection: config.get<boolean>('autoAttachSelection', true),
       experimentalAutoEffort: config.get<boolean>('experimentalAutoEffort', false),
       worktreeAutoMerge: worktreeAutoMergeMode(config.get<string>('worktreeAutoMerge')),
@@ -251,4 +251,9 @@ export function worktreeAutoMergeMode(value: string | undefined): WorktreeAutoMe
   // they land in the main checkout. Existing users who explicitly selected
   // `onTurnEnd` keep that choice.
   return value === 'onTurnEnd' ? 'onTurnEnd' : 'never'
+}
+
+function webSearchProviderMode(value: string | undefined): 'auto' | 'messages' | 'search-api' {
+  if (value === 'messages' || value === 'search-api') return value
+  return 'auto'
 }

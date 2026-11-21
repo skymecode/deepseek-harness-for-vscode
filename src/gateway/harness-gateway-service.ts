@@ -1104,9 +1104,7 @@ export class HarnessGatewayService implements vscode.Disposable {
         }
         await promptClient.subagentPrompt({
           requestId: requestId === undefined ? newPromptRequestId() : requestId as DshSessionRequestId,
-          parentSessionId: subagentAddress.parentSessionId,
           childSessionId: subagentAddress.childSessionId,
-          mode: 'continuable',
           delivery: mode === 'steer' ? 'steer' : 'queue',
           content: content.flatMap((part) => part.type === 'text' ? [{ type: 'text' as const, text: part.text }] : []),
           clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -1225,7 +1223,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       if (this.subagentAddress === undefined) {
         await this.requireClient().sessionCancel({ sessionId: sessionId as SessionId })
       } else if (this.subagentAddress.mode === 'continuable') {
-        await this.requireClient().subagentInterrupt(this.subagentAddress.childSessionId, this.subagentAddress.parentSessionId)
+        await this.requireClient().subagentInterrupt(this.subagentAddress.childSessionId)
       }
     } catch (cause) {
       restore()

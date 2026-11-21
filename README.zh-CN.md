@@ -4,26 +4,25 @@
 
 在 VS Code 中原生运行 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 AI 编码助手扩展。无需克隆上游仓库、安装 Node/npm 或手动部署 Harness；安装匹配平台的 VSIX 即可使用。
 
-> 当前为社区维护的 **0.6.2 正式版扩展**，内置官方 npm 包 `@deepseek-ai/dsh@0.2.2-rc.1`（Typert Remote 协议）和独立 Node `24.22.2`。内置 DSH 本身仍是候选版本，DeepSeek Harness 仍处于 Developer Preview。
+> 当前为社区维护的 **0.6.3 正式版扩展**，内置官方 npm 包 `@deepseek-ai/dsh@0.2.2-rc.5`（Typert Remote 协议）和独立 Node `24.22.2`。内置 DSH 本身仍是候选版本，DeepSeek Harness 仍处于 Developer Preview。
 
-本版统一扩展与官方 DSH 的已保存会话库，按原始项目文件夹管理历史，增加原生 MCP 管理入口，并修复提问重复及显示错序。详见[中文更新日志](CHANGELOG.md#062)。
+本版将内置运行时升级至 DSH `0.2.2-rc.5`，同步对齐路由感知联网搜索、子代理控制接口与 OfficeKit 打包精简规则，并在连接设置中支持 Google Gemini 协议。详见[中文更新日志](CHANGELOG.md#063)。
 
 > **运行时升级提示：** Harness 已采用 V4 会话格式。恢复受支持的旧日志时会生成新一代文件，原文件仍保留；旧运行时无法读取新增的 V4 日志。建议升级前备份共享历史目录（默认 `~/.dsh`）及扩展私有目录 `~/.dsh/vscode/harness-home`，不要对正在使用的配置目录直接降级。依赖已移除的 `ctx.agent` 或运行时 `Inbox` API 的第三方插件需要自行适配。本扩展继续使用原生 VS Code 界面，不嵌套官方 Web UI。
 
 启动优先使用官方运行时包解析器。仅在确认是旧版模块冲突时执行一次有备份的修复，不再在每次启动或安装插件前搬动普通配置包。
 
-## 0.6.2 正式版更新
+## 0.6.3 正式版更新
 
-本次更新对齐 DSH `0.2.2-rc.1`：
+本次更新对齐 DSH `0.2.2-rc.5`：
 
-- **统一会话库**：新会话固定使用选定的共享 `sessions/`，默认是 `~/.dsh/sessions`。迁移可读取的旧会话并保留原文件；单条记录不兼容不会再让扩展切回私有库。历史面板显示实际目录与迁移详情。
-- **按项目管理会话**：以原始文件夹统一归组不同客户端的会话，支持跨项目浏览、只读预览与“在此继续”。新会话直接使用选中的文件夹，已有 worktree 保留手动处理入口。
-- **原生变更与标题**：逐轮快照和 diff 使用官方 `@deepseek-ai/dsh-workspace-changes`；从原生日志读取标题，修复部分列表刷新或过期投影覆盖标题的问题。
-- **MCP 管理入口**：通过“更多 → MCP 服务”或命令面板添加、编辑、启停和移除 stdio / Streamable HTTP 服务；配置严格校验，等待模型回合空闲后重载 Host。
-- **对话与兼容修复**：附带编辑器上下文的提问不再重复出现在回答后，流式回复与排队提问保持顺序。随包聊天导入插件更新至 `0.26.4`，升级已知旧版本时保留启停状态。
-- **跨平台安装包**：CI 测试并构建 `darwin-arm64`、`win32-x64`、`linux-x64`、`linux-arm64`。继续排除未使用的 Office 预览和实验语音资源，具体体积以发布附件为准。
+- **内置 DSH 升级至 `0.2.2-rc.5`**：同步更新 `@deepseek-ai/dsh`、`allowScripts` 与连接探测补丁白名单，继续随包独立 Node `24.22.2`。
+- **路由感知联网搜索（`auto`）**：`deepseekHarness.webSearchProvider` 新增 `auto` 作为默认值——DeepSeek 模型使用服务端 Messages 搜索且不按次收费，其他模型使用 DeepSeek Search API，由本地 HTTP 抓取页面；同时保留 `messages` 与 `search-api` 显式选项。
+- **子代理与插件协议对齐**：更新 `subagents/prompt` 参数，将 `subagents/interruptByParent` 迁移至 `subagents/interruptByUser`，并对齐 `BundleInfo` 类型结构。
+- **OfficeKit 与安装包精简**：改为禁用 `office-kit`（替换已移除的 `office-to-pdf`），并在 `.vscodeignore` 中排除 `libreoffice-kit-wasm` 与 `libreoffice-kit`，同时保留 `dsh-office-kit` 供 `dsh-tool-office` 静态导入。
+- **支持 Google Gemini 协议**：连接设置的自定义提供商协议下拉框新增 `Google Gemini`（`google-generative-ai`）。
 
-从 [v0.6.2 正式版页面](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.2) 下载对应平台 VSIX，安装后重新加载 VS Code。推送版本标签后，由 GitHub Actions 构建并发布四个平台的附件；Marketplace 发布另行处理。完整中文变更见[更新日志](CHANGELOG.md#062)。
+从 [v0.6.3 正式版页面](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.3) 下载对应平台 VSIX，安装后重新加载 VS Code。推送版本标签后，由 GitHub Actions 构建并发布四个平台的附件；Marketplace 发布另行处理。完整中文变更见[更新日志](CHANGELOG.md#063)。
 
 ## 内核更新策略
 
@@ -85,7 +84,7 @@
 
 ## 安装
 
-1. 从 [0.6.2 正式版页面](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.2) 下载与你的平台匹配的 VSIX。
+1. 从 [0.6.3 正式版页面](https://github.com/skymecode/deepseek-harness-for-vscode/releases/tag/v0.6.3) 下载与你的平台匹配的 VSIX。
 2. 打开 VS Code 扩展面板（`Cmd/Ctrl+Shift+X`）。
 3. 点击右上角 `...` → **从 VSIX 安装...**，选择下载的文件。
 4. 按提示重新加载 VS Code 窗口。
@@ -120,7 +119,7 @@
 
 **“其他运行时占用”**表示另一个 DSH 后台持有此会话的原生写入锁。此时仍可查看历史，继续对话需要等待占用端释放。回答结束或关闭网页标签不一定释放后台；请在原端释放会话，或在使用结束后停止对应后台，再在扩展点击“重试继续”。目前独立 Host 之间尚未实现自动移交执行权。
 
-两个运行时必须支持相同日志格式：本版使用 **V4／DSH 0.2.2-rc.1**。旧官方 CLI 无法读取新增的 V4 日志，需升级后使用共享功能；保留 V2/V3 原文件不代表支持降级双向同步。这不是云端、跨设备或 Windows／WSL 跨内核同步，请勿通过网络盘／同步盘同时运行共享日志。大版本升级前建议备份共享目录和原私有目录。
+两个运行时必须支持相同日志格式：本版使用 **V4／DSH 0.2.2-rc.5**。旧官方 CLI 无法读取新增的 V4 日志，需升级后使用共享功能；保留 V2/V3 原文件不代表支持降级双向同步。这不是云端、跨设备或 Windows／WSL 跨内核同步，请勿通过网络盘／同步盘同时运行共享日志。大版本升级前建议备份共享目录和原私有目录。
 
 ## DSH 插件
 
@@ -150,7 +149,7 @@
 
 ## 配置
 
-0.6.2 扩展内置 DSH `0.2.2-rc.1`。在 VS Code 设置中，`deepseekHarness.webSearchProvider` 可选 `messages`（默认：Messages 搜索＋本地 HTTP 抓取）或 `search-api`（原生 DeepSeek Search/Fetch API）。修改后重载工作台生效。直接 API 使用官方 DeepSeek 凭据，与聊天提供商独立，需账号具备对应 API 权限。关闭 `deepseekHarness.webSearch` 会禁用两种 DeepSeek 网页提供者，保留本地 HTTP 抓取。与官方 DSH 一致，Search API 请求可能附带触发问题的前 128 个字符。
+0.6.3 扩展内置 DSH `0.2.2-rc.5`。在 VS Code 设置中，`deepseekHarness.webSearchProvider` 可选 `auto`（默认：DeepSeek 模型使用服务端 Messages 搜索且不按次收费，其他模型使用 Search API，由本地 HTTP 抓取页面）、`messages`（始终使用 Messages 搜索＋本地 HTTP 抓取）或 `search-api`（原生 DeepSeek Search/Fetch API）。修改后重载工作台生效。直接 API 使用官方 DeepSeek 凭据，与聊天提供商独立，需账号具备对应 API 权限。关闭 `deepseekHarness.webSearch` 会禁用两种 DeepSeek 网页提供者，保留本地 HTTP 抓取。与官方 DSH 一致，Search API 请求可能附带触发问题的前 128 个字符。
 
 
 DSH 0.2.1 的官方 DeepSeek 适配器仅支持 Messages，默认地址为 `https://api.deepseek.com/anthropic`。旧手工配置中的 `llm-deepseek.protocol` 需删除；需要 Chat Completions 的端点应配置为自定义提供商。第三方提供商的协议保持不变。
