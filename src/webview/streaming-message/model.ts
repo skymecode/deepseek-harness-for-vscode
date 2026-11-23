@@ -48,3 +48,103 @@ export function shouldRebuildStreamFrame(
   if (delta > 0 && now - (state.lastRenderAt ?? 0) >= minIntervalMs) return true
   return false
 }
+
+const SPLIT_MIN_CHARS = 240
+const FENCE_LINE = /^( {0,3})(`{3,}|~{3,})(.*)$/u
+
+/**
+ * Splits a streaming Markdown source into a frozen prefix and a live tail.
+ * The prefix ends only on a block boundary outside an open fence: before a
+ * new paragraph, heading, or fence, or just after a fence closes. Lists,
+ * quotes, and tables stay in the tail so they are not torn into separate
+ * documents. The finished message still renders once as a whole.
+ */
+export function splitStreamingMarkdown(source: string): { settled: string; tail: string } {
+  if (source.length < SPLIT_MIN_CHARS) return { settled: '', tail: source }
+  const lines: { start: number; text: string }[] = []
+  let offset = 0
+  while (offset < source.length) {
+    const nl = source.indexOf('\n', offset)
+    if (nl === -1) {
+      lines.push({ start: offset, text: source.slice(offset) })
+      break
+    }
+    lines.push({ start: offset, text: source.slice(offset, nl) })
+    offset = nl + 1
+  }
+  let open: { char: string; length: number } | undefined
+  let lastSafe = 0
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (line === undefined) continue
+    if (open !== undefined) {
+      if (isClosingFence(line.text, open)) {
+        open = undefined
+        const next = lines[index + 1]
+        if (next !== undefined && next.start < source.length) lastSafe = next.start
+      }
+      continue
+    }
+    const marker = fenceMarker(line.text)
+    if (marker !== undefined) {
+      if (line.start > 0) lastSafe = line.start
+      open = marker
+      continue
+    }
+    if (line.text.trim() !== '' || line.start === 0) continue
+    const next = nextContentLine(lines, index + 1)
+    if (next === undefined || next.start === 0 || next.start >= source.length) continue
+    const previous = previousContentLine(lines, index - 1)
+    if (previous !== undefined && sameOpenBlock(previous.text, next.text)) continue
+    lastSafe = next.start
+  }
+  if (lastSafe <= 0 || lastSafe >= source.length) return { settled: '', tail: source }
+  return { settled: source.slice(0, lastSafe), tail: source.slice(lastSafe) }
+}
+
+function fenceMarker(line: string): { char: string; length: number } | undefined {
+  const match = FENCE_LINE.exec(line)
+  const marker = match?.[2]
+  if (marker === undefined) return undefined
+  return { char: marker[0] ?? '`', length: marker.length }
+}
+
+function isClosingFence(line: string, open: { char: string; length: number }): boolean {
+  const marker = fenceMarker(line)
+  if (marker === undefined || marker.char !== open.char || marker.length < open.length) return false
+  return line.trim().slice(marker.length).trim() === ''
+}
+
+function nextContentLine(lines: readonly { start: number; text: string }[], start: number): { start: number; text: string } | undefined {
+  for (let index = start; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (line !== undefined && line.text.trim() !== '') return line
+  }
+  return undefined
+}
+
+function previousContentLine(lines: readonly { start: number; text: string }[], start: number): { start: number; text: string } | undefined {
+  for (let index = start; index >= 0; index -= 1) {
+    const line = lines[index]
+    if (line !== undefined && line.text.trim() !== '') return line
+  }
+  return undefined
+}
+
+function sameOpenBlock(previous: string, next: string): boolean {
+  return (isListItem(previous) && isListItem(next))
+    || (isQuote(previous) && isQuote(next))
+    || (isTableRow(previous) && isTableRow(next))
+}
+
+function isListItem(line: string): boolean {
+  return /^ {0,3}(?:[-*+]|\d+[.)])\s/u.test(line)
+}
+
+function isQuote(line: string): boolean {
+  return /^ {0,3}>/u.test(line)
+}
+
+function isTableRow(line: string): boolean {
+  return /^ {0,3}\|/u.test(line)
+}

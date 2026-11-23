@@ -1,6 +1,7 @@
 import { SessionDrafts } from '../session-drafts.js'
 import { renderSessionManagement } from './session-management.js'
 import type { ChatBlock, HarnessWorkbenchState } from '../../domain/workbench-state.js'
+import { matchExtensionSlashCommand } from '../../domain/workbench-state.js'
 import { shouldEchoPrompt } from '../../domain/optimistic-prompts.js'
 import { closeCommandMenu, updateCommandMenu } from './command-menu.js'
 import { renderComposer, renderQueued, resizePrompt } from './composer-core.js'
@@ -111,6 +112,14 @@ export function sendPrompt(): void {
   components.composerConfiguration.close()
   const text = elements.prompt.value.trim()
   if (!text && pastedImages.length === 0) return
+  const extensionCommand = matchExtensionSlashCommand(text)
+  if (extensionCommand !== undefined && pastedImages.length === 0) {
+    elements.prompt.value = ''
+    resizePrompt()
+    if (extensionCommand === 'mcp') post('manageMcp')
+    else components.composerConfiguration.open(extensionCommand as 'model' | 'reasoning' | 'preset')
+    return
+  }
   // Backstop for image prompts: pasting is already refused when the model is
   // known to reject images, but the selection can change (or resolve from
   // Auto) after the paste, so a doomed send is still caught here.

@@ -55,6 +55,29 @@ describe('native MCP management', () => {
     expect(ui.showQuickPick).toHaveBeenLastCalledWith([{label:'mcp__example__echo',detail:'Echo'}],expect.objectContaining({title:expect.stringContaining('not a connection health check')}))
     expect(f.gateway.mutateRuntime).not.toHaveBeenCalled()
   })
+  it('opens an overview that annotates servers with registered tool counts', async () => {
+    const f=fixture('[{"serverName":"example","transport":"stdio","command":"node"}]')
+    ui.showQuickPick.mockResolvedValueOnce(undefined)
+    await f.controller.show()
+    expect(ui.showQuickPick).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({label:'example',description:expect.stringContaining('1 tools registered')}),
+    ]), expect.objectContaining({
+      title:'MCP servers',
+      placeHolder:expect.stringContaining('1 enabled'),
+    }))
+  })
+  it('lists tools for one selected server from the overview', async () => {
+    const f=fixture('[{"serverName":"example","transport":"stdio","command":"node"}]')
+    ui.showQuickPick
+      .mockResolvedValueOnce({action:'server',server:{serverName:'example',transport:'stdio',command:'node'}})
+      .mockResolvedValueOnce({id:'server-tools'})
+      .mockResolvedValueOnce(undefined)
+    await f.controller.show()
+    expect(ui.showQuickPick).toHaveBeenLastCalledWith(
+      [{label:'mcp__example__echo',detail:'Echo'}],
+      expect.objectContaining({title:expect.stringContaining('example')}),
+    )
+  })
   it('omits MCP secrets and launch arguments from chat webview state', () => {
     const value = publicConfiguration({model:'m',provider:'p',reasoningEffort:'high',agentPreset:'standard',permissionMode:'read-only',webSearch:false,autoAttachSelection:false,experimentalAutoEffort:false,worktreeAutoMerge:'never',mcpServers:[{serverName:'secret',transport:'stdio',command:'program',env:{KEY:'private-value'}}]})
     expect(value).not.toHaveProperty('mcpServers')

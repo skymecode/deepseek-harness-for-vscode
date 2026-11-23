@@ -11,6 +11,12 @@ interface SessionChanges {
 /** Connection-scoped native summaries. A 404 is final; transport failures retry twice. */
 export class WorkspaceChangesCache {
   private readonly sessions = new Map<string, SessionChanges>()
+  /** Bumps when a stored summary map changes, so snapshot caches can reuse prior projections. */
+  private revisionValue = 0
+
+  get revision(): number {
+    return this.revisionValue
+  }
 
   constructor(private readonly changed: () => void, private readonly failed: (cause: unknown) => void) {}
 
@@ -32,6 +38,7 @@ export class WorkspaceChangesCache {
         const summary = await fetch()
         if (this.sessions.get(sessionId) !== current) return
         current.views.set(seq, summary === undefined ? undefined : officialChangesView(sessionId, seq, summary))
+        this.revisionValue += 1
         this.changed()
       } catch (cause) {
         if (this.sessions.get(sessionId) !== current) return
@@ -57,7 +64,7 @@ export class WorkspaceChangesCache {
   remove(sessionId: string): void {
     const state = this.sessions.get(sessionId)
     if (state) for (const timer of state.timers) clearTimeout(timer)
-    this.sessions.delete(sessionId)
+    if (this.sessions.delete(sessionId)) this.revisionValue += 1
   }
 
   clear(): void {

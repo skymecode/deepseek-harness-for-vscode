@@ -1332,6 +1332,11 @@ body.vscode-high-contrast .empty-logo {
   min-width: 0;
   white-space: normal;
 }
+.stream-settled,
+.stream-tail,
+.stream-chunk {
+  display: contents;
+}
 .markdown-body > :first-child {
   margin-top: 0;
 }

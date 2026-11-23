@@ -79,6 +79,7 @@ export function chooseCommand(command: CommandEntry): void {
     if (command.name === 'model') components.composerConfiguration.open('model')
     else if (command.name === 'reasoning') components.composerConfiguration.open('reasoning')
     else if (command.name === 'preset') components.composerConfiguration.open('preset')
+    else if (command.name === 'mcp') post('manageMcp')
     return
   }
   insertCommand(command.name)
