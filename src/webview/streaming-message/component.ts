@@ -1,6 +1,6 @@
 import type { ChatBlock, ChatItem } from '../../domain/workbench-state.js'
 import { applyIcon, icon } from '../icons.js'
-import { nextStreamText, shouldRebuildStreamFrame, STREAMING_REBUILD_CHAR_THRESHOLD, STREAMING_REBUILD_MIN_INTERVAL_MS } from './model.js'
+import { nextStreamText, shouldRebuildStreamFrame, splitStreamingMarkdown, STREAMING_REBUILD_CHAR_THRESHOLD, STREAMING_REBUILD_MIN_INTERVAL_MS } from './model.js'
 
 type StreamingMessage = Pick<ChatItem, 'status' | 'blocks' | 'streamKey'>
 
@@ -180,6 +180,7 @@ export class StreamingMessageComponent {
     let state = this.streams.get(target)
     if (state === undefined) {
       target.textContent = ''
+      delete target.dataset.settledSource
       state = { rendered: '', target: text, frame: undefined, follow: true, lastRendered: '', lastRenderAt: 0, ...(tokens === undefined ? {} : { tokens }) }
       this.streams.set(target, state)
       // The reasoning content auto-follows its own stream, but an intentional
@@ -221,7 +222,7 @@ export class StreamingMessageComponent {
         STREAMING_REBUILD_MIN_INTERVAL_MS,
         STREAMING_REBUILD_CHAR_THRESHOLD,
       )) {
-        this.options.renderMarkdown(target, state.rendered)
+        this.renderStreamingMarkdown(target, state.rendered)
         state.lastRendered = state.rendered
         state.lastRenderAt = now
       }
@@ -248,10 +249,56 @@ export class StreamingMessageComponent {
     setLabel(label, this.options.thinkingLabel(estimate))
   }
 
+  /**
+   * Re-renders only the open tail. Closed paragraphs and finished fences stay
+   * in DOM, so a long reply does not reparse its whole source on every frame.
+   * A non-prefix rewrite drops the frozen prefix and renders it once.
+   */
+  private renderStreamingMarkdown(target: HTMLElement, source: string): void {
+    const { settled, tail } = splitStreamingMarkdown(source)
+    const hosts = this.streamingHosts(target)
+    const settledRoot = hosts.settled
+    const tailRoot = hosts.tail
+    const previous = target.dataset.settledSource ?? ''
+    if (settled !== previous) {
+      if (previous !== '' && settled.startsWith(previous)) {
+        this.appendSettledChunk(settledRoot, settled.slice(previous.length))
+      } else {
+        settledRoot.replaceChildren()
+        if (settled !== '') this.appendSettledChunk(settledRoot, settled)
+      }
+      if (settled === '') delete target.dataset.settledSource
+      else target.dataset.settledSource = settled
+    }
+    this.options.renderMarkdown(tailRoot, tail)
+  }
+
+  private streamingHosts(target: HTMLElement): { settled: HTMLElement; tail: HTMLElement } {
+    const settled = target.querySelector(':scope > .stream-settled')
+    const tail = target.querySelector(':scope > .stream-tail')
+    if (settled instanceof HTMLElement && tail instanceof HTMLElement) return { settled, tail }
+    const document = this.options.document
+    const settledHost = document.createElement('div')
+    settledHost.className = 'stream-settled'
+    const tailHost = document.createElement('div')
+    tailHost.className = 'stream-tail markdown-body'
+    target.replaceChildren(settledHost, tailHost)
+    delete target.dataset.settledSource
+    return { settled: settledHost, tail: tailHost }
+  }
+
+  private appendSettledChunk(host: HTMLElement, source: string): void {
+    const chunk = this.options.document.createElement('div')
+    chunk.className = 'stream-chunk markdown-body'
+    host.append(chunk)
+    this.options.renderMarkdown(chunk, source)
+  }
+
   private finishStream(target: HTMLElement): void {
     const state = this.streams.get(target)
     if (state?.frame !== undefined) cancelAnimationFrame(state.frame)
     this.streams.delete(target)
+    delete target.dataset.settledSource
   }
 
   private reasoningPreview(text: string): HTMLElement {

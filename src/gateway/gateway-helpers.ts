@@ -148,6 +148,7 @@ export function localizedWorkbenchLabels(): WorkbenchLabels {
     commandModel: vscode.l10n.t('Switch the current session model (Flash / Pro)'),
     commandReasoning: vscode.l10n.t('Switch reasoning effort (off / low / high / max)'),
     commandPreset: vscode.l10n.t('Switch Agent Preset (standard / code / minimal / cordis)'),
+    commandMcp: vscode.l10n.t('View and manage MCP servers and registered tools'),
     newConversation: vscode.l10n.t('New conversation'),
     toolResult: vscode.l10n.t('Tool result'),
     slashCommand: vscode.l10n.t('Slash command'),

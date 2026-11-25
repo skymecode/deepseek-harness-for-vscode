@@ -3,6 +3,12 @@ import type { ConfigurationService } from '../config/configuration.js'
 import { parseMcpServers, type McpServerConfiguration } from '../config/mcp.js'
 import type { HarnessGatewayService } from '../gateway/harness-gateway-service.js'
 import { McpConfigurationSync } from './configuration-sync.js'
+import {
+  buildMcpOverview,
+  mcpOverviewPlaceholder,
+  mcpServerDescription,
+  type McpToolRef,
+} from './overview.js'
 
 type Choice = vscode.QuickPickItem & { action: string; server?: McpServerConfiguration }
 
@@ -29,20 +35,46 @@ export class McpManagementController implements vscode.Disposable {
 
   dispose(): void { this.subscription.dispose() }
 
+  /** Opens the MCP overview used by `/mcp` and the Manage MCP Servers command. */
   async show(): Promise<void> {
     try {
       const config = this.configuration.getMcpConfiguration()
+      const tools = await this.listToolsBestEffort()
+      const overview = buildMcpOverview(config.servers, tools, config.error)
+      const byName = new Map(overview.servers.map((server) => [server.serverName, server]))
       const choices: Choice[] = [
         { label: vscode.l10n.t('Add MCP server'), action: 'add' },
         { label: vscode.l10n.t('Show registered MCP tools'), action: 'tools' },
         { label: vscode.l10n.t('Edit MCP configuration (JSON)'), action: 'edit-all' },
         { label: vscode.l10n.t('Reload MCP after current turns finish'), action: 'reload' },
         { label: vscode.l10n.t('Show MCP logs'), action: 'logs' },
-        ...config.servers.map(server => ({ label: server.serverName, description: `${server.transport} · ${server.enabled === false ? vscode.l10n.t('Disabled') : vscode.l10n.t('Enabled')}`, action: 'server', server })),
+        ...config.servers.map((server) => {
+          const row = byName.get(server.serverName)
+          const endpoint = row?.endpoint
+          return {
+            label: server.serverName,
+            description: row === undefined
+              ? `${server.transport} · ${server.enabled === false ? vscode.l10n.t('Disabled') : vscode.l10n.t('Enabled')}`
+              : mcpServerDescription(row, {
+                enabled: vscode.l10n.t('Enabled'),
+                disabled: vscode.l10n.t('Disabled'),
+                tools: (count) => vscode.l10n.t('{0} tools registered', count),
+              }),
+            ...(endpoint ? { detail: endpoint } : {}),
+            action: 'server',
+            server,
+          }
+        }),
       ]
       const choice = await vscode.window.showQuickPick(choices, {
         title: vscode.l10n.t('MCP servers'),
-        placeHolder: config.error ? vscode.l10n.t('Invalid MCP configuration: {0}', config.error) : vscode.l10n.t('Manage trusted local programs and remote MCP services'),
+        placeHolder: mcpOverviewPlaceholder(overview, {
+          empty: vscode.l10n.t('No MCP servers configured. Add a trusted local or remote server.'),
+          summary: (enabled, total, toolCount) => vscode.l10n.t('{0} enabled · {1} configured · {2} tools registered (not a live health check)', enabled, total, toolCount),
+          invalid: (error) => vscode.l10n.t('Invalid MCP configuration: {0}', error),
+        }),
+        matchOnDescription: true,
+        matchOnDetail: true,
       })
       if (!choice) return
       if (choice.action === 'logs') { this.output.show(true); return }
@@ -67,11 +99,16 @@ export class McpManagementController implements vscode.Disposable {
       const server = choice.server
       if (!server) return
       const action = await vscode.window.showQuickPick([
+        { label: vscode.l10n.t('Show tools for this server'), id: 'server-tools' },
         { label: vscode.l10n.t('Edit MCP server'), id: 'edit' },
         { label: server.enabled === false ? vscode.l10n.t('Enable MCP server') : vscode.l10n.t('Disable MCP server'), id: 'toggle' },
         { label: vscode.l10n.t('Remove MCP server'), id: 'remove' },
       ], { title: server.serverName })
       if (!action) return
+      if (action.id === 'server-tools') {
+        await this.showToolsForServer(server.serverName)
+        return
+      }
       let next = config.servers
       if (action.id === 'edit') {
         const value = await vscode.window.showInputBox({ title: vscode.l10n.t('MCP server (JSON object)'), value: JSON.stringify(server), ignoreFocusOut: true, validateInput: raw => validation(`[${raw}]`) })
@@ -142,16 +179,47 @@ export class McpManagementController implements vscode.Disposable {
   }
 
   private async showTools(): Promise<void> {
-    await this.gateway.ensureStarted()
-    const tools = await this.gateway.providerControlClient().mcpTools()
+    const tools = await this.requireTools()
     if (tools.length === 0) {
       void vscode.window.showInformationMessage(vscode.l10n.t('No MCP tools registered. Check the server configuration and logs; resource-only servers may expose no tools.'))
       return
     }
-    await vscode.window.showQuickPick(tools.map(tool => ({ label: tool.name, detail: tool.description })), {
+    await vscode.window.showQuickPick(tools.map((tool) => ({
+      label: tool.name,
+      ...(tool.description ? { detail: tool.description } : {}),
+    })), {
       title: vscode.l10n.t('Registered MCP tools (not a connection health check)'),
       placeHolder: vscode.l10n.t('Ask the agent in chat to use a tool. Agent mode and permissions still apply.'), matchOnDetail: true,
     })
+  }
+
+  private async showToolsForServer(serverName: string): Promise<void> {
+    const tools = (await this.requireTools()).filter((tool) => tool.name.startsWith(`mcp__${serverName}__`))
+    if (tools.length === 0) {
+      void vscode.window.showInformationMessage(vscode.l10n.t('No registered tools for {0}. The server may still be starting, disabled, or resource-only.', serverName))
+      return
+    }
+    await vscode.window.showQuickPick(tools.map((tool) => ({
+      label: tool.name,
+      ...(tool.description ? { detail: tool.description } : {}),
+    })), {
+      title: vscode.l10n.t('Tools for {0} (not a connection health check)', serverName),
+      placeHolder: vscode.l10n.t('Ask the agent in chat to use a tool. Agent mode and permissions still apply.'), matchOnDetail: true,
+    })
+  }
+
+  private async requireTools(): Promise<readonly McpToolRef[]> {
+    await this.gateway.ensureStarted()
+    return await this.gateway.providerControlClient().mcpTools()
+  }
+
+  /** Best-effort registry view for the overview; never blocks opening the manager. */
+  private async listToolsBestEffort(): Promise<readonly McpToolRef[]> {
+    try {
+      return await this.requireTools()
+    } catch {
+      return []
+    }
   }
 
   private report(error: unknown): void {

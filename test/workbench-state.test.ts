@@ -264,6 +264,7 @@ describe('projectionCommands', () => {
       'compact', 'permission', 'plan',
       ...EXTENSION_COMMANDS.map((command) => command.name),
     ])
+    expect(EXTENSION_COMMANDS.map((command) => command.name)).toEqual(['model', 'reasoning', 'preset', 'mcp'])
     expect(commands[2]).toMatchObject({ name: 'plan', kind: 'host', input: { hint: '[off|message]' } })
     expect(commands[0]?.input).toBeUndefined()
     expect(commands.filter((command) => command.kind === 'extension')).toHaveLength(EXTENSION_COMMANDS.length)

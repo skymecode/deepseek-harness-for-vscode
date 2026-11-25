@@ -270,6 +270,7 @@ export interface WorkbenchLabels {
   readonly commandModel: string
   readonly commandReasoning: string
   readonly commandPreset: string
+  readonly commandMcp: string
   readonly newConversation: string
   readonly toolResult: string
   readonly slashCommand: string
@@ -287,6 +288,7 @@ export const ENGLISH_WORKBENCH_LABELS: WorkbenchLabels = {
   commandModel: 'Switch the current session model (Flash / Pro)',
   commandReasoning: 'Switch reasoning effort (off / low / high / max)',
   commandPreset: 'Switch Agent Preset (standard / code / minimal / cordis)',
+  commandMcp: 'View and manage MCP servers and registered tools',
   newConversation: 'New conversation',
   toolResult: 'Tool result',
   slashCommand: 'Slash command',
@@ -325,7 +327,20 @@ function extensionCommands(labels: WorkbenchLabels): readonly CommandEntry[] {
     { name: 'model', description: labels.commandModel, kind: 'extension' },
     { name: 'reasoning', description: labels.commandReasoning, kind: 'extension' },
     { name: 'preset', description: labels.commandPreset, kind: 'extension' },
+    { name: 'mcp', description: labels.commandMcp, kind: 'extension' },
   ]
+}
+
+/** Extension slash commands handled locally instead of being sent to the model. */
+export const EXTENSION_SLASH_COMMANDS = ['model', 'reasoning', 'preset', 'mcp'] as const
+export type ExtensionSlashCommand = (typeof EXTENSION_SLASH_COMMANDS)[number]
+
+/** Returns the extension slash command name when the whole composer line is one of them. */
+export function matchExtensionSlashCommand(text: string): ExtensionSlashCommand | undefined {
+  const match = /^\/([a-zA-Z0-9_-]+)\s*$/u.exec(text.trim())
+  const name = match?.[1]
+  if (name === undefined) return undefined
+  return (EXTENSION_SLASH_COMMANDS as readonly string[]).includes(name) ? name as ExtensionSlashCommand : undefined
 }
 
 export interface TokenUsageView {

@@ -37,9 +37,13 @@ import { projectTurnChanges } from '../domain/turn-changes.js'
 import { isAutoEffort, resolveEffortIntent, type AutoEffortSignals, type EffortIntent, type PromptEffortSignals } from '../domain/session-effort.js'
 import { pickAutoModel, type ModelProfileInput } from '../domain/model-profile.js'
 import { setTags } from '../domain/session-meta.js'
-import { projectSessionStats, projectionSessionStats } from '../domain/session-stats.js'
+import { projectSessionStats, projectionSessionStats, type SessionStatsView } from '../domain/session-stats.js'
 import { sameWorkspacePath } from '../domain/workspace-scope.js'
 import type { WorktreeService } from '../editor/worktree-service.js'
+import {
+  mergeLiveConversationProjection,
+  type ConversationProjection,
+} from '../domain/conversation-projection.js'
 import {
   projectConversation,
   projectionCommands,
@@ -113,7 +117,24 @@ export class HarnessGatewayService implements vscode.Disposable {
   private entries: HistoryEntry[] = []
   /** Cached transcript projection; job/queue/status updates do not rebuild history. */
   private historyProjectionDirty = true
-  private projectedConversationCache: ReturnType<typeof projectConversation> | undefined
+  /** Live assistant-stream frames only; durable history stays cached. */
+  private streamProjectionDirty = false
+  private projectedConversationCache: ConversationProjection | undefined
+  /** Durable-only projection reused while the assistant stream is growing. */
+  private durableProjectionCache: ConversationProjection | undefined
+  private durableProjectionKey: { length: number; lastSeq: number } | undefined
+  /** Last log tail scanned for workspace/changes summaries. */
+  private officialScan: { sessionId: string; length: number; lastSeq: number } | undefined
+  /** Derived change cards and stats. Reused until the log or native summaries change. */
+  private logViewCache: {
+    sessionId: string | undefined
+    changesRevision: number
+    changes: ReturnType<typeof projectSessionChanges>
+    turnChanges: ReturnType<typeof projectTurnChanges>
+    stats: SessionStatsView
+  } | undefined
+  /** Model picker rows. Reused until the catalog object or metadata revision changes. */
+  private modelCatalogCache: { models: SessionModels; revision: number; value: NonNullable<HarnessWorkbenchState['active']>['models'] } | undefined
   private hasMore = false
   private activeSessionId: string | undefined
   private readonly officialChanges = new WorkspaceChangesCache(
@@ -431,11 +452,8 @@ export class HarnessGatewayService implements vscode.Disposable {
     const activeSummary = this.activeSessionId === undefined ? undefined : this.summaries.get(this.activeSessionId)
     const activePreset = this.sessionPreset(activeSummary)
     const subagents = this.currentSubagentRows()
-    if (this.historyProjectionDirty || this.projectedConversationCache === undefined) {
-      this.projectedConversationCache = projectConversation(presentationHistory(this.entries, this.assistantStream.entries()), this.labels)
-      this.historyProjectionDirty = false
-    }
-    const projected = this.projectedConversationCache
+    const historyDirty = this.historyProjectionDirty || this.projectedConversationCache === undefined
+    const projected = this.projectActiveConversation(historyDirty)
     const permissions = projectionPermissions(this.projections.permissions)
     const plan = projectionPlan(this.projections.plan)
     const goal = projectionGoal(this.projections.goal)
@@ -448,9 +466,7 @@ export class HarnessGatewayService implements vscode.Disposable {
     const contextPressure = rawContextPressure === undefined || effectiveContextWindow === undefined
       ? undefined
       : { ...rawContextPressure, contextWindow: effectiveContextWindow }
-    const changes = projectSessionChanges(this.entries, this.officialChanges.get(this.activeSessionId ?? ''))
-    const turnChanges = projectTurnChanges(this.entries, projected.messages, this.officialChanges.get(this.activeSessionId ?? ''))
-    const stats = projectionSessionStats(this.projections.sessionStats) ?? projectSessionStats(this.entries)
+    const { changes, turnChanges, stats } = this.logViews(projected.messages, historyDirty)
     const effortIntent = activeSummary === undefined ? undefined : this.metaStore.effortIntentFor(String(activeSummary.sessionId))
     const active = activeSummary === undefined ? undefined : {
       ...this.sessionListItemWithIsolation(activeSummary),
@@ -461,19 +477,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       ...(activePreset === undefined ? {} : { agentPreset: activePreset }),
       hasMore: this.hasMore,
       ...(this.models === undefined ? {} : { model: this.models.current }),
-      models: this.models?.groups.flatMap((group) => group.models.map((model) => {
-        const resolvedContext = this.resolvedContextWindow(group.id, model.id)
-        return {
-          provider: group.id,
-          providerName: group.name,
-          id: model.id,
-          name: model.name,
-          ...(model.description === undefined ? {} : { description: model.description }),
-          reasoning: model.reasoning?.efforts ?? [],
-          inputModalities: this.modelMetadata.get(`${group.id}/${model.id}`)?.inputModalities ?? [],
-          ...(resolvedContext === undefined ? {} : { contextWindow: resolvedContext }),
-        }
-      })) ?? [],
+      models: this.modelCatalog(),
       messages: projected.messages,
       todos: projected.todos,
       ...(projected.retry === undefined ? {} : { retry: projected.retry }),
@@ -497,7 +501,7 @@ export class HarnessGatewayService implements vscode.Disposable {
       ...(contextPressure === undefined ? {} : { contextPressure }),
       ...(changes === undefined ? {} : { changes }),
       turnChanges,
-      ...(stats.turns > 0 ? { stats } : {}),
+      ...(stats !== undefined && stats.turns > 0 ? { stats } : {}),
       ...(effortIntent === undefined ? {} : { effortIntent }),
     }
     return {
@@ -1791,7 +1795,9 @@ export class HarnessGatewayService implements vscode.Disposable {
   private handleFollowFrame(sessionId: string, frame: FollowFrame): void {
     if (frame.type === 'assistant-stream') {
       this.assistantStream.accept(frame.frame)
-      this.historyProjectionDirty = true
+      // Stream deltas change only the live partial; keep the durable
+      // transcript projection cached until a durable history event arrives.
+      this.streamProjectionDirty = true
       this.fireChange()
       return
     }
@@ -2420,11 +2426,96 @@ export class HarnessGatewayService implements vscode.Disposable {
     const sessionId = this.activeSessionId
     const client = this.client
     if (!sessionId || !client) return
+    const last = this.entries.at(-1)
+    const lastSeq = last?.event.seq ?? -1
+    const scan = this.officialScan
+    if (scan?.sessionId === sessionId && scan.length === this.entries.length && scan.lastSeq === lastSeq) return
+    this.officialScan = { sessionId, length: this.entries.length, lastSeq }
     const latest = new Map<number, number>()
     for (const { event } of this.entries) {
       if (event.type === 'workspace/changes') latest.set(event.data.turn, event.seq)
     }
     for (const seq of latest.values()) this.officialChanges.load(sessionId, seq, () => client.changesSummary(sessionId, seq))
+  }
+
+  /**
+   * Projects the open transcript. Durable history is rescanned only when the
+   * log changes; assistant-stream frames reuse that cache and rebuild just the
+   * live partial so long sessions stay responsive while text is streaming.
+   */
+  private projectActiveConversation(historyDirty: boolean): ConversationProjection {
+    const live = this.assistantStream.entries()
+    const durableKey = {
+      length: this.entries.length,
+      lastSeq: this.entries.at(-1)?.event.seq ?? -1,
+    }
+    const durableChanged = historyDirty
+      || this.durableProjectionCache === undefined
+      || this.durableProjectionKey === undefined
+      || this.durableProjectionKey.length !== durableKey.length
+      || this.durableProjectionKey.lastSeq !== durableKey.lastSeq
+    if (durableChanged) {
+      this.durableProjectionCache = projectConversation(presentationHistory(this.entries), this.labels)
+      this.durableProjectionKey = durableKey
+      this.projectedConversationCache = live.length === 0
+        ? this.durableProjectionCache
+        : mergeLiveConversationProjection(this.durableProjectionCache, live, this.labels)
+      this.historyProjectionDirty = false
+      this.streamProjectionDirty = false
+      return this.projectedConversationCache
+    }
+    if (this.streamProjectionDirty || this.projectedConversationCache === undefined) {
+      this.projectedConversationCache = mergeLiveConversationProjection(this.durableProjectionCache!, live, this.labels)
+      this.streamProjectionDirty = false
+    }
+    return this.projectedConversationCache
+  }
+
+  /** Reuses change cards and stats while the active log and native summaries stay put. */
+  private logViews(messages: ConversationProjection['messages'], historyDirty: boolean): {
+    changes: ReturnType<typeof projectSessionChanges>
+    turnChanges: ReturnType<typeof projectTurnChanges>
+    stats: SessionStatsView | undefined
+  } {
+    const sessionId = this.activeSessionId
+    const changesRevision = this.officialChanges.revision
+    const cached = this.logViewCache
+    if (cached !== undefined && !historyDirty && cached.sessionId === sessionId && cached.changesRevision === changesRevision) {
+      return cached
+    }
+    const official = this.officialChanges.get(sessionId ?? '') ?? new Map()
+    const next = {
+      sessionId,
+      changesRevision,
+      changes: projectSessionChanges(this.entries, official),
+      turnChanges: projectTurnChanges(this.entries, messages, official),
+      stats: projectionSessionStats(this.projections.sessionStats) ?? projectSessionStats(this.entries),
+    }
+    this.logViewCache = next
+    return next
+  }
+
+  /** Reuses the model picker rows while the catalog object and metadata revision stay put. */
+  private modelCatalog(): NonNullable<HarnessWorkbenchState['active']>['models'] {
+    const models = this.models
+    if (models === undefined) return []
+    const cached = this.modelCatalogCache
+    if (cached?.models === models && cached.revision === this.modelMetadataRevision) return cached.value
+    const value = models.groups.flatMap((group) => group.models.map((model) => {
+      const resolvedContext = this.resolvedContextWindow(group.id, model.id)
+      return {
+        provider: group.id,
+        providerName: group.name,
+        id: model.id,
+        name: model.name,
+        ...(model.description === undefined ? {} : { description: model.description }),
+        reasoning: model.reasoning?.efforts ?? [],
+        inputModalities: this.modelMetadata.get(`${group.id}/${model.id}`)?.inputModalities ?? [],
+        ...(resolvedContext === undefined ? {} : { contextWindow: resolvedContext }),
+      }
+    }))
+    this.modelCatalogCache = { models, revision: this.modelMetadataRevision, value }
+    return value
   }
 
   private fireChange(): void {

@@ -14,6 +14,7 @@ describe('native workspace summary lifetime', () => {
     await vi.advanceTimersByTimeAsync(500)
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(cache.get('s')?.get(3)?.official).toEqual({ sessionId: 's', seq: 3 })
+    expect(cache.revision).toBe(1)
     expect(changed).toHaveBeenCalledOnce()
     expect(failed).not.toHaveBeenCalled()
   })

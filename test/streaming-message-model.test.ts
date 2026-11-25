@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   nextStreamText,
   shouldRebuildStreamFrame,
+  splitStreamingMarkdown,
   STREAMING_REBUILD_CHAR_THRESHOLD,
   STREAMING_REBUILD_MIN_INTERVAL_MS,
 } from '../src/webview/streaming-message/model.js'
@@ -69,6 +70,37 @@ describe('streaming rebuild throttle', () => {
       { rendered: 'Hello', target: 'Hello', lastRendered: 'Hell', lastRenderAt: NOW - 1 },
       NOW, STREAMING_REBUILD_MIN_INTERVAL_MS, STREAMING_REBUILD_CHAR_THRESHOLD,
     )).toBe(true)
+  })
+
+  it('keeps a short reply in one tail', () => {
+    const source = 'Short reply.'
+    expect(splitStreamingMarkdown(source)).toEqual({ settled: '', tail: source })
+  })
+
+  it('freezes prose before an open fence and keeps the fence in the tail', () => {
+    const prose = `${'Explain the change in detail. '.repeat(12)}\n\n`
+    const fence = '```ts\nconst value = 1\n'
+    const split = splitStreamingMarkdown(`${prose}${fence}`)
+    expect(split.settled.endsWith('\n\n') || split.settled.endsWith('\n')).toBe(true)
+    expect(split.tail.startsWith('```ts')).toBe(true)
+    expect(`${split.settled}${split.tail}`).toBe(`${prose}${fence}`)
+  })
+
+  it('freezes a closed fence and leaves the following paragraph live', () => {
+    const prefix = `${'A finished explanation. '.repeat(12)}\n\n`
+    const fence = '```\nconst done = true\n```\n\n'
+    const live = 'Still writing'
+    const split = splitStreamingMarkdown(`${prefix}${fence}${live}`)
+    expect(split.settled.endsWith('```\n\n')).toBe(true)
+    expect(split.tail).toBe(live)
+  })
+
+  it('does not tear a list apart at blank lines between items', () => {
+    const intro = `${'Context before the list. '.repeat(12)}\n\n`
+    const list = '- one\n\n- two\n\n- three'
+    const split = splitStreamingMarkdown(`${intro}${list}`)
+    expect(split.tail.startsWith('- one')).toBe(true)
+    expect(split.settled.includes('- one')).toBe(false)
   })
 
   it('rebuilds a completed frame even when the last render already matched', () => {
