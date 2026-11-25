@@ -3300,6 +3300,11 @@ body.vscode-light .markdown-body .hljs-deletion {
   inherits: true;
   initial-value: 0%;
 }
+@property --effort-position {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.5;
+}
 .effort-control {
   --effort-color: #9b7cff;
   --effort-progress: 50%;
@@ -3394,10 +3399,20 @@ body.vscode-light .effort-control[data-effort="max"] {
   content: ")";
 }
 .effort-slider-row {
-  width: min(112px, 48%);
+  width: min(132px, 50%);
   height: 26px;
   position: relative;
   flex: none;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.effort-control.dragging .effort-slider-row,
+.effort-slider-row:active {
+  cursor: grabbing;
+}
+.effort-slider-row:has(#effort-slider:disabled) {
+  cursor: default;
 }
 .effort-auto {
   flex: none;
@@ -3504,7 +3519,7 @@ body.vscode-light .effort-control[data-effort="max"] {
 }
 #effort-slider {
   position: absolute;
-  top: 0;
+  top: 3px;
   left: 0;
   z-index: 2;
   width: 100%;
@@ -3513,12 +3528,10 @@ body.vscode-light .effort-control[data-effort="max"] {
   padding: 0 5px;
   appearance: none;
   -webkit-appearance: none;
-  /* Two-layer track: base keeps the full continuous gradient band
-     (dark = near-black → blue → violet), the overlay is a firm solid fill
-     that extends from the left edge to the thumb — the same "fill follows
-     the thumb" technique daisyUI paints via box-shadow. The fill is a real
-     colour (not a faint blend) so the progress reads at a glance, and it
-     updates instantly while dragging. */
+  /* Two-layer track: base is the unfilled tinted track, overlay is a solid
+     fill sized to --effort-progress (`0 0 / <width> 100% no-repeat`) so it
+     genuinely grows and shrinks with the knob both while dragging and when
+     gliding to a clicked detent. */
   background:
     linear-gradient(
         to right,
@@ -3530,7 +3543,7 @@ body.vscode-light .effort-control[data-effort="max"] {
           0%,
         var(--effort-color) 100%
       )
-      0 var(--effort-progress),
+      0 0 / var(--effort-progress) 100% no-repeat,
     color-mix(
       in srgb,
       var(--effort-color) 16%,
@@ -3539,9 +3552,9 @@ body.vscode-light .effort-control[data-effort="max"] {
   border: 1px solid
     color-mix(in srgb, var(--effort-color) 34%, var(--vscode-widget-border));
   border-radius: 999px;
-  cursor: grab;
+  cursor: inherit;
   transition:
-    --effort-progress 220ms cubic-bezier(0.3, 0.9, 0.3, 1),
+    --effort-progress 220ms cubic-bezier(0.22, 1, 0.36, 1),
     background-color 160ms ease,
     border-color 160ms ease;
 }
@@ -3590,7 +3603,7 @@ body.vscode-light .effort-control[data-effort="max"] {
 }
 .effort-thumb {
   position: absolute;
-  top: 3px;
+  top: 6px;
   left: calc(5px + (100% - 24px) * var(--effort-position));
   z-index: 4;
   box-sizing: border-box;
@@ -3604,9 +3617,11 @@ body.vscode-light .effort-control[data-effort="max"] {
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--effort-color) 26%, transparent),
     0 1px 5px color-mix(in srgb, #000 42%, transparent);
+  will-change: left, transform;
   transition:
-    left 240ms cubic-bezier(0.3, 0.9, 0.3, 1),
+    left 220ms cubic-bezier(0.22, 1, 0.36, 1),
     border-color 160ms ease,
+    box-shadow 160ms ease,
     transform 120ms ease;
 }
 /* Left-side radiation/waves/trail: a clipped glow layer riding behind the
@@ -3658,18 +3673,20 @@ body.vscode-light .effort-control[data-effort="max"] {
 /* While dragging, the pointer owns the knob/fill position, so the settle
    transitions must not lag behind it. */
 .effort-control.dragging .effort-thumb {
+  transform: scale(1.14);
   transition:
-    border-color 160ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
     transform 120ms ease;
 }
 .effort-control.dragging #effort-slider {
   transition:
-    background-color 160ms ease,
-    border-color 160ms ease;
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 .effort-ticks {
   position: absolute;
-  top: 0;
+  top: 3px;
   left: 12px;
   right: 12px;
   z-index: 3;
@@ -3684,7 +3701,7 @@ body.vscode-light .effort-control[data-effort="max"] {
   height: 20px;
   padding: 0;
   transform: translateX(-50%);
-  pointer-events: auto;
+  pointer-events: none;
   color: var(--vscode-descriptionForeground);
   background: transparent;
   border: 0;
@@ -3705,6 +3722,7 @@ body.vscode-light .effort-control[data-effort="max"] {
     transparent
   );
   border-radius: 50%;
+  transition: background-color 140ms ease, opacity 140ms ease;
 }
 /* Passed dots ride on the gradient track, so they flip to white to stay
    visible against the effort colour. */
@@ -3717,7 +3735,7 @@ body.vscode-light .effort-control[data-effort="max"] {
   font-weight: 600;
 }
 
-.effort-tick[aria-current="true"]::before {
+.effort-control:not(.dragging) .effort-tick[aria-current="true"]::before {
   opacity: 0;
 }
 .effort-control p {

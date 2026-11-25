@@ -185,20 +185,24 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       const snapshot = this.store.snapshot()
       if (snapshot !== undefined) this.renderModels(snapshot)
     })
+    const sliderRow = this.effortSlider.parentElement ?? this.effortSlider
     this.effortSlider.addEventListener('input', () => {
+      if (this.effortDragging) return
       this.changeReasoning(Number(this.effortSlider.value))
     })
-    this.effortSlider.addEventListener('pointerdown', (event) => {
+    sliderRow.addEventListener('pointerdown', (event) => {
       if (event.button === 0) {
         // Suppress the native range drag entirely: on Windows Edge it fires an
         // `input` event storm while dragging, each one re-rendering the whole
-        // panel and fighting the smooth overlay knob. The custom drag below
-        // owns both the visual and the committed detent.
+        // panel and fighting the smooth overlay knob. Listening on the whole
+        // row (above decorative ticks) ensures grabbing the knob or pressing
+        // anywhere on the pill starts one unified continuous gesture.
         event.preventDefault()
         this.beginEffortDrag(event)
       }
     })
-    this.effortSlider.addEventListener('wheel', (event) => {
+    sliderRow.addEventListener('wheel', (event) => {
+      if (this.effortSlider.disabled) return
       event.preventDefault()
       const direction = event.deltaY > 0 ? 1 : -1
       this.changeReasoning(Number(this.effortSlider.value) + direction)
@@ -221,8 +225,8 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     })
     this.options.document.addEventListener('pointerdown', (event) => {
       const target = event.target
-      if (!(target instanceof Node) || this.panel.classList.contains('hidden')) return
-      if (!this.panel.contains(target) && !this.toggle.contains(target)) this.close()
+      if (target === null || typeof (target as Node).nodeType !== 'number' || this.panel.classList.contains('hidden')) return
+      if (!this.panel.contains(target as Node) && !this.toggle.contains(target as Node)) this.close()
     })
     this.options.document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && !this.panel.classList.contains('hidden')) {
@@ -234,99 +238,176 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
   }
 
   /**
-   * Tracks the pointer during a drag so the knob and fill follow it
-   * continuously (stepped range inputs otherwise jump detent to detent);
-   * on release the control settles onto the committed detent with the
-   * normal transition.
+   * Tracks the pointer across the slider row:
+   * - Grabbing the knob preserves the pointer-to-knob offset so it never jumps
+   *   on press, then follows the cursor 1:1 at display refresh rate.
+   * - Clicking elsewhere on the track without dragging keeps CSS transitions
+   *   enabled so the knob and fill smoothly glide to the target detent.
+   * - Dragging anywhere continuously interpolates knob/fill/tick highlights and
+   *   magnetically settles onto the nearest detent on release.
    */
   private beginEffortDrag(start: PointerEvent): void {
     if (this.effortSlider.disabled || this.effortDragging) return
     const row = this.effortSlider.parentElement
     if (row === null) return
+    const initialSnapshot = this.store.snapshot()
+    if (initialSnapshot === undefined || initialSnapshot.reasoning.length <= 1) return
+    const maxIndex = initialSnapshot.reasoning.length - 1
+    const startTier = initialSnapshot.effortIndex
+    const startTone = initialSnapshot.effortTone
+    const initialFraction = startTier / maxIndex
+
+    const initialRect = row.getBoundingClientRect()
+    const travel = Math.max(1, initialRect.width - 24)
+    const currentThumbX = initialRect.left + 12 + travel * initialFraction
+    const grabbedThumb = initialRect.width > 24 && Math.abs(start.clientX - currentThumbX) <= 14
+    let grabOffset = grabbedThumb ? start.clientX - currentThumbX : 0
+    let moved = false
+
     this.effortDragging = true
-    this.effortControl.classList.add('dragging')
+    if (grabbedThumb) this.effortControl.classList.add('dragging')
+    try {
+      row.setPointerCapture?.(start.pointerId)
+    } catch {
+      // Synthetic test events without an active pointer id fall back to document listeners.
+    }
+    this.effortSlider.focus({ preventScroll: true })
+
     const document = this.options.document
-    let lastTier: number | undefined
+    const view = document.defaultView ?? globalThis
     let pending: PointerEvent | undefined
     let frame: number | undefined
+
+    const fractionAt = (clientX: number, offset: number): number => {
+      const rect = row.getBoundingClientRect()
+      if (rect.width <= 24) return initialFraction
+      return Math.max(0, Math.min(1, (clientX - offset - rect.left - 12) / (rect.width - 24)))
+    }
+
     const apply = (event: PointerEvent): void => {
       pending = undefined
-      const rect = row.getBoundingClientRect()
-      if (rect.width <= 24) return
-      // Thumb centre travels from 12px to width - 12px (5px padding plus
-      // half of the 14px knob on each side).
-      const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left - 12) / (rect.width - 24)))
+      const fraction = fractionAt(event.clientX, grabOffset)
       this.effortControl.style.setProperty('--effort-position', String(fraction))
       this.effortControl.style.setProperty('--effort-progress', `${fraction * 100}%`)
-      // A tier owns a continuous zone of the track (nearest detent), so the
-      // drag follows the cursor without snapping between discrete points;
-      // the visual stays continuous and only the committed tier changes.
-      const maxIndex = Number(this.effortSlider.max)
       const tier = Math.round(fraction * maxIndex)
-      this.syncEffortDrag(tier)
-      // Pop the judgement flourish the moment the drag crosses into another
-      // tier — continuous dragging feels alive, not click-only.
-      if (lastTier !== undefined && tier !== lastTier) {
-        const snapshot = this.store.snapshot()
-        if (snapshot !== undefined) this.flourish(snapshot.effortTone, snapshot.effort.label)
-      }
-      lastTier = tier
+      this.syncEffortDrag(tier, fraction)
     }
+
     const move = (event: PointerEvent): void => {
-      // Coalesce high-frequency pointer events to one move per frame: the drag
-      // stays glued to the cursor but never does more layout work than the
-      // display can paint (Windows Edge pointer floods are the usual culprit).
+      const threshold = grabbedThumb ? 0 : 3
+      if (!moved && Math.abs(event.clientX - start.clientX) <= threshold && (!grabbedThumb || event.clientX === start.clientX)) {
+        return
+      }
+      if (!moved) {
+        moved = true
+        if (!grabbedThumb) grabOffset = 0
+        this.effortControl.classList.add('dragging')
+      }
+      // Coalesce high-frequency pointer events to one move per frame so the
+      // knob stays glued to the cursor without layout thrashing.
       pending = event
       if (frame === undefined) {
-        frame = requestAnimationFrame(() => {
+        frame = view.requestAnimationFrame(() => {
           frame = undefined
           if (pending !== undefined) apply(pending)
         })
       }
     }
-    const end = () => {
+
+    let finished = false
+    const finish = (cancelled: boolean) => {
+      if (finished) return
+      finished = true
       this.effortDragging = false
       this.effortControl.classList.remove('dragging')
+      row.removeEventListener('lostpointercapture', onLostCapture)
       document.removeEventListener('pointermove', move)
-      document.removeEventListener('pointerup', end)
-      document.removeEventListener('pointercancel', end)
+      document.removeEventListener('pointerup', onUp)
+      document.removeEventListener('pointercancel', onCancel)
+      try {
+        if (row.hasPointerCapture?.(start.pointerId)) row.releasePointerCapture(start.pointerId)
+      } catch {
+        // Ignore if capture was already released.
+      }
       if (frame !== undefined) {
-        cancelAnimationFrame(frame)
+        view.cancelAnimationFrame(frame)
         frame = undefined
       }
-      if (pending !== undefined) apply(pending)
-      // Commit the staged tier once, settling onto the detent with the
-      // transition re-enabled.
+      if (!cancelled) {
+        if (moved) {
+          if (pending !== undefined) apply(pending)
+        } else if (!grabbedThumb) {
+          const clickFraction = fractionAt(start.clientX, 0)
+          const clickTier = Math.round(clickFraction * maxIndex)
+          this.store.selectReasoning(clickTier)
+        }
+      }
+      // Settle onto the committed detent with CSS transitions re-enabled so
+      // both track clicks and drag releases glide smoothly into place.
       const snapshot = this.store.snapshot()
       if (snapshot !== undefined) {
-        this.options.onChange()
         this.renderEffort(snapshot)
+        this.syncToggleSummary(snapshot)
+        if (!cancelled && (snapshot.effortIndex !== startTier || snapshot.effortTone !== startTone)) {
+          this.flourish(snapshot.effortTone, snapshot.effort.label)
+        }
+        this.options.onChange()
       }
     }
+    const onUp = (event: PointerEvent) => {
+      if (moved) pending = event
+      finish(false)
+    }
+    const onCancel = () => finish(true)
+    const onLostCapture = () => finish(!moved)
+
+    row.addEventListener('lostpointercapture', onLostCapture)
     document.addEventListener('pointermove', move)
-    document.addEventListener('pointerup', end)
-    document.addEventListener('pointercancel', end)
-    // Position at the press point so a plain click still jumps to that tier.
-    apply(start)
+    document.addEventListener('pointerup', onUp)
+    document.addEventListener('pointercancel', onCancel)
   }
 
   /**
    * Light drag-follow: stage the nearest tier and update the effort label /
-   * tone / tick highlights without rebuilding the panel or the tick row.
+   * tone / tick highlights continuously without rebuilding the panel DOM.
    */
-  private syncEffortDrag(index: number): void {
+  private syncEffortDrag(index: number, fraction: number): void {
     const snapshot = this.store.selectReasoning(index)
     if (snapshot === undefined) return
     this.effortControl.dataset.effort = snapshot.effortTone
     this.effortValue.textContent = snapshot.effort.label
     this.effortSlider.value = String(snapshot.effortIndex)
+    this.effortSlider.setAttribute('aria-valuetext', snapshot.effort.label)
+    this.syncToggleSummary(snapshot)
+    const maxIndex = Math.max(1, snapshot.reasoning.length - 1)
     for (let i = 0; i < this.effortTicks.children.length; i += 1) {
       const tick = this.effortTicks.children[i]
-      if (!(tick instanceof HTMLButtonElement)) continue
-      const active = i <= snapshot.effortIndex
+      if (tick === undefined) continue
+      const stopFraction = i / maxIndex
+      const active = stopFraction <= fraction + 0.015
       tick.classList.toggle('active', active)
       tick.setAttribute('aria-current', String(i === snapshot.effortIndex))
     }
+  }
+
+  private syncToggleSummary(snapshot: ComposerConfigurationSnapshot): void {
+    const { translate: t } = this.options
+    if (snapshot.autoActive) {
+      this.toggleModel.textContent = t('autoMode')
+      this.toggleMode.textContent = t('effortAuto')
+    } else {
+      this.toggleModel.textContent = shortModelLabel(snapshot.model.label)
+      this.toggleMode.textContent = snapshot.effort.label
+    }
+    this.toggle.title = snapshot.autoActive
+      ? t('configurationSummaryAuto')
+      : t('configurationSummary', {
+        model: `${snapshot.model.providerName} · ${snapshot.model.label}`,
+        mode: snapshot.preset.label,
+        effort: snapshot.effort.label,
+      })
+    this.toggle.classList.toggle('pending', snapshot.dirty)
+    this.toggle.dataset.effort = snapshot.effortTone
   }
 
   /** Applies a user-driven reasoning change and pops the tier flourish. */
@@ -362,26 +443,7 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
     const { translate: t } = this.options
     this.toggle.disabled = !snapshot.input.connected || !snapshot.input.editable
     if (this.toggle.disabled) this.close()
-    // Auto mode: the model and effort are both chosen per task at send time,
-    // so the toggle leads with the mode and never shows a concrete model name
-    // (the Auto picker would otherwise claim a fixed model that is not fixed).
-    if (snapshot.autoActive) {
-      this.toggleModel.textContent = t('autoMode')
-      this.toggleMode.textContent = t('effortAuto')
-    } else {
-      this.toggleModel.textContent = shortModelLabel(snapshot.model.label)
-      this.toggleMode.textContent = snapshot.effort.label
-    }
-    this.toggle.title = snapshot.autoActive
-      ? t('configurationSummaryAuto')
-      : t('configurationSummary', {
-        model: `${snapshot.model.providerName} · ${snapshot.model.label}`,
-        mode: snapshot.preset.label,
-        effort: snapshot.effort.label,
-      })
-    this.toggle.classList.toggle('pending', snapshot.dirty)
-    // Tints the toggle icon (and pending ring) with the active effort tone.
-    this.toggle.dataset.effort = snapshot.effortTone
+    this.syncToggleSummary(snapshot)
     this.renderSources(snapshot)
     this.renderModels(snapshot)
     this.renderPresets(snapshot)
@@ -566,23 +628,28 @@ class ComposerConfigurationDom implements ComposerConfigurationComponent {
       this.effortControl.style.setProperty('--effort-progress', `${fraction * 100}%`)
       this.effortControl.style.setProperty('--effort-position', String(fraction))
     }
-    const fragment = this.options.document.createDocumentFragment()
-    snapshot.reasoning.forEach((effort, index) => {
-      const button = this.options.document.createElement('button')
-      button.type = 'button'
-      button.className = `effort-tick${index <= snapshot.effortIndex ? ' active' : ''}`
-      button.textContent = effort.label
-      button.title = effort.description ?? effort.label
-      button.setAttribute('aria-label', effort.label)
-      button.setAttribute('aria-current', String(index === snapshot.effortIndex))
-      const position = snapshot.reasoning.length <= 1 ? 50 : index / (snapshot.reasoning.length - 1) * 100
-      button.style.setProperty('--effort-stop', `${position}%`)
-      button.addEventListener('click', () => {
-        this.changeReasoning(index)
+    const signature = snapshot.reasoning.map((effort) => effort.id).join('\0')
+    if (this.effortTicks.dataset.signature !== signature) {
+      const fragment = this.options.document.createDocumentFragment()
+      snapshot.reasoning.forEach((effort, index) => {
+        const tick = this.options.document.createElement('span')
+        tick.className = 'effort-tick'
+        tick.setAttribute('aria-hidden', 'true')
+        const position = snapshot.reasoning.length <= 1 ? 50 : index / (snapshot.reasoning.length - 1) * 100
+        tick.style.setProperty('--effort-stop', `${position}%`)
+        fragment.append(tick)
       })
-      fragment.append(button)
-    })
-    this.effortTicks.replaceChildren(fragment)
+      this.effortTicks.replaceChildren(fragment)
+      this.effortTicks.dataset.signature = signature
+    }
+    if (!this.effortDragging) {
+      for (let index = 0; index < this.effortTicks.children.length; index += 1) {
+        const tick = this.effortTicks.children[index]
+        if (tick === undefined) continue
+        tick.classList.toggle('active', index <= snapshot.effortIndex)
+        tick.setAttribute('aria-current', String(index === snapshot.effortIndex))
+      }
+    }
   }
 
   private optionButton(option: ConfigurationOption, iconValue: string, active: boolean, providerName?: string): HTMLButtonElement {
